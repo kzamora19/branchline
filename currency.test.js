@@ -4,7 +4,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const context = { window: {} };
+const documentListeners = {};
+const document = {
+  activeElement: null,
+  addEventListener(type, handler) { documentListeners[type] = handler; },
+};
+const context = { window: {}, document };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, "currency.js"), "utf8"), context);
 const parseCurrency = context.window.parseCurrency;
 const formatCurrencyInput = context.window.formatCurrencyInput;
@@ -47,6 +52,29 @@ test("prepares a grouped amount for whole-number editing", () => {
   assert.deepEqual(input.selection, [6, 6]);
 });
 
+test("mouse refocus keeps the caret before decimals after the click", () => {
+  const input = {
+    tagName: "INPUT",
+    name: "price",
+    value: "100,000.00",
+    closest: () => ({}),
+    setSelectionRange(start, end) { this.selection = [start, end]; },
+  };
+  document.activeElement = {};
+  documentListeners.pointerdown({ target: input });
+  documentListeners.focusin({ target: input });
+  assert.equal(input.value, "100000.00");
+
+  // The browser's default click placement can move the caret after focusin.
+  input.selection = [9, 9];
+  document.activeElement = input;
+  documentListeners.click({ target: input });
+  assert.deepEqual(input.selection, [6, 6]);
+
+  input.value = `${input.value.slice(0, input.selection[0])}0${input.value.slice(input.selection[1])}`;
+  assert.equal(formatCurrencyInput(input.value), "1,000,000.00");
+});
+
 test("typing another zero into a prepared amount produces a valid one-million value", () => {
   const input = {
     value: "100,000.00",
@@ -66,4 +94,3 @@ test("prepares the screenshot's misplaced grouping as the intended digit sequenc
   assert.equal(input.value, "1000000.00");
   assert.equal(formatCurrencyInput(input.value), "1,000,000.00");
 });
-

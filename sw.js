@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "branchline-shell-v39";
+const CACHE_NAME = "branchline-shell-v40";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
@@ -57,4 +57,3 @@ self.addEventListener("fetch", event => {
       }),
   );
 });
-

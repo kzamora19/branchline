@@ -23,6 +23,18 @@ window.prepareCurrencyInput = function prepareCurrencyInput(input) {
 };
 
 if (typeof document !== "undefined") {
+  let pointerFocusedInput = null;
+
+  document.addEventListener("pointerdown", event => {
+    const input = event.target;
+    pointerFocusedInput = input?.tagName === "INPUT"
+      && ["price", "srp"].includes(input.name)
+      && input.closest(".sale-row, .sale-line")
+      && document.activeElement !== input
+      ? input
+      : null;
+  });
+
   document.addEventListener("focusin", event => {
     const input = event.target;
     if (input?.tagName === "INPUT"
@@ -31,5 +43,11 @@ if (typeof document !== "undefined") {
       window.prepareCurrencyInput(input);
     }
   });
-}
 
+  document.addEventListener("click", event => {
+    if (event.target === pointerFocusedInput) {
+      window.prepareCurrencyInput(pointerFocusedInput);
+    }
+    pointerFocusedInput = null;
+  });
+}
