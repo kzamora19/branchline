@@ -246,7 +246,7 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .mode-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .mode-list li { display: flex; align-items: center; justify-content: space-between; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
 .dlg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
-.sale-row { display: grid; grid-template-columns: 1.3fr 90px 70px 1fr auto; gap: 8px; align-items: end; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.sale-row { display: grid; grid-template-columns: 1.3fr 1fr 90px 70px 1fr auto; gap: 8px; align-items: end; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 .sale-row .sale-product { grid-column: 1 / -1; }
 .sale-row input[readonly] { background: #f6f8fb; color: var(--muted); }
 .sale-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

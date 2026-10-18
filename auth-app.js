@@ -215,10 +215,10 @@
         fetchAll("districts", "id,name", [["name", true], ["id", true]]),
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
         fetchAll("sales",         "id,branch_id,ps_id,customer_name,invoice_number,sold_on,payment_mode,created_at,updated_at", [["sold_on", false], ["id", true]]),
-                fetchAll("products", "id,branch_id,barcode,model_description,brand,category,sub_category,active", [["model_description", true], ["id", true]], query => (catalogBranch ? query.eq("branch_id", catalogBranch) : query).eq("active", true)),
+                fetchAll("products", "id,branch_id,barcode,model_description,brand,category,sub_category,active,srp", [["model_description", true], ["id", true]], query => (catalogBranch ? query.eq("branch_id", catalogBranch) : query).eq("active", true)),
         fetchAll("profiles", "id,full_name,role,branch_id,district_id,assigned_brand,active,login_id,email", [["id", true]]),
         fetchAll("brand_targets", "id,branch_id,month,brand,amount", [["month", false], ["id", true]]),
-        fetchAll("sale_lines",         "id,sale_id,barcode,model_description,brand,category,sub_category,selling_price,quantity", [["id", true]]),
+        fetchAll("sale_lines",         "id,sale_id,barcode,model_description,brand,category,sub_category,srp,selling_price,quantity", [["id", true]]),
         fetchAll("manager_branches", "manager_id,branch_id", [["manager_id", true], ["branch_id", true]]),
         isPsUser ? client.rpc("brand_branch_sales") : Promise.resolve({ data: [], error: null }),
                 fetchAll("payment_modes", "id,name,position", [["position", true], ["name", true]]),
@@ -871,9 +871,10 @@
       ? saleProducts().find(item => item.barcode === line.barcode) || { brand: line.brand, model_description: line.model_description, barcode: line.barcode }
       : null;
     const total = Number(line.selling_price || 0) * Number(line.quantity || 0);
-    return `<div class="sale-row">
+    return `<div class="sale-row" data-srp-for="${escapeHTML(product?.barcode || "")}">
       <label class="field sale-product"><span>Product (type a model, brand or barcode)</span><input name="product" list="sale-products" autocomplete="off" placeholder="Start typing…" required value="${product ? escapeHTML(productLabel(product)) : ""}"></label>
       <label class="field"><span>Barcode</span><input name="code" readonly tabindex="-1" value="${escapeHTML(product?.barcode || "")}"></label>
+      <label class="field"><span>SRP (₱)</span><input name="srp" type="number" min="0" step="0.01" value="${line.srp ?? ""}"></label>
       <label class="field"><span>Price (₱)</span><input name="price" type="number" min="0" step="0.01" required value="${line.selling_price ?? ""}"></label>
       <label class="field"><span>Qty</span><input name="quantity" type="number" min="1" step="1" required value="${line.quantity ?? 1}"></label>
       <label class="field"><span>Total</span><input name="linetotal" readonly tabindex="-1" value="${total ? formatMoney(total) : ""}"></label>
@@ -919,6 +920,12 @@
           form.querySelectorAll(".sale-row").forEach(row => {
             const product = resolve(row.querySelector('[name="product"]').value);
             row.querySelector('[name="code"]').value = product ? product.barcode : "";
+            // Fill the SRP when a different product is picked; the PS can then still change it.
+            const picked = product ? product.barcode : "";
+            if (row.dataset.srpFor !== picked) {
+              row.dataset.srpFor = picked;
+              row.querySelector('[name="srp"]').value = product && product.srp != null ? product.srp : "";
+            }
             const total = Number(row.querySelector('[name="price"]').value || 0) * Number(row.querySelector('[name="quantity"]').value || 0);
             row.querySelector('[name="linetotal"]').value = total ? formatMoney(total) : "";
             grand += total;
@@ -949,6 +956,7 @@
           if (!product) throw new Error("Pick each product from the suggestions (or type its exact barcode).");
           return {
             barcode: product.barcode,
+            srp: row.querySelector('[name="srp"]').value === "" ? null : Number(row.querySelector('[name="srp"]').value),
             selling_price: Number(row.querySelector('[name="price"]').value),
             quantity: Number(row.querySelector('[name="quantity"]').value),
           };
@@ -1036,9 +1044,9 @@
           .sort((a, b) => natural(a.brand, b.brand) || natural(a.model_description, b.model_description));
         return panel("Product catalog", "Alphabetical by brand, then description.", tableBlock(
           "products",
-          ["Brand", "Category", "Sub-category", "Description", "Barcode", ""],
+          ["Brand", "Category", "Sub-category", "Description", "Barcode", "SRP", ""],
           products,
-          product => `<tr><td><strong>${escapeHTML(product.brand)}</strong></td><td>${escapeHTML(product.category || "—")}</td><td>${escapeHTML(product.sub_category || "—")}</td><td>${escapeHTML(product.model_description)}</td><td>${escapeHTML(product.barcode)}</td><td class="manage-cell"><button class="button button-outline button-small" type="button" data-edit-product="${escapeHTML(product.barcode)}">Edit</button></td></tr>`,
+                    product => `<tr><td><strong>${escapeHTML(product.brand)}</strong></td><td>${escapeHTML(product.category || "—")}</td><td>${escapeHTML(product.sub_category || "—")}</td><td>${escapeHTML(product.model_description)}</td><td>${escapeHTML(product.barcode)}</td><td>${product.srp == null ? "—" : formatMoney(product.srp)}</td><td class="manage-cell"><button class="button button-outline button-small" type="button" data-edit-product="${escapeHTML(product.barcode)}">Edit</button></td></tr>`,
           "No products match your search.",
         ));
       },
@@ -1079,17 +1087,31 @@
             || natural(a.profile.full_name, b.profile.full_name));
         const branchRows = liveData.branches
           .filter(branch => !ui.district || branch.district_id === ui.district)
-          .map(branch => ({ district: districtName(branch.district_id), branch: branch.name }))
+          .map(branch => ({ id: branch.id, district: districtName(branch.district_id), branch: branch.name }))
           .filter(row => matches(query, row.district, row.branch))
           .sort((a, b) => natural(a.district, b.district) || natural(a.branch, b.branch));
+        const geoButtons = (kind, id) => `<button class="button button-outline button-small" type="button" data-geo="edit-${kind}" data-id="${escapeHTML(id)}">Update</button> <button class="button button-outline button-small" type="button" data-geo="delete-${kind}" data-id="${escapeHTML(id)}">Delete</button>`;
+        const districtRows = liveData.districts
+          .filter(item => !ui.district || item.id === ui.district)
+          .map(item => ({ id: item.id, district: item.name, branches: liveData.branches.filter(branch => branch.district_id === item.id).length }))
+          .filter(row => matches(query, row.district))
+          .sort((a, b) => natural(a.district, b.district));
+        const districtsPanel = panel("Districts", `${districtRows.length} district${districtRows.length === 1 ? "" : "s"}.`, tableBlock(
+          "districtlist",
+          ["District", "Branches", ""],
+          districtRows,
+          row => `<tr><td><strong>${escapeHTML(row.district)}</strong></td><td>${row.branches}</td><td class="manage-cell">${geoButtons("district", row.id)}</td></tr>`,
+          "No districts yet. Use + District to create one.",
+          5,
+        ));
         const branchesPanel = panel("Branches", `${branchRows.length} branch${branchRows.length === 1 ? "" : "es"}, grouped by district.`, tableBlock(
           "branchlist",
-          ["District", "Branch"],
+          ["District", "Branch", ""],
           branchRows,
-          row => `<tr><td>${escapeHTML(row.district)}</td><td><strong>${escapeHTML(row.branch)}</strong></td></tr>`,
+          row => `<tr><td>${escapeHTML(row.district)}</td><td><strong>${escapeHTML(row.branch)}</strong></td><td class="manage-cell">${geoButtons("branch", row.id)}</td></tr>`,
           "No branches yet. Use + Branch to create one.",
         ));
-        return branchesPanel + panel("Staff profiles", "Highest role first; Product Specialists are grouped by brand.", tableBlock(
+        return districtsPanel + branchesPanel + panel("Staff profiles", "Highest role first; Product Specialists are grouped by brand.", tableBlock(
           "people",
           ["Name", "Role", "Brand", "District", "Branch", "Status", ""],
           people,
@@ -1224,7 +1246,8 @@
         ${fieldHTML("Sub-category (e.g. Split Type)", "subcategory", `<input name="subcategory" list="sub-options" autocomplete="off" value="${escapeHTML(existing?.sub_category || "")}">`)}
         <datalist id="sub-options">${subOptions(existing?.category)}</datalist>
         ${fieldHTML("Model description", "description", `<input name="description" required autocomplete="off" value="${escapeHTML(existing?.model_description || "")}">`)}
-        ${fieldHTML("Barcode (numbers are padded to 8 digits)", "barcode", `<input name="barcode" required autocomplete="off" value="${escapeHTML(existing?.barcode || "")}">`)}`,
+        ${fieldHTML("Barcode (numbers are padded to 8 digits)", "barcode", `<input name="barcode" required autocomplete="off" value="${escapeHTML(existing?.barcode || "")}">`)}
+        ${fieldHTML("SRP (₱, suggested retail price)", "srp", `<input name="srp" type="number" min="0" step="0.01" value="${existing?.srp ?? ""}">`)}`,
       onReady: form => {
         form.elements.category.addEventListener("input", () => {
           form.querySelector("#sub-options").innerHTML = subOptions(form.elements.category.value);
@@ -1237,6 +1260,7 @@
           p_barcode: normBarcode(form.elements.barcode.value),
           p_category: titleCase(form.elements.category.value),
           p_sub_category: titleCase(form.elements.subcategory.value) || null,
+          p_srp: form.elements.srp.value === "" ? null : Number(form.elements.srp.value),
         };
         if (existing) mustRpc(await client.rpc("update_product", { p_old_barcode: existing.barcode, ...values }));
         else mustRpc(await client.rpc("add_product", values));
@@ -1292,6 +1316,7 @@
     const codeAt = find("barcode");
     const categoryAt = find("category");
     const subAt = find("subcategory");
+    const srpAt = find("srp", "suggestedretailprice", "price");
     if (brandAt < 0 || descAt < 0 || codeAt < 0) throw new Error("Columns needed: Brand, Description (or Model Description) and Barcode.");
     const items = [];
     let skipped = 0;
@@ -1303,6 +1328,7 @@
         barcode: normBarcode(row[codeAt]),
         category: categoryAt >= 0 ? titleCase(String(row[categoryAt] ?? "")) : "",
         sub_category: subAt >= 0 ? titleCase(String(row[subAt] ?? "")) : "",
+        srp: srpAt >= 0 && Number.isFinite(parseFloat(String(row[srpAt] ?? "").replace(/[^0-9.]/g, ""))) ? parseFloat(String(row[srpAt]).replace(/[^0-9.]/g, "")) : null,
       };
       if (item.brand && item.description && item.barcode) items.push(item);
       else skipped += 1;
@@ -1326,7 +1352,7 @@
   }
 
   function downloadTemplate() {
-    downloadFile("products-template.csv", new Blob([csvText([["Brand", "Category", "Sub-category", "Description", "Barcode"], ["Sample Brand", "Aircon", "Split Type", "Sample Model 1.0HP", "00012345"]])], { type: "text/csv" }));
+    downloadFile("products-template.csv", new Blob([csvText([["Brand", "Category", "Sub-category", "Description", "Barcode", "SRP"], ["Sample Brand", "Aircon", "Split Type", "Sample Model 1.0HP", "00012345", "24999.00"]])], { type: "text/csv" }));
   }
 
   function openImportModal() {
@@ -1432,6 +1458,51 @@
         ${fieldHTML("Branch name", "name", '<input name="name" required autocomplete="off">')}`,
       onSubmit: async form => {
         mustRpc(await client.rpc("create_branch", { p_district_id: form.elements.district.value, p_name: titleCase(form.elements.name.value) }));
+        await refreshData();
+      },
+    });
+  }
+
+  function openGeoEditModal(kind, id) {
+    if (kind === "district") {
+      const item = liveData.districts.find(entry => entry.id === id);
+      if (!item) return;
+      openModal({
+        title: "Update district",
+        submitLabel: "Save changes",
+        body: fieldHTML("District name", "name", `<input name="name" required autocomplete="off" value="${escapeHTML(item.name)}">`),
+        onSubmit: async form => {
+          mustRpc(await client.rpc("update_district", { p_id: id, p_name: titleCase(form.elements.name.value) }));
+          await refreshData();
+        },
+      });
+      return;
+    }
+    const item = liveData.branches.find(entry => entry.id === id);
+    if (!item) return;
+    openModal({
+      title: "Update branch",
+      intro: "Moving a branch to another district also moves its staff.",
+      submitLabel: "Save changes",
+      body: `${fieldHTML("District", "district", selectHTML("district", liveData.districts.map(entry => [entry.id, entry.name]), item.district_id))}
+        ${fieldHTML("Branch name", "name", `<input name="name" required autocomplete="off" value="${escapeHTML(item.name)}">`)}`,
+      onSubmit: async form => {
+        mustRpc(await client.rpc("update_branch", { p_id: id, p_district_id: form.elements.district.value, p_name: titleCase(form.elements.name.value) }));
+        await refreshData();
+      },
+    });
+  }
+
+  function openGeoDeleteModal(kind, id) {
+    const item = (kind === "district" ? liveData.districts : liveData.branches).find(entry => entry.id === id);
+    if (!item) return;
+    openModal({
+      title: `Delete ${kind}`,
+      intro: `Delete ${kind} "${item.name}"? This cannot be undone. A ${kind} that still has ${kind === "district" ? "branches or users" : "users or sales"} cannot be deleted.`,
+      submitLabel: "Delete",
+      body: "",
+      onSubmit: async () => {
+        mustRpc(await client.rpc(kind === "district" ? "delete_district" : "delete_branch", { p_id: id }));
         await refreshData();
       },
     });
@@ -1660,13 +1731,13 @@
   function exportSales() {
     const stamp = localISODate();
     const sales = visibleSales();
-    const detail = [["Sale date", "Invoice", "Customer", "District", "Branch", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "Unit price", "Amount", "Mode of payment"]];
+    const detail = [["Sale date", "Invoice", "Customer", "District", "Branch", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment"]];
     const byBranch = new Map();
     const byBrand = new Map();
     sales.forEach(sale => {
       linesForSale(sale.id).forEach(line => {
         const amount = Number(line.selling_price) * Number(line.quantity);
-        detail.push([sale.sold_on, sale.invoice_number, sale.customer_name, branchDistrictName(sale.branch_id), branchName(sale.branch_id), psNameOf(sale.ps_id), line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), Number(line.selling_price), amount, sale.payment_mode || ""]);
+        detail.push([sale.sold_on, sale.invoice_number, sale.customer_name, branchDistrictName(sale.branch_id), branchName(sale.branch_id), psNameOf(sale.ps_id), line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), amount, sale.payment_mode || ""]);
         addTo(byBranch, branchName(sale.branch_id), amount);
         addTo(byBrand, (line.brand || "Unbranded").trim(), amount);
       });
@@ -1804,8 +1875,8 @@
       render();
     });
     root.querySelector("#ps-detail-export").addEventListener("click", () => {
-      const header = ["Sale date", "Invoice", "Customer", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "Unit price", "Amount", "Mode of payment"];
-      const data = rows().map(({ sale, line }) => [sale.sold_on, sale.invoice_number, sale.customer_name, line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), Number(line.selling_price), Number(line.selling_price) * Number(line.quantity), sale.payment_mode || ""]);
+      const header = ["Sale date", "Invoice", "Customer", "Brand", "Category", "Sub-category", "Product",       "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment"];
+            const data = rows().map(({ sale, line }) => [sale.sold_on, sale.invoice_number, sale.customer_name, line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), Number(line.selling_price) * Number(line.quantity), sale.payment_mode || ""]);
       exportWorkbook([{ name: sheet, rows: [header, ...data] }], `${fileBase}-${localISODate()}`);
     });
     render();
@@ -1852,6 +1923,12 @@
     else if (open === "district") openDistrictModal();
     else if (open === "branch") openBranchModal();
     else if (open === "user") openUserModal();
+    const geo = event.target.closest("[data-geo]");
+    if (geo) {
+      const [action, kind] = geo.dataset.geo.split("-");
+      if (action === "edit") openGeoEditModal(kind, geo.dataset.id);
+      else openGeoDeleteModal(kind, geo.dataset.id);
+    }
     const edit = event.target.closest("[data-edit-target]");
     if (edit) {
       const target = liveData.targets.find(item => item.id === edit.dataset.editTarget);
