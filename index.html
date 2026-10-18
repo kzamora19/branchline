@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#355ee8">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Branchline">
+    <title>Branchline — Sales workspace</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="auth-screen" id="auth-screen">
+      <section class="auth-card" aria-labelledby="auth-title">
+        <a class="brand auth-brand" href="#" aria-label="Branchline home">
+          <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span class="brand-name">branchline<span class="brand-period">.</span></span>
+        </a>
+        <span class="eyebrow">SECURE WORKSPACE</span>
+        <h1 id="auth-title">Sign in to Branchline</h1>
+        <p class="auth-intro">Use the email and password provided by your administrator.</p>
+        <form id="login-form">
+          <label class="field"><span>Email, username or mobile number</span><input name="email" type="text" autocomplete="username" autocapitalize="none" required></label>
+          <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
+          <label class="check-row"><input type="checkbox" id="show-password"> <span>Show password</span></label>
+          <p class="auth-message" id="auth-message" role="status" aria-live="polite"></p>
+          <button class="button button-primary auth-submit" type="submit">Sign in</button>
+        </form>
+        <p class="auth-help">Accounts are created by an administrator. Contact them if you need access or a password reset.</p>
+        <div class="auth-config-warning" id="auth-config-warning" hidden></div>
+        <button class="demo-entry" id="enter-demo" type="button">Explore the sample demo instead</button>
+      </section>
+    </main>
+
+    <div class="connected-shell" id="connected-shell" hidden>
+      <aside class="connected-sidebar">
+        <a class="brand" href="#" aria-label="Branchline home">
+          <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span class="brand-name">branchline<span class="brand-period">.</span></span>
+        </a>
+        <div class="workspace-label">LIVE WORKSPACE</div>
+        <nav class="connected-nav" id="connected-nav" aria-label="Live workspace navigation"></nav>
+        <div class="connected-account">
+          <div><strong id="connected-user-name"></strong><small id="connected-user-role"></small></div>
+          <button class="button button-outline" id="change-password" type="button">Change password</button>
+          <button class="button button-outline" id="sign-out" type="button">Sign out</button>
+        </div>
+      </aside>
+      <main class="connected-main">
+        <header class="connected-topbar">
+          <span>BRANCHLINE <span class="live-indicator">● LIVE DATA</span></span>
+          <button class="mobile-menu" id="connected-menu" type="button" aria-label="Open navigation">☰</button>
+        </header>
+        <section class="connected-content" id="connected-content" aria-live="polite"></section>
+      </main>
+    </div>
+
+    <div class="app-shell" id="demo-app" hidden>
+      <aside class="sidebar" id="sidebar">
+        <a class="brand" href="#" aria-label="Branchline home">
+          <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span class="brand-name">branchline<span class="brand-period">.</span></span>
+        </a>
+        <div class="workspace-label">WORKSPACE</div>
+        <nav class="main-nav" id="main-nav" aria-label="Main navigation"></nav>
+        <div class="sidebar-bottom">
+          <div class="sync-card">
+            <span class="sync-icon" aria-hidden="true">↗</span>
+            <div><strong>Prototype mode</strong><small>Sample data in this browser</small></div>
+          </div>
+          <button class="profile-button" id="profile-button" type="button">
+            <span class="avatar" id="profile-avatar">JL</span>
+            <span class="profile-copy"><strong id="profile-name">Jamie Lee</strong><small id="profile-role">Product Specialist</small></span>
+            <span class="profile-more" aria-hidden="true">···</span>
+          </button>
+        </div>
+      </aside>
+
+      <main class="main-area">
+        <header class="topbar">
+          <button class="mobile-menu" id="mobile-menu" type="button" aria-label="Open navigation">☰</button>
+          <div class="breadcrumb"><span>Workspace</span><span class="crumb-divider">/</span><strong id="breadcrumb-current">Overview</strong></div>
+          <div class="topbar-actions">
+            <label class="role-picker"><span>Preview as</span><select id="role-select" aria-label="Preview role"><option value="ps">Product Specialist</option><option value="manager">Branch Manager</option><option value="district_manager">District Manager</option><option value="admin">Administrator</option></select></label>
+            <button class="icon-button notification-button" id="notification-button" type="button" aria-label="Notifications"><span aria-hidden="true">♧</span><i></i></button>
+          </div>
+        </header>
+        <div class="page-content" id="page-content"></div>
+      </main>
+    </div>
+    <div id="toast-region" class="toast-region" aria-live="polite"></div>
+    <div class="modal-backdrop" id="modal-backdrop" hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-heading"><div><span class="eyebrow" id="modal-eyebrow">SALES ENTRY</span><h2 id="modal-title">Record a sale</h2></div><button class="icon-button close-modal" type="button" aria-label="Close">×</button></div>
+        <form id="sale-form">
+          <div class="form-grid">
+            <label class="field"><span>Customer name</span><input name="customer" autocomplete="name" placeholder="e.g. Alex Santos" required></label>
+            <label class="field"><span>Invoice number</span><input name="invoice" placeholder="e.g. SI-2026-1048" required></label>
+            <label class="field"><span>Date of sale</span><input name="date" type="date" required></label>
+          </div>
+          <div class="line-items-heading"><div><strong>Products</strong><span>Add one or more items from the catalog</span></div></div>
+          <div id="sale-lines"></div>
+          <button class="button button-subtle add-line" id="add-line" type="button">＋ Add product line</button>
+          <div class="form-footer"><span id="sale-form-note">Sales are attributed to your account</span><button class="button button-primary" type="submit">Save sale <span>→</span></button></div>
+        </form>
+      </section>
+    </div>
+    <div class="modal-backdrop" id="product-modal-backdrop" hidden>
+      <section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="product-modal-title">
+        <div class="modal-heading"><div><span class="eyebrow">PRODUCT CATALOG</span><h2 id="product-modal-title">Add product</h2></div><button class="icon-button close-product-modal" type="button" aria-label="Close">×</button></div>
+        <form id="product-form">
+          <label class="field"><span>Barcode</span><input name="barcode" required></label>
+          <label class="field"><span>Description</span><input name="model" required></label>
+          <label class="field"><span>Brand</span><input name="brand" required></label>
+          <div class="form-footer"><span id="product-modal-note">Add a product lookup for sales entry.</span><button class="button button-primary" type="submit">Save product</button></div>
+        </form>
+      </section>
+    </div>
+    <div class="modal-backdrop" id="brand-target-modal-backdrop" hidden>
+      <section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="brand-target-modal-title">
+        <div class="modal-heading"><div><span class="eyebrow">MONTHLY TARGET</span><h2 id="brand-target-modal-title">Add brand target</h2></div><button class="icon-button close-brand-target-modal" type="button" aria-label="Close">×</button></div>
+        <form id="brand-target-form">
+          <label class="field"><span>Branch</span><select name="branch" required></select></label>
+          <label class="field"><span>Brand</span><input name="brand" required></label>
+          <label class="field"><span>Monthly target (₱)</span><input name="target" type="number" min="0" step="0.01" required></label>
+          <div class="form-footer"><span>Tracks all sales for this brand in the branch.</span><button class="button button-primary" type="submit">Save target</button></div>
+        </form>
+      </section>
+    </div>
+    <div class="modal-backdrop" id="branch-modal-backdrop" hidden>
+      <section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="branch-modal-title">
+        <div class="modal-heading"><div><span class="eyebrow">NEW LOCATION</span><h2 id="branch-modal-title">Add branch</h2></div><button class="icon-button close-branch-modal" type="button" aria-label="Close">×</button></div>
+        <form id="branch-form">
+          <label class="field"><span>Branch name</span><input name="name" autocomplete="off" required></label>
+          <label class="field"><span>District</span><select name="district" required></select></label>
+          <label class="field"><span>Monthly store target (₱)</span><input name="target" type="number" min="0" step="0.01" value="0" required></label>
+          <div class="form-footer"><span>District Managers automatically see every branch assigned to their district.</span><button class="button button-primary" type="submit">Add branch</button></div>
+        </form>
+      </section>
+    </div>
+    <div class="modal-backdrop" id="account-modal-backdrop" hidden>
+      <section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
+        <div class="modal-heading"><div><span class="eyebrow">ACCOUNT MANAGEMENT</span><h2 id="account-modal-title">Edit account</h2></div><button class="icon-button close-account-modal" type="button" aria-label="Close">×</button></div>
+        <form id="account-form">
+          <input name="userId" type="hidden">
+          <label class="field"><span>Full name</span><input name="name" autocomplete="name" required></label>
+          <label class="field"><span>Role</span><select name="role" required><option value="ps">Product Specialist</option><option value="manager">Branch Manager</option><option value="district_manager">District Manager</option><option value="admin">Administrator</option></select></label>
+          <label class="field account-district-field"><span>District</span><select name="district"></select></label>
+          <label class="field account-branch-field"><span>Branch</span><select name="branch"></select></label>
+          <label class="field account-brand-field"><span>Assigned brand</span><select name="brand"></select></label>
+          <div class="form-footer"><span id="account-form-note">Branch history remains with the branch.</span><button class="button button-primary" type="submit">Save account</button></div>
+        </form>
+      </section>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <script src="supabase-config.js"></script>
+    <script src="app.js"></script>
+    <script src="auth-app.js"></script>
+  </body>
+</html>
