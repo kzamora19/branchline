@@ -1381,7 +1381,12 @@
       },
       onSubmit: async () => {
         if (!parsed || !parsed.items.length) throw new Error("Choose a file with at least one valid product.");
-        const result = mustRpc(await client.rpc("import_products", { p_items: parsed.items }));
+        let imported = 0;
+        for (let start = 0; start < parsed.items.length; start += 1000) {
+          const part = mustRpc(await client.rpc("import_products", { p_items: parsed.items.slice(start, start + 1000) }));
+          imported += Number(part.products) || 0;
+        }
+        const result = { products: imported };
         await refreshData();
         return `<p>Imported <strong>${escapeHTML(result.products)}</strong> product(s) into every branch.</p>`;
       },
