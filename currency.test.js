@@ -31,3 +31,7 @@ test("formats price fields with grouping and two decimal places", () => {
   assert.equal(formatCurrencyInput("1,234.50"), "1,234.50");
   assert.equal(formatCurrencyInput(""), "");
 });
+
+test("formats SRP values using the same currency display", () => {
+  assert.equal(formatCurrencyInput("11085"), "11,085.00");
+});
