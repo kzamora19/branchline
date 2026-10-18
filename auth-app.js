@@ -204,12 +204,18 @@
 
       currentProfile = { ...profile, full_name: titleCase(profile.full_name), assigned_brand: titleCase(profile.assigned_brand) };
       const isPsUser = profile.role === "ps";
+      // Every branch holds an identical copy of the catalog, so one branch's copy is enough (keeps the app fast).
+      let catalogBranch = profile.branch_id;
+      if (!catalogBranch) {
+        const probe = await client.from("products").select("branch_id").eq("active", true).limit(1);
+        catalogBranch = probe.data?.[0]?.branch_id || null;
+      }
       const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes] = await Promise.all([
         fetchAll("branches", "id,name,district_id", [["name", true], ["id", true]]),
         fetchAll("districts", "id,name", [["name", true], ["id", true]]),
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
         fetchAll("sales",         "id,branch_id,ps_id,customer_name,invoice_number,sold_on,payment_mode,created_at,updated_at", [["sold_on", false], ["id", true]]),
-                fetchAll("products", "id,branch_id,barcode,model_description,brand,category,sub_category,active", [["model_description", true], ["id", true]], query => query.eq("active", true)),
+                fetchAll("products", "id,branch_id,barcode,model_description,brand,category,sub_category,active", [["model_description", true], ["id", true]], query => (catalogBranch ? query.eq("branch_id", catalogBranch) : query).eq("active", true)),
         fetchAll("profiles", "id,full_name,role,branch_id,district_id,assigned_brand,active,login_id,email", [["id", true]]),
         fetchAll("brand_targets", "id,branch_id,month,brand,amount", [["month", false], ["id", true]]),
         fetchAll("sale_lines",         "id,sale_id,barcode,model_description,brand,category,sub_category,selling_price,quantity", [["id", true]]),
@@ -830,9 +836,32 @@
   }
 
   function saleProducts() {
-    return [...liveData.products]
-      .filter((product, index, all) => all.findIndex(other => other.barcode === product.barcode) === index)
-      .sort((a, b) => natural(a.brand, b.brand) || natural(a.model_description, b.model_description));
+    if (saleProductsCache.source !== liveData.products) {
+      const seen = new Set();
+      saleProductsCache = {
+        source: liveData.products,
+        list: liveData.products
+          .filter(product => !seen.has(product.barcode) && seen.add(product.barcode))
+          .sort((a, b) => natural(a.brand, b.brand) || natural(a.model_description, b.model_description)),
+      };
+    }
+    return saleProductsCache.list;
+  }
+  let saleProductsCache = { source: null, list: [] };
+
+  // Suggest only the best few matches instead of putting thousands of options in the page.
+  function productSuggestions(text) {
+    const words = String(text || "").toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const out = [];
+    for (const item of saleProducts()) {
+      const haystack = `${item.brand} ${item.model_description} ${item.barcode}`.toLowerCase();
+      if (words.every(word => haystack.includes(word))) {
+        out.push(item);
+        if (out.length >= 30) break;
+      }
+    }
+    return out;
   }
 
   const productLabel = product => `${product.brand} · ${product.model_description} · ${product.barcode}`;
@@ -881,7 +910,7 @@
           ${fieldHTML("Date", "date", `<input name="date" type="date" required value="${escapeHTML(sale?.sold_on || localISODate())}">`)}
           ${fieldHTML("Mode of payment", "payment", paymentSelectHTML(sale?.payment_mode))}
         </div>
-        <datalist id="sale-products">${catalog.map(item => `<option value="${escapeHTML(productLabel(item))}"></option>`).join("")}</datalist>
+        <datalist id="sale-products"></datalist>
         <div id="sale-rows">${lines.map(saleLineRow).join("")}</div>
         <div class="sale-footer"><button class="button button-outline button-small" type="button" data-add-line>+ Add product line</button><strong>Sale total: <span id="sale-total">${formatMoney(lines.reduce((sum, line) => sum + Number(line.selling_price || 0) * Number(line.quantity || 0), 0))}</span></strong></div>`,
       onReady: form => {
@@ -896,7 +925,13 @@
           });
           form.querySelector("#sale-total").textContent = formatMoney(grand);
         };
-        form.addEventListener("input", recalc);
+        form.addEventListener("input", event => {
+          if (event.target.name === "product") {
+            form.querySelector("#sale-products").innerHTML = productSuggestions(event.target.value)
+              .map(item => `<option value="${escapeHTML(productLabel(item))}"></option>`).join("");
+          }
+          recalc();
+        });
         form.addEventListener("click", event => {
           if (event.target.closest("[data-add-line]")) {
             form.querySelector("#sale-rows").insertAdjacentHTML("beforeend", saleLineRow());
@@ -1554,7 +1589,7 @@
       intro: `${roleLabels[role] || role}. Use Transfer to change district or branch.`,
       submitLabel: "Update",
       body: `${fieldHTML("Full name", "name", `<input name="name" required autocomplete="off" value="${escapeHTML(person.full_name)}">`)}
-        ${role === "admin" ? "" : `${fieldHTML("Login ID (username, mobile number or email)", "login", `<input name="login" autocomplete="off" value="${escapeHTML(person.login_id || "")}" placeholder="${person.login_id ? "" : "Email on file; enter a new login ID to change"}">`)}
+        ${`${fieldHTML("Login ID (username, mobile number or email)", "login", `<input name="login" autocomplete="off" value="${escapeHTML(person.login_id || "")}" placeholder="${person.login_id ? "" : "Email on file; enter a new login ID to change"}">`)}
         ${fieldHTML("Contact email (for invites)", "contact", `<input name="contact" type="email" autocomplete="off" value="${escapeHTML(person.email || "")}">`)}`}
         ${isPs ? fieldHTML("Brand", "brand", `<input name="brand" required list="edit-brands" autocomplete="off" value="${escapeHTML(person.assigned_brand || "")}"><datalist id="edit-brands">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>`) : ""}
         ${role === "admin" ? "" : '<label class="check-row"><input type="checkbox" name="reset"> <span>Reset password (a new temporary password is shown once)</span></label>'}`,
@@ -1567,7 +1602,7 @@
           p_branch_id: isPs ? person.branch_id : null,
           p_assigned_brand: isPs ? form.elements.brand.value.trim() : null,
         }));
-        if (role !== "admin") {
+        {
           const login = form.elements.login.value.trim();
           const contact = form.elements.contact.value.trim();
           if (login !== (person.login_id || "") || contact !== (person.email || "")) {
