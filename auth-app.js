@@ -67,6 +67,9 @@
     })}`;
   }
 
+  const parseCurrency = window.parseCurrency;
+  const formatCurrencyInput = window.formatCurrencyInput;
+
   function localISODate(date = new Date()) {
     const pad = number => String(number).padStart(2, "0");
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -915,6 +918,13 @@
         <div id="sale-rows">${lines.map(saleLineRow).join("")}</div>
         <div class="sale-footer"><button class="button button-outline button-small" type="button" data-add-line>+ Add product line</button><strong>Sale total: <span id="sale-total">${formatMoney(lines.reduce((sum, line) => sum + Number(line.selling_price || 0) * Number(line.quantity || 0), 0))}</span></strong></div>`,
       onReady: form => {
+        const enableCurrencyInput = row => {
+          const input = row.querySelector('[name="price"]');
+          input.type = "text";
+          input.inputMode = "decimal";
+          input.value = formatCurrencyInput(input.value);
+        };
+        form.querySelectorAll(".sale-row").forEach(enableCurrencyInput);
         const recalc = () => {
           let grand = 0;
           form.querySelectorAll(".sale-row").forEach(row => {
@@ -926,8 +936,9 @@
               row.dataset.srpFor = picked;
               row.querySelector('[name="srp"]').value = product && product.srp != null ? product.srp : "";
             }
-            const total = Number(row.querySelector('[name="price"]').value || 0) * Number(row.querySelector('[name="quantity"]').value || 0);
-            row.querySelector('[name="linetotal"]').value = total ? formatMoney(total) : "";
+            const price = parseCurrency(row.querySelector('[name="price"]').value);
+            const total = price === null ? 0 : price * Number(row.querySelector('[name="quantity"]').value || 0);
+            row.querySelector('[name="linetotal"]').value = price !== null && total ? formatMoney(total) : "";
             grand += total;
           });
           form.querySelector("#sale-total").textContent = formatMoney(grand);
@@ -939,9 +950,15 @@
           }
           recalc();
         });
+        form.addEventListener("focusout", event => {
+          if (event.target.name === "price") {
+            event.target.value = formatCurrencyInput(event.target.value);
+          }
+        });
         form.addEventListener("click", event => {
           if (event.target.closest("[data-add-line]")) {
             form.querySelector("#sale-rows").insertAdjacentHTML("beforeend", saleLineRow());
+            enableCurrencyInput(form.querySelector(".sale-row:last-child"));
           }
           const remove = event.target.closest("[data-remove-line]");
           if (remove && form.querySelectorAll(".sale-row").length > 1) {
@@ -957,10 +974,13 @@
           return {
             barcode: product.barcode,
             srp: row.querySelector('[name="srp"]').value === "" ? null : Number(row.querySelector('[name="srp"]').value),
-            selling_price: Number(row.querySelector('[name="price"]').value),
+            selling_price: parseCurrency(row.querySelector('[name="price"]').value),
             quantity: Number(row.querySelector('[name="quantity"]').value),
           };
         });
+        if (rows.some(line => line.selling_price === null || line.selling_price < 0 || !Number.isInteger(line.quantity) || line.quantity < 1)) {
+          throw new Error("Enter a valid non-negative price and a whole-number quantity for each product.");
+        }
         mustRpc(await client.rpc("save_ps_sale", {
           p_customer_name: titleCase(form.elements.customer.value),
           p_invoice_number: form.elements.invoice.value.trim(),

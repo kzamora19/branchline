@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "branchline-shell-v36";
+const CACHE_NAME = "branchline-shell-v37";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
@@ -8,6 +8,7 @@ const APP_SHELL_URLS = [
   "./styles.css",
   "./app.js",
   "./auth-app.js",
+  "./currency.js",
   "./supabase-config.js",
   "./manifest.webmanifest",
   "./icon.svg",

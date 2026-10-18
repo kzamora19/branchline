@@ -183,6 +183,9 @@
     return sale.lines.reduce((total, line) => total + Number(line.price) * Number(line.quantity), 0);
   }
 
+  const parseCurrency = window.parseCurrency;
+  const formatCurrencyInput = window.formatCurrencyInput;
+
   function salesForMonth(month = state.month) {
     return state.sales.filter(sale => sale.date.slice(0, 7) === month);
   }
@@ -1060,13 +1063,18 @@
     const priceInput = $("[name='price']", wrapper);
     const quantityInput = $("[name='quantity']", wrapper);
     const totalNode = $(".line-total", wrapper);
+    priceInput.type = "text";
+    priceInput.inputMode = "decimal";
+    priceInput.value = formatCurrencyInput(priceInput.value);
     const updateLine = () => {
       const found = product(barcodeInput.value.trim());
       modelInput.value = found?.model || (barcodeInput.value.trim() ? "Barcode not found in catalog" : "");
-      totalNode.textContent = priceInput.value && quantityInput.value ? `Line total ${money(Number(priceInput.value) * Number(quantityInput.value))}` : "";
+      const price = parseCurrency(priceInput.value);
+      totalNode.textContent = price !== null && quantityInput.value ? `Line total ${money(price * Number(quantityInput.value))}` : "";
     };
     barcodeInput.addEventListener("input", updateLine);
     priceInput.addEventListener("input", updateLine);
+    priceInput.addEventListener("blur", () => { priceInput.value = formatCurrencyInput(priceInput.value); });
     quantityInput.addEventListener("input", updateLine);
     $(".remove-line", wrapper).addEventListener("click", () => {
       if ($$(".sale-line").length > 1) wrapper.remove();
@@ -1463,7 +1471,7 @@
     const date = form.elements.date.value;
     const lines = $$(".sale-line").map(line => ({
       barcode: $("[name='barcode']", line).value.trim(),
-      price: Number($("[name='price']", line).value),
+      price: parseCurrency($("[name='price']", line).value),
       quantity: Number($("[name='quantity']", line).value),
     }));
     if (!lines.length || lines.some(line => !line.barcode || !product(line.barcode) || !Number.isFinite(line.price) || line.price < 0 || !Number.isInteger(line.quantity) || line.quantity < 1)) {
