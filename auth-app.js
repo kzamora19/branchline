@@ -1119,7 +1119,7 @@
             const p = row.profile;
             const buttons = p.role === "admin"
               ? `<button class="button button-outline button-small" type="button" data-person="edit" data-id="${escapeHTML(p.id)}">Update</button>`
-              : `<button class="button button-outline button-small" type="button" data-person="edit" data-id="${escapeHTML(p.id)}">Update</button> <button class="button button-outline button-small" type="button" data-person="transfer" data-id="${escapeHTML(p.id)}">Transfer</button> <button class="button button-outline button-small" type="button" data-person="toggle" data-id="${escapeHTML(p.id)}">${p.active ? "Disable" : "Enable"}</button>`;
+              : `<button class="button button-outline button-small" type="button" data-person="edit" data-id="${escapeHTML(p.id)}">Update</button> <button class="button button-outline button-small" type="button" data-person="transfer" data-id="${escapeHTML(p.id)}">Transfer</button> <button class="button button-outline button-small" type="button" data-person="toggle" data-id="${escapeHTML(p.id)}">${p.active ? "Disable" : "Enable"}</button> <button class="button button-outline button-small" type="button" data-person="delete" data-id="${escapeHTML(p.id)}">Delete</button>`;
             return `<tr><td><strong>${escapeHTML(p.full_name)}</strong></td><td>${escapeHTML(row.role)}</td><td>${escapeHTML(row.brand)}</td><td>${escapeHTML(row.district)}</td><td>${escapeHTML(row.branch)}</td><td>${p.active ? "Active" : "Disabled"}</td><td class="manage-cell">${buttons}</td></tr>`;
           },
           "No staff profiles match these filters.",
@@ -1608,6 +1608,19 @@
 
   function openPersonAction(kind, person) {
     const role = person.role;
+    if (kind === "delete") {
+      openModal({
+        title: `Delete ${person.full_name}`,
+        intro: "This permanently removes the account and their login. It only works for users with no recorded sales, targets or edits; otherwise use Disable. This cannot be undone.",
+        body: "",
+        submitLabel: "Delete user",
+        onSubmit: async () => {
+          await invokeAdminFunction({ action: "delete_user", user_id: person.id });
+          await refreshData();
+        },
+      });
+      return;
+    }
     if (kind === "toggle") {
       const disabling = person.active;
       openModal({
