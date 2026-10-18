@@ -919,10 +919,12 @@
         <div class="sale-footer"><button class="button button-outline button-small" type="button" data-add-line>+ Add product line</button><strong>Sale total: <span id="sale-total">${formatMoney(lines.reduce((sum, line) => sum + Number(line.selling_price || 0) * Number(line.quantity || 0), 0))}</span></strong></div>`,
       onReady: form => {
         const enableCurrencyInput = row => {
-          const input = row.querySelector('[name="price"]');
-          input.type = "text";
-          input.inputMode = "decimal";
-          input.value = formatCurrencyInput(input.value);
+          ["price", "srp"].forEach(name => {
+            const input = row.querySelector(`[name="${name}"]`);
+            input.type = "text";
+            input.inputMode = "decimal";
+            input.value = formatCurrencyInput(input.value);
+          });
         };
         form.querySelectorAll(".sale-row").forEach(enableCurrencyInput);
         const recalc = () => {
@@ -934,7 +936,7 @@
             const picked = product ? product.barcode : "";
             if (row.dataset.srpFor !== picked) {
               row.dataset.srpFor = picked;
-              row.querySelector('[name="srp"]').value = product && product.srp != null ? product.srp : "";
+              row.querySelector('[name="srp"]').value = product && product.srp != null ? formatCurrencyInput(product.srp) : "";
             }
             const price = parseCurrency(row.querySelector('[name="price"]').value);
             const total = price === null ? 0 : price * Number(row.querySelector('[name="quantity"]').value || 0);
@@ -951,7 +953,7 @@
           recalc();
         });
         form.addEventListener("focusout", event => {
-          if (event.target.name === "price") {
+          if (event.target.name === "price" || event.target.name === "srp") {
             event.target.value = formatCurrencyInput(event.target.value);
           }
         });
@@ -971,9 +973,12 @@
         const rows = [...form.querySelectorAll(".sale-row")].map(row => {
           const product = resolve(row.querySelector('[name="product"]').value);
           if (!product) throw new Error("Pick each product from the suggestions (or type its exact barcode).");
+          const srpInput = row.querySelector('[name="srp"]').value.trim();
+          const srp = srpInput === "" ? null : parseCurrency(srpInput);
+          if (srpInput !== "" && (srp === null || srp < 0)) throw new Error("Enter a valid non-negative SRP or leave it blank.");
           return {
             barcode: product.barcode,
-            srp: row.querySelector('[name="srp"]').value === "" ? null : Number(row.querySelector('[name="srp"]').value),
+            srp,
             selling_price: parseCurrency(row.querySelector('[name="price"]').value),
             quantity: Number(row.querySelector('[name="quantity"]').value),
           };
