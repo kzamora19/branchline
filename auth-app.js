@@ -183,7 +183,7 @@
     const sequence = ++loadSequence;
     currentSession = session;
     setWorkspaceMode("connected");
-    connectedContent.innerHTML = '<div class="connected-loading" role="status">Loading your secure workspace…</div>';
+    connectedContent.innerHTML = '<div class="app-loader" role="status" aria-label="Loading"><svg viewBox="0 0 512 512" width="84" height="84" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#355ee8"/><g fill="#fff"><rect class="ldr-bar b1" x="124" y="267" width="56" height="133" rx="20"/><rect class="ldr-bar b2" x="228" y="164" width="56" height="236" rx="20"/><rect class="ldr-bar b3" x="332" y="306" width="56" height="94" rx="20"/></g></svg><span>Loading…</span></div>';
 
     try {
       const profile = checkResult(await client
