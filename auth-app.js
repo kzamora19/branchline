@@ -1123,9 +1123,23 @@
             return `<tr><td><strong>${escapeHTML(p.full_name)}</strong></td><td>${escapeHTML(row.role)}</td><td>${escapeHTML(row.brand)}</td><td>${escapeHTML(row.district)}</td><td>${escapeHTML(row.branch)}</td><td>${p.active ? "Active" : "Disabled"}</td><td class="manage-cell">${buttons}</td></tr>`;
           },
           "No staff profiles match these filters.",
-        ));
+        )) + `<section class="panel danger-zone"><h2>Danger zone</h2><p>Permanently delete all districts, branches, staff logins, products, sales, targets and history. Administrator accounts and payment modes are kept. This cannot be undone.</p><button class="button button-danger" type="button" data-open="wipe">Delete all data</button></section>`;
       },
     );
+  }
+
+  function openWipeModal() {
+    openModal({
+      title: "Delete all data",
+      intro: "This permanently deletes every district, branch, staff login, product, sale, target and notification. Only Administrator accounts and payment modes are kept. There is no undo.",
+      submitLabel: "Delete everything",
+      body: fieldHTML("Type DELETE EVERYTHING to confirm", "confirm", '<input name="confirm" required autocomplete="off">'),
+      onSubmit: async form => {
+        if (form.elements.confirm.value.trim() !== "DELETE EVERYTHING") throw new Error("Type DELETE EVERYTHING exactly to confirm.");
+        mustRpc(await client.rpc("wipe_all_data", { p_confirm: "DELETE EVERYTHING" }));
+        await refreshData();
+      },
+    });
   }
 
   // ---------- Modal helper ----------
@@ -1941,6 +1955,7 @@
     else if (open === "district") openDistrictModal();
     else if (open === "branch") openBranchModal();
     else if (open === "user") openUserModal();
+    else if (open === "wipe") openWipeModal();
     const geo = event.target.closest("[data-geo]");
     if (geo) {
       const [action, kind] = geo.dataset.geo.split("-");
