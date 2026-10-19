@@ -238,6 +238,8 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .an-note { margin: 14px 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
 .an-warn { color: var(--red); }
 .an-inline { min-width: 150px; }
+.filter-row th { padding: 4px 8px 8px; font-weight: 400; text-transform: none; }
+.filter-row input, .filter-row select { width: 100%; min-width: 80px; padding: 4px 6px; font: inherit; font-size: 0.8rem; border: 1px solid #d5dbe6; border-radius: 6px; background: #fff; }
 .product-line { min-width: 240px; max-width: 360px; padding: 3px 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.45; }
 .product-line + .product-line { border-top: 1px dashed var(--line); }
 .date-filter { display: flex; gap: 6px; }

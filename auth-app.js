@@ -43,7 +43,7 @@
   let activePage = "overview";
   let loadSequence = 0;
   let resultsView = null;
-  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", pages: {}, sort: {} };
+  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", pages: {}, sort: {}, colf: {} };
   const productSelection = new Set();
   let productsFiltered = [];
   let salesLogExport = null;
@@ -848,6 +848,32 @@
     return `<button class="button button-outline button-small" type="button" data-export-table="${key}">Export</button>`;
   }
 
+  // A table with a filter box (or dropdown) under every heading. cols[i].get(row) is the text to filter on.
+  function columnFilterTable(key, head, rows, rowHtml, cols) {
+    const state = ui.colf[key] || (ui.colf[key] = {});
+    const kept = rows.filter(row => cols.every((col, index) => {
+      const wanted = state[index];
+      if (!wanted) return true;
+      const value = String(col.get(row) ?? "");
+      return col.select ? value === wanted : value.toLowerCase().includes(wanted.toLowerCase());
+    }));
+    const controls = cols.map((col, index) => {
+      const wanted = state[index] || "";
+      if (col.select) {
+        const values = [...new Set(rows.map(row => String(col.get(row) ?? "")))];
+        return `<th><select data-colfilter="${key}|${index}" aria-label="Filter ${escapeHTML(head[index])}"><option value="">All</option>${values.map(value =>
+          `<option value="${escapeHTML(value)}" ${value === wanted ? "selected" : ""}>${escapeHTML(value)}</option>`).join("")}</select></th>`;
+      }
+      return `<th><input type="search" data-colfilter="${key}|${index}" value="${escapeHTML(wanted)}" placeholder="Filter" autocomplete="off" aria-label="Filter ${escapeHTML(head[index])}"></th>`;
+    }).join("");
+    const body = kept.length ? kept.map(rowHtml).join("") : `<tr><td colspan="${head.length}"><div class="empty-state">No rows match these filters.</div></td></tr>`;
+    return {
+      kept,
+      active: Object.values(state).some(Boolean),
+      html: `<div class="connected-table-wrap" data-filter-table="${key}"><table class="connected-table"><thead><tr>${head.map(item => `<th>${escapeHTML(item)}</th>`).join("")}</tr><tr class="filter-row">${controls}</tr></thead><tbody>${body}</tbody></table></div>`,
+    };
+  }
+
   function panel(title, detail, content, action = "") {
     const key = /data-table-key="([^"]+)"/.exec(content)?.[1];
     if (key && key !== "sales" && (currentProfile.role !== "ps" || key === "brandlog")) {
@@ -995,37 +1021,95 @@
     return ["admin", "district_manager", "manager"].includes(currentProfile.role);
   }
 
-  function computePaymentMix(month, ids, through) {
+  // Period filters for the analytics tables: MTD, YTD or a single day picked on a calendar.
+  function resolvePeriod(key, month, through) {
+    const A = window.BranchlineAnalytics;
+    const mode = ["mtd", "ytd", "day"].includes(ui[key]) ? ui[key] : "mtd";
+    if (mode === "ytd") {
+      const year = Number(through.slice(0, 4));
+      return { mode, from: `${year}-01-01`, to: through, prevFrom: `${year - 1}-01-01`, prevTo: A.sameDayPriorYear(through), name: "Year to date", note: "same period last year", label: `Year to date ${year}` };
+    }
+    if (mode === "day") {
+      const day = ui[`${key}Date`] || through;
+      return { mode, from: day, to: day, prevFrom: A.addDays(day, -1), prevTo: A.addDays(day, -1), name: "Day", note: "the previous day", label: new Date(`${day}T00:00:00`).toLocaleDateString("en-PH", { dateStyle: "long" }) };
+    }
+    return { mode, from: A.monthStart(month), to: through, prevFrom: A.monthStart(A.shiftMonth(month, -1)), prevTo: A.sameDayPriorMonth(through), name: "Month to date", note: "the same days last month", label: `${monthLabel(month)} to date` };
+  }
+
+  function periodControl(key, through) {
+    const mode = ["mtd", "ytd", "day"].includes(ui[key]) ? ui[key] : "mtd";
+    const options = [["mtd", "Month to date"], ["ytd", "Year to date"], ["day", "Daily (calendar)"]];
+    return `<label class="field an-inline"><span class="visually-hidden">Period</span><select data-filter="${key}">${options.map(([value, text]) =>
+      `<option value="${value}" ${mode === value ? "selected" : ""}>${text}</option>`).join("")}</select></label>${mode === "day"
+      ? `<label class="field an-inline"><span class="visually-hidden">Date</span><input type="date" data-filter="${key}Date" value="${escapeHTML(ui[`${key}Date`] || through)}"></label>` : ""}`;
+  }
+
+  // Branch target for a period: whole-month targets for every month it touches; a single day gets its share of the month.
+  function periodTarget(branchId, period) {
+    const A = window.BranchlineAnalytics;
+    const fromMonth = period.from.slice(0, 7);
+    const toMonth = period.to.slice(0, 7);
+    const total = liveData.targets
+      .filter(row => row.branch_id === branchId && row.month.slice(0, 7) >= fromMonth && row.month.slice(0, 7) <= toMonth)
+      .reduce((sum, row) => sum + Number(row.amount), 0);
+    return period.mode === "day" ? total / Number(A.monthEnd(toMonth).slice(8, 10)) : total;
+  }
+
+  function computePaymentMix(month, ids, through, period) {
+    const A = window.BranchlineAnalytics;
     const isPs = currentProfile.role === "ps";
-    const sales = (isPs ? visibleSales() : liveData.sales)
-      .filter(sale => ids.has(sale.branch_id) && sale.sold_on.slice(0, 7) === month && (!through || sale.sold_on.slice(0, 10) <= through))
+    const p = period || { mode: "mtd", from: A.monthStart(month), to: through || A.monthEnd(month) };
+    const all = isPs ? visibleSales() : liveData.sales;
+    const within = (from, to) => all
+      .filter(sale => ids.has(sale.branch_id) && sale.sold_on.slice(0, 10) >= from && sale.sold_on.slice(0, 10) <= to)
       .map(sale => ({ mode: sale.payment_mode, amount: saleTotal(sale) }));
+    const modes = liveData.paymentModes.map(item => item.name);
+    const fromMonth = p.from.slice(0, 7);
+    const toMonth = p.to.slice(0, 7);
+    const scale = p.mode === "day" ? 1 / Number(A.monthEnd(toMonth).slice(8, 10)) : 1;
+    // Targets are keyed by branch and month so a year-to-date view sums each month's own target.
     const branchTargets = new Map();
-    liveData.targets.filter(row => ids.has(row.branch_id) && row.month.slice(0, 7) === month)
-      .forEach(row => addTo(branchTargets, row.branch_id, Number(row.amount)));
+    liveData.targets.filter(row => ids.has(row.branch_id) && row.month.slice(0, 7) >= fromMonth && row.month.slice(0, 7) <= toMonth)
+      .forEach(row => addTo(branchTargets, `${row.branch_id}|${row.month.slice(0, 7)}`, Number(row.amount) * scale));
     // Targets are branch-level, so a PS only sees their own mix without a target comparison.
-    const targets = isPs ? [] : liveData.paymentTargets.filter(row => ids.has(row.branch_id) && row.month.slice(0, 7) === month);
-    return window.BranchlineAnalytics.paymentMix({ sales, modes: liveData.paymentModes.map(item => item.name), targets, branchTargets });
+    const targets = isPs ? [] : liveData.paymentTargets
+      .filter(row => ids.has(row.branch_id) && row.month.slice(0, 7) >= fromMonth && row.month.slice(0, 7) <= toMonth)
+      .map(row => ({ ...row, branch_id: `${row.branch_id}|${row.month.slice(0, 7)}`, amount: row.amount === null ? null : row.amount * scale }));
+    const mix = A.paymentMix({ sales: within(p.from, p.to), modes, targets, branchTargets });
+    const lastYear = A.paymentMix({ sales: within(A.sameDayPriorYear(p.from), A.sameDayPriorYear(p.to)), modes });
+    mix.rows.forEach(row => {
+      const match = lastYear.rows.find(item => item.mode === row.mode);
+      row.lySales = match ? match.sales : 0;
+      row.lyShare = match ? match.share : null;
+    });
+    mix.lyTotal = lastYear.total;
+    mix.range = { from: p.from, to: p.to, lyFrom: A.sameDayPriorYear(p.from), lyTo: A.sameDayPriorYear(p.to) };
+    return mix;
   }
 
   const MIX_STATUS = { above: "Above target", below: "Below target", on: "On target", none: "No target" };
 
-  function paymentMixPanels(month, mix, label) {
+  function paymentMixPanels(month, mix, label, controls = "") {
     const hasTarget = mix.hasTargets;
-    const head = ["Payment mode", "Transactions", "Sales", "Actual mix", "Target mix", "Target (₱)", "Achievement", "Status"];
-    const rowHtml = row => `<tr><td><strong>${escapeHTML(row.mode)}</strong></td><td>${row.transactions}</td><td>${formatMoney(row.sales)}</td><td>${row.share === null ? "n/a" : row.share.toFixed(1) + "%"}</td><td>${row.targetPct === null ? "—" : row.targetPct.toFixed(1) + "%"}</td><td>${row.targetAmount === null ? "—" : formatMoney(row.targetAmount)}</td><td>${row.achievement === null ? "—" : (row.achievement * 100).toFixed(1) + "%"}</td><td><span class="${row.status === "none" ? "an-muted" : "mix-" + row.status}">${MIX_STATUS[row.status]}</span></td></tr>`;
-    const totalRow = `<tr class="total-row"><td><strong>Total</strong></td><td>${mix.totalTransactions}</td><td>${formatMoney(mix.total)}</td><td>${mix.total ? "100%" : "n/a"}</td><td colspan="4"></td></tr>`;
+    const head = ["Payment mode", "Transactions", "Sales", "Actual mix", "Last year", "Last year mix", "Target mix", "Target (₱)", "Achievement", "Status"];
+    const pct = value => (value === null || value === undefined ? "n/a" : `${value.toFixed(1)}%`);
+    const rowHtml = row => `<tr><td><strong>${escapeHTML(row.mode)}</strong></td><td>${row.transactions}</td><td>${formatMoney(row.sales)}</td><td>${pct(row.share)}</td><td>${formatMoney(row.lySales || 0)}</td><td>${pct(row.lyShare)}</td><td>${row.targetPct === null ? "—" : row.targetPct.toFixed(1) + "%"}</td><td>${row.targetAmount === null ? "—" : formatMoney(row.targetAmount)}</td><td>${row.achievement === null ? "—" : (row.achievement * 100).toFixed(1) + "%"}</td><td><span class="${row.status === "none" ? "an-muted" : "mix-" + row.status}">${MIX_STATUS[row.status]}</span></td></tr>`;
+    const totalRow = `<tr class="total-row"><td><strong>Total</strong></td><td>${mix.totalTransactions}</td><td>${formatMoney(mix.total)}</td><td>${mix.total ? "100%" : "n/a"}</td><td>${formatMoney(mix.lyTotal || 0)}</td><td>${mix.lyTotal ? "100%" : "n/a"}</td><td colspan="4"></td></tr>`;
     const table = mix.rows.length
       ? `<div class="connected-table-wrap"><table class="connected-table"><thead><tr>${head.map(item => `<th>${item}</th>`).join("")}</tr></thead><tbody>${mix.rows.map(rowHtml).join("")}${totalRow}</tbody></table></div>`
-      : '<div class="empty-state">No sales or targets for this month.</div>';
-    const exportButton = manualExport("mix-table", `Payment mix ${monthLabel(month)}`, head, mix.rows, rowHtml);
+      : '<div class="empty-state">No sales or targets for this period.</div>';
+    const exportButton = manualExport("mix-table", `Payment mix ${label}`, head, mix.rows, rowHtml);
     const editButton = canSetPaymentTargets() ? `<button class="button button-primary button-small" type="button" data-open="payment-targets">Set mix targets</button>` : "";
-    const pies = [pieChart("Sales by payment mode", label, mix.rows.map(row => ({ label: row.mode, value: row.sales })))];
+    const lyLabel = mix.range ? `Same period last year (${mix.range.lyFrom} to ${mix.range.lyTo})` : "Same period last year";
+    const pies = [
+      pieChart("Sales by payment mode", label, mix.rows.map(row => ({ label: row.mode, value: row.sales }))),
+      pieChart("Sales by payment mode · last year", lyLabel, mix.rows.map(row => ({ label: row.mode, value: row.lySales || 0 }))),
+    ];
     if (hasTarget) {
       const targetEntries = mix.rows.filter(row => row.targetPct !== null).map(row => ({ label: row.mode, value: row.targetPct }));
-      pies.push(pieChart("Target payment mix", `${monthLabel(month)} · share of sales`, targetEntries, { amounts: false }));
+      pies.push(pieChart("Target payment mix", `${label} · share of sales`, targetEntries, { amounts: false }));
     }
-    return `<div class="connected-charts">${pies.join("")}</div>${panel("Payment mix vs target", `${label}. Status compares each mode's share of sales with its target share (±2 points counts as on target).`, table, `${editButton}${exportButton}`)}`;
+    return `<div class="connected-charts">${pies.join("")}</div>${panel("Payment mix: this year vs last year vs target", `${label}. Status compares each mode's share of sales with its target share (±2 points counts as on target). Last year only has data for sales that were recorded with a payment mode.`, table, `${controls}${editButton}${exportButton}`)}`;
   }
 
   function openPaymentTargetsModal() {
@@ -1156,22 +1240,51 @@
     rows.sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
     const head = ["Metric", "Period", "Current", "Prior", "Change"];
     const rowHtml = ([metric, p, current, prior, change]) => `<tr><td><strong>${escapeHTML(metric)}</strong></td><td>${escapeHTML(p.name)}<br><small class="an-muted">${escapeHTML(p.note)}</small></td><td>${current}</td><td>${prior}</td><td>${change}</td></tr>`;
-    const table = `<div class="connected-table-wrap"><table class="connected-table"><thead><tr>${head.map(item => `<th>${item}</th>`).join("")}</tr></thead><tbody>${rows.map(rowHtml).join("")}</tbody></table></div>`;
-    const compare = panel("Transactions, walk-ins and conversion: day, week, month, year", "Walk-in change is per counted day so days without a count never distort it. Conversion only uses counted days.", table, manualExport("traffic-compare", "Traffic comparison", head, rows, rowHtml));
+    const plain = html => String(html).replace(/<[^>]+>/g, "");
+    const filtered = columnFilterTable("traffic-compare", head, rows, rowHtml, [
+      { get: row => row[0], select: true },
+      { get: row => row[1].name, select: true },
+      { get: row => plain(row[2]) },
+      { get: row => plain(row[3]) },
+      { get: row => plain(row[4]) },
+    ]);
+    const compare = panel("Transactions, walk-ins and conversion: day, week, month, year", "Walk-in change is per counted day so days without a count never distort it. Conversion only uses counted days. Use the boxes under each heading to filter.", filtered.html, `${filtered.active ? '<button class="button button-outline button-small" type="button" data-colfilter-clear="traffic-compare">Clear filters</button>' : ""}${manualExport("traffic-compare", "Traffic comparison", head, filtered.kept, rowHtml)}`);
 
-    const months = [];
-    for (let step = 11; step >= 0; step -= 1) months.push(A.shiftMonth(month, -step));
-    const trendRows = months.map(value => {
-      const to = value === month ? through : A.monthEnd(value);
-      const stat = trafficStats(A, ctx, A.monthStart(value), to);
-      const lastYear = A.shiftMonth(value, -12);
-      const ly = trafficStats(A, ctx, A.monthStart(lastYear), value === month ? A.sameDayPriorYear(through) : A.monthEnd(lastYear));
-      return { month: value, stat, ly };
-    });
-    const trendHead = ["Month", "Sales", "Transactions", "Average sale", "Walk-ins", "Conversion", "Sales vs same month last year"];
-    const trendRowHtml = row => `<tr><td>${escapeHTML(monthLabel(row.month))}</td><td>${formatMoney(row.stat.sales)}</td><td>${row.stat.transactions}</td><td>${row.stat.avgTicket === null ? "n/a" : formatMoney(row.stat.avgTicket)}</td><td>${row.stat.covered ? row.stat.visitors : "—"}</td><td>${rate(row.stat.conversion)}</td><td>${growthCell(A.growth(row.stat.sales, row.ly.sales))}</td></tr>`;
-    const trendTable = `<div class="connected-table-wrap"><table class="connected-table"><thead><tr>${trendHead.map(item => `<th>${item}</th>`).join("")}</tr></thead><tbody>${[...trendRows].reverse().map(trendRowHtml).join("")}</tbody></table></div>`;
-    const trend = panel("Last 12 months", "Monthly view with a year-on-year check. Walk-ins show only for months that have counts.", trendTable, manualExport("traffic-monthly", "Last 12 months", trendHead, [...trendRows].reverse(), trendRowHtml));
+    const years = new Set([Number(month.slice(0, 4))]);
+    ctx.sales.forEach(sale => years.add(Number(sale.date.slice(0, 4))));
+    ctx.storeCounts.forEach(row => years.add(Number(String(row.counted_on).slice(0, 4))));
+    const yearList = [...years].filter(value => value >= 2000).sort((a, b) => b - a);
+    const year = yearList.includes(Number(ui.yrYear)) ? Number(ui.yrYear) : Number(month.slice(0, 4));
+    const throughYear = Number(through.slice(0, 4));
+    const trendRows = [];
+    if (year <= throughYear) {
+      for (let m = 1; m <= 12; m += 1) {
+        const ym = `${year}-${String(m).padStart(2, "0")}`;
+        if (year === throughYear && ym > through.slice(0, 7)) break;
+        const lyYm = `${year - 1}-${String(m).padStart(2, "0")}`;
+        const partial = year === throughYear && ym === through.slice(0, 7);
+        trendRows.push({
+          month: ym,
+          stat: trafficStats(A, ctx, A.monthStart(ym), partial ? through : A.monthEnd(ym)),
+          ly: trafficStats(A, ctx, A.monthStart(lyYm), partial ? A.sameDayPriorYear(through) : A.monthEnd(lyYm)),
+        });
+      }
+    }
+    const yearTotal = trendRows.length ? {
+      stat: trafficStats(A, ctx, `${year}-01-01`, year === throughYear ? through : `${year}-12-31`),
+      ly: trafficStats(A, ctx, `${year - 1}-01-01`, year === throughYear ? A.sameDayPriorYear(through) : `${year - 1}-12-31`),
+    } : null;
+    const trendHead = ["Month", "Sales", "Last year sales", "Sales change", "Transactions", "Last year transactions", "Average sale", "Last year average", "Walk-ins", "Last year walk-ins", "Conversion", "Last year conversion"];
+    const money = value => (value === null ? "n/a" : formatMoney(value));
+    const visitors = stat => (stat.covered ? stat.visitors : "—");
+    const trendCells = (stat, ly) => `<td>${formatMoney(stat.sales)}</td><td>${formatMoney(ly.sales)}</td><td>${growthCell(A.growth(stat.sales, ly.sales))}</td><td>${stat.transactions}</td><td>${ly.transactions}</td><td>${money(stat.avgTicket)}</td><td>${money(ly.avgTicket)}</td><td>${visitors(stat)}</td><td>${visitors(ly)}</td><td>${rate(stat.conversion)}</td><td>${rate(ly.conversion)}</td>`;
+    const trendRowHtml = row => `<tr><td>${escapeHTML(monthLabel(row.month))}</td>${trendCells(row.stat, row.ly)}</tr>`;
+    const trendTable = trendRows.length
+      ? `<div class="connected-table-wrap"><table class="connected-table"><thead><tr>${trendHead.map(item => `<th>${item}</th>`).join("")}</tr></thead><tbody>${trendRows.map(trendRowHtml).join("")}<tr class="total-row"><td><strong>${year === throughYear ? "Year to date" : "Full year"}</strong></td>${trendCells(yearTotal.stat, yearTotal.ly)}</tr></tbody></table></div>`
+      : '<div class="empty-state">No data for this year yet.</div>';
+    const yearSelect = `<label class="field an-inline"><span class="visually-hidden">Year</span><select data-filter="yrYear">${yearList.map(value =>
+      `<option value="${value}" ${value === year ? "selected" : ""}>${value}</option>`).join("")}</select></label>`;
+    const trend = panel(`Yearly comparison: ${year} vs ${year - 1}`, "Month by month against the same month last year. Walk-ins show only for months that have counts.", trendTable, `${yearSelect}${manualExport("traffic-monthly", `Yearly comparison ${year}`, trendHead, trendRows, trendRowHtml)}`);
     return { compare, trend, periods };
   }
 
@@ -1316,13 +1429,14 @@
           branch: f => branchName(f.branchId),
           district: f => branchDistrictName(f.branchId),
         }[dim];
-        const trend = A.groupTrend(facts, keyOf, current, previous);
+        const trendP = resolvePeriod("pdTrend", month, through);
+        const trend = A.groupTrend(facts, keyOf, { from: trendP.from, to: trendP.to }, { from: trendP.prevFrom, to: trendP.prevTo });
         const dimLabel = dims.find(([value]) => value === dim)[1];
         const metaOf = new Map();
         facts.forEach(f => { if (!metaOf.has(keyOf(f))) metaOf.set(keyOf(f), f); });
         const withProduct = dim === "product";
-        const trendHead = [...(withProduct ? ["Brand", "Category", "Sub-category"] : []), dimLabel, "Month to date", "Prior period", "Growth", "Share"];
-        const trendPanel = panel(`Trend by ${dimLabel.toLowerCase()}`, "Month to date vs the same days last month.",
+        const trendHead = [...(withProduct ? ["Brand", "Category", "Sub-category"] : []), dimLabel, trendP.name, "Prior period", "Growth", "Share"];
+        const trendPanel = panel(`Trend by ${dimLabel.toLowerCase()}`, `${trendP.label} vs ${trendP.note}.`,
           tableBlock("an-trend", trendHead, trend,
             row => {
               const meta = metaOf.get(row.key) || {};
@@ -1332,7 +1446,7 @@
               return `<tr${link}>${lead}<td>${escapeHTML(row.key)}</td><td>${formatMoney(row.current)}</td><td>${formatMoney(row.previous)}</td><td>${growthCell(row.growth)}</td><td>${row.share === null ? "n/a" : (row.share * 100).toFixed(1) + "%"}</td></tr>`;
             },
             "No sales in this period."),
-          `<label class="field an-inline"><span class="visually-hidden">Group by</span><select data-filter="anDim">${dims.map(([value, label]) =>
+          `${periodControl("pdTrend", through)}<label class="field an-inline"><span class="visually-hidden">Group by</span><select data-filter="anDim">${dims.map(([value, label]) =>
             `<option value="${value}" ${dim === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>`);
 
         let psPanel = "";
@@ -1346,33 +1460,49 @@
             return { id: profile.id, name: profile.full_name || "Staff member", branch: branchName(profile.branch_id), actual: own, target: share };
           });
           psEntries = entries.map(entry => ({ ...entry, achievement: A.achievement(entry.actual, entry.target) }));
-          const result = A.topAndBottom(entries, 3);
-          const expected = A.expectedFraction({ month, refDate, rules, partialDay: isCurrent });
-          const row = entry => {
+          const expectedMtd = A.expectedFraction({ month, refDate, rules, partialDay: isCurrent });
+          const entriesFor = p => (p.mode === "mtd" ? entries : psProfiles.map(profile => {
+            const count = psCountByBranch.get(profile.branch_id) || 0;
+            const own = facts.filter(f => f.psId === profile.id && f.branchId === profile.branch_id && f.date >= p.from && f.date <= p.to)
+              .reduce((total, f) => total + f.amount, 0);
+            return { id: profile.id, name: profile.full_name || "Staff member", branch: branchName(profile.branch_id), actual: own, target: count ? periodTarget(profile.branch_id, p) / count : 0 };
+          }));
+          const topP = resolvePeriod("pdTop", month, through);
+          const attnP = resolvePeriod("pdAttn", month, through);
+          const row = expected => entry => {
             const behind = expected !== null && entry.achievement < expected;
-            return `<tr class="rank-row" data-ps-detail="${escapeHTML(entry.id)}" tabindex="0"><td>${escapeHTML(entry.name)}<br><small class="an-muted">${escapeHTML(entry.branch)}</small></td><td>${formatMoney(entry.actual)}</td><td>${formatMoney(entry.target)}</td><td>${(entry.achievement * 100).toFixed(1)}%</td><td>${behind ? '<span class="an-down">Behind pace</span>' : '<span class="an-up">On pace</span>'}</td></tr>`;
+            const pace = expected === null ? '<span class="an-muted">—</span>' : behind ? '<span class="an-down">Behind pace</span>' : '<span class="an-up">On pace</span>';
+            return `<tr class="rank-row" data-ps-detail="${escapeHTML(entry.id)}" tabindex="0"><td>${escapeHTML(entry.name)}<br><small class="an-muted">${escapeHTML(entry.branch)}</small></td><td>${formatMoney(entry.actual)}</td><td>${formatMoney(entry.target)}</td><td>${(entry.achievement * 100).toFixed(1)}%</td><td>${pace}</td></tr>`;
           };
           const head = "<thead><tr><th>Product Specialist</th><th>Actual</th><th>Individual target</th><th>Achievement</th><th>Pace</th></tr></thead>";
-          const table = list => list.length
-            ? `<div class="connected-table-wrap"><table class="connected-table">${head}<tbody>${list.map(row).join("")}</tbody></table></div>`
+          const table = (list, expected) => list.length
+            ? `<div class="connected-table-wrap"><table class="connected-table">${head}<tbody>${list.map(row(expected)).join("")}</tbody></table></div>`
             : '<div class="empty-state">Not enough Product Specialists with a target to rank.</div>';
-          const skipped = entries.length - result.ranked;
-          const paceNote = expected === null ? "" : ` Expected progress by now: ${(expected * 100).toFixed(1)}% of the month's selling days.`;
-          const skipNote = skipped ? ` ${skipped} PS${skipped === 1 ? "" : "s"} without a branch target are not ranked.` : "";
           const exportHead = ["Product Specialist", "Branch", "Actual", "Individual target", "Achievement", "Pace"];
-          const exportRow = entry => {
+          const exportRow = expected => entry => {
             const behind = expected !== null && entry.achievement < expected;
-            return `<tr><td>${escapeHTML(entry.name)}</td><td>${escapeHTML(entry.branch)}</td><td>${formatMoney(entry.actual)}</td><td>${formatMoney(entry.target)}</td><td>${(entry.achievement * 100).toFixed(1)}%</td><td>${behind ? "Behind pace" : "On pace"}</td></tr>`;
+            return `<tr><td>${escapeHTML(entry.name)}</td><td>${escapeHTML(entry.branch)}</td><td>${formatMoney(entry.actual)}</td><td>${formatMoney(entry.target)}</td><td>${(entry.achievement * 100).toFixed(1)}%</td><td>${expected === null ? "—" : behind ? "Behind pace" : "On pace"}</td></tr>`;
           };
-          psPanel = `${panel("Top performers", `Individual target = branch target ÷ active PSs in the branch.${paceNote}${skipNote}`, table(result.top), manualExport("an-top", "Top performers", exportHead, result.top, exportRow))}
-            ${panel("Needs attention", "Lowest target achievement.", table(result.bottom), manualExport("an-bottom", "Needs attention", exportHead, result.bottom, exportRow))}`;
+          const rankPanel = (title, p, key, pick, detail) => {
+            const list = entriesFor(p);
+            const result = A.topAndBottom(list, 3);
+            const expected = p.mode === "mtd" ? expectedMtd : null;
+            const skipped = list.length - result.ranked;
+            const notes = `${expected === null ? "" : ` Expected progress by now: ${(expected * 100).toFixed(1)}% of the month's selling days.`}${skipped ? ` ${skipped} PS${skipped === 1 ? "" : "s"} without a branch target are not ranked.` : ""}`;
+            const shown = pick(result);
+            return panel(title, `${p.label}. ${detail}${notes}${p.mode === "day" ? " Daily target = monthly target ÷ days in the month." : ""}`, table(shown, expected), `${periodControl(key, through)}${manualExport(`an-${title.toLowerCase().replace(/\W+/g, "-")}`, title, exportHead, shown, exportRow(expected))}`);
+          };
+          psPanel = `${rankPanel("Top performers", topP, "pdTop", result => result.top, "Individual target = branch target ÷ active PSs in the branch.")}
+            ${rankPanel("Needs attention", attnP, "pdAttn", result => result.bottom, "Lowest target achievement.")}`;
         }
 
         const trafficCtx = trafficContext(allFacts, ids, isPs);
         const traffic = trafficPanels(A, trafficCtx, month, through);
         const mtdPeriod = traffic.periods.find(item => item.name === "Month to date");
         const mix = computePaymentMix(month, ids, through);
-        const mixLabel = `${monthLabel(month)}${isCurrent ? " (to date)" : ""}`;
+        const mixP = resolvePeriod("pdMix", month, through);
+        const mixView = mixP.mode === "mtd" ? mix : computePaymentMix(month, ids, through, mixP);
+        const mixLabel = mixP.mode === "mtd" ? `${monthLabel(month)}${isCurrent ? " (to date)" : ""}` : mixP.label;
         const brandTrend = A.groupTrend(facts, f => f.brand, current, previous);
         const priceFacts = facts.filter(f => f.date >= monthStart && f.date <= through);
         const insights = A.buildInsights({
@@ -1401,7 +1531,7 @@
         const holidayPanel = panel("Store-closed dates", canEditHolidays ? "Company-wide. These dates are skipped in forecasts." : "Company-wide. Managed by district managers and admins.",
           `${canEditHolidays ? '<p><button class="button" type="button" data-open="holiday">Add date</button></p>' : ""}${holidayTable}`);
         return `${warning}${cards}${insightsPanel(insights)}${chartPanel}${panel("Period comparison", "Growth compares like-for-like elapsed days.", comparisonTable, manualExport("an-compare", "Period comparison", ["Period", "Comparison", "Dates", "Actual", "Prior", "Growth"], comparisons,
-          ([name, dates, current, prior, note]) => { const g = A.growth(current, prior); return `<tr><td>${escapeHTML(name)}</td><td>${escapeHTML(note)}</td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${g === null ? "n/a" : (g * 100).toFixed(1) + "%"}</td></tr>`; }))}${traffic.compare}${traffic.trend}${paymentMixPanels(month, mix, mixLabel)}${trendPanel}${psPanel}${holidayPanel}${missing}`;
+          ([name, dates, current, prior, note]) => { const g = A.growth(current, prior); return `<tr><td>${escapeHTML(name)}</td><td>${escapeHTML(note)}</td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${g === null ? "n/a" : (g * 100).toFixed(1) + "%"}</td></tr>`; }))}${traffic.compare}${traffic.trend}${paymentMixPanels(month, mixView, mixLabel, periodControl("pdMix", through))}${trendPanel}${psPanel}${holidayPanel}${missing}`;
       },
     );
   }
@@ -1862,6 +1992,7 @@
         search: "Name, role, brand, district or branch",
         actions: [
           '<button class="button button-primary" type="button" data-open="user">+ Add user</button>',
+          '<button class="button button-outline" type="button" data-open="users-bulk">+ Add multiple users</button>',
           '<button class="button button-outline" type="button" data-open="district">+ District</button>',
           '<button class="button button-outline" type="button" data-open="branch">+ Branch</button>',
         ].join(""),
@@ -2853,6 +2984,75 @@
     });
   }
 
+  function openBulkUsersModal() {
+    if (!liveData.districts.length) {
+      openModal({ title: "Add multiple users", body: "<p>Create a district and a branch before adding users.</p>", submitLabel: "OK", onSubmit: async () => {} });
+      return;
+    }
+    openModal({
+      title: "Add multiple users",
+      intro: "One person per line: Full name, Login ID, Brand, Email (Brand is for Product Specialists; Email is optional). You can paste rows straight from Excel. Everyone on the list gets the same role, district and branch.",
+      submitLabel: "Create users",
+      wide: true,
+      body: `${fieldHTML("Role", "role", selectHTML("role", [["ps", "Product Specialist (PS)"], ["manager", "Branch Manager (BM)"], ["district_manager", "District Manager (DM)"]], "ps"))}
+        ${fieldHTML("District", "district", selectHTML("district", liveData.districts.map(item => [item.id, item.name]), ui.district))}
+        <div id="branch-field">${fieldHTML("Branch", "branch", '<select name="branch"></select>')}</div>
+        ${fieldHTML("Default brand (used when a line has no brand)", "brand", `<input name="brand" list="brand-options" autocomplete="off"><datalist id="brand-options">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>`)}
+        ${fieldHTML("Users", "lines", '<textarea name="lines" rows="9" required placeholder="Juan Dela Cruz, juan.delacruz, Tcl&#10;Maria Santos, maria.santos, Lg - Aircon"></textarea>')}
+        <p class="dlg-preview" id="bulk-progress" hidden></p>`,
+      onReady: form => {
+        const sync = () => {
+          const role = form.elements.role.value;
+          const branches = liveData.branches.filter(branch => branch.district_id === form.elements.district.value);
+          form.elements.branch.innerHTML = branches.length
+            ? branches.map(branch => `<option value="${escapeHTML(branch.id)}">${escapeHTML(branch.name)}</option>`).join("")
+            : '<option value="">No branches in this district</option>';
+          form.querySelector("#branch-field").hidden = role === "district_manager";
+          form.elements.brand.closest(".field").hidden = role !== "ps";
+        };
+        form.elements.role.addEventListener("change", sync);
+        form.elements.district.addEventListener("change", sync);
+        sync();
+      },
+      onSubmit: async form => {
+        const role = form.elements.role.value;
+        const rows = form.elements.lines.value.split(/\r?\n/).map(line => line.split(/\t|,/).map(part => part.trim())).filter(parts => parts.some(Boolean));
+        if (!rows.length) throw new Error("Enter at least one user.");
+        if (rows.length > 40) throw new Error("Add up to 40 users at a time.");
+        if (role !== "district_manager" && !form.elements.branch.value) throw new Error("Create a branch in this district first.");
+        const progress = form.querySelector("#bulk-progress");
+        progress.hidden = false;
+        const results = [];
+        for (let index = 0; index < rows.length; index += 1) {
+          const [name, login, brandInput, email] = rows[index];
+          progress.textContent = `Creating ${index + 1} of ${rows.length}…`;
+          try {
+            const contactEmail = (email || "").toLowerCase();
+            const loginId = login || contactEmail;
+            if (!name) throw new Error("Missing full name.");
+            if (!loginId) throw new Error("Missing login ID or email.");
+            const body = { role, full_name: titleCase(name), login: loginId, email: contactEmail, app_url: location.origin + location.pathname, district_id: form.elements.district.value };
+            if (role !== "district_manager") body.branch_id = form.elements.branch.value;
+            if (role === "ps") {
+              body.brand = titleCase(brandInput || form.elements.brand.value);
+              if (!body.brand) throw new Error("Missing brand.");
+            }
+            const data = await invokeAdminFunction(body);
+            results.push({ name: body.full_name, login: loginId, password: data.temporary_password, error: "" });
+          } catch (error) {
+            results.push({ name: name || `Line ${index + 1}`, login: login || "", password: "", error: error.message });
+          }
+        }
+        await refreshData();
+        const made = results.filter(item => !item.error);
+        const csv = ["Name,Login ID,Temporary password", ...made.map(item => [item.name, item.login, item.password].map(value => `"${String(value).replace(/"/g, '""')}"`).join(","))].join("\r\n");
+        const link = made.length ? `<p><a class="button button-outline button-small" download="new-users.csv" href="data:text/csv;charset=utf-8,${encodeURIComponent(csv)}">Download list (CSV)</a></p>` : "";
+        return `<p><strong>${made.length}</strong> of ${results.length} user(s) created. Copy or download the passwords now; they will not be shown again.</p>${link}
+          <div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Name</th><th>Login ID</th><th>Temporary password</th><th>Result</th></tr></thead><tbody>${results.map(item => `<tr><td>${escapeHTML(item.name)}</td><td>${escapeHTML(item.login)}</td><td>${item.error ? "—" : `<code class="temp-password">${escapeHTML(item.password)}</code>`}</td><td>${item.error ? `<span class="an-down">${escapeHTML(item.error)}</span>` : "Created"}</td></tr>`).join("")}</tbody></table></div>`;
+      },
+    });
+  }
+
   // Keep identical to loginEmail() in the admin-create-user Edge Function.
   function loginEmail(raw) {
     const value = String(raw || "").trim().toLowerCase();
@@ -3215,6 +3415,7 @@
     else if (open === "district") openDistrictModal();
     else if (open === "branch") openBranchModal();
     else if (open === "user") openUserModal();
+    else if (open === "users-bulk") openBulkUsersModal();
     else if (open === "wipe") openWipeModal();
     else if (open === "holiday") openHolidayModal();
     else if (open === "walkin-ps") openWalkInModal("ps");
@@ -3519,6 +3720,30 @@
     if (event.target.closest(".pie-slice")) event.preventDefault();
   });
   window.addEventListener("scroll", hidePieTip, { passive: true });
+
+  connectedContent.addEventListener("input", event => {
+    const box = event.target.closest?.("[data-colfilter]");
+    if (!box || !resultsView) return;
+    const [key, col] = box.dataset.colfilter.split("|");
+    (ui.colf[key] ||= {})[Number(col)] = box.value;
+    const caret = box.selectionStart;
+    const isText = box.tagName === "INPUT";
+    refreshResults();
+    if (isText) {
+      const field = document.querySelector(`[data-colfilter="${key}|${col}"]`);
+      if (field) {
+        field.focus();
+        field.setSelectionRange(caret, caret);
+      }
+    }
+  });
+
+  connectedContent.addEventListener("click", event => {
+    const clear = event.target.closest?.("[data-colfilter-clear]");
+    if (!clear || !resultsView) return;
+    ui.colf[clear.dataset.colfilterClear] = {};
+    refreshResults();
+  });
 
   connectedContent.addEventListener("input", event => {
     const control = event.target.closest("[data-filter]");
