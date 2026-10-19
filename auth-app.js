@@ -262,7 +262,7 @@
         const probe = await client.from("products").select("branch_id").eq("active", true).limit(1);
         catalogBranch = probe.data?.[0]?.branch_id || null;
       }
-      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, paymentTargets, importBatches] = await Promise.all([
+      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, paymentTargets, importBatches, dailyHistory] = await Promise.all([
         fetchAll("branches", "id,name,district_id", [["name", true], ["id", true]]),
         fetchAll("districts", "id,name", [["name", true], ["id", true]]),
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
@@ -282,7 +282,8 @@
         fetchAll("branch_walkins", "branch_id,counted_on,visitors", [["counted_on", false], ["branch_id", true]]),
         fetchAll("push_messages", "id,status,message,created_at", [["created_at", true], ["id", true]]),
         fetchAll("payment_mode_targets", "id,branch_id,month,mode,share_pct,amount", [["month", false], ["id", true]]),
-        isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("sales_import_batches", "id,label,source_file,created_at,sales_count,lines_count,amount,date_from,date_to", [["created_at", false], ["id", true]]),
+        isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("sales_import_batches", "id,label,source_file,created_at,sales_count,lines_count,amount,date_from,date_to,kind", [["created_at", false], ["id", true]]),
+        isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("branch_daily_history", "branch_id,day,sales,transactions,walkins,remarks", [["day", false], ["branch_id", true]]),
               ]);
 
       const visibleBranches = checkResult(branches, "Unable to load accessible branches").map(item => ({ ...item, name: titleCase(item.name) }));
@@ -342,6 +343,7 @@
         pushMessages: pushMessages.error ? [] : pushMessages.data,
         paymentTargets: paymentTargets.error ? [] : paymentTargets.data.map(item => ({ ...item, month: String(item.month).slice(0, 10), share_pct: item.share_pct === null ? null : Number(item.share_pct), amount: item.amount === null ? null : Number(item.amount) })),
         importBatches: importBatches.error ? [] : importBatches.data,
+        dailyHistory: dailyHistory.error ? [] : dailyHistory.data.map(row => ({ ...row, day: String(row.day).slice(0, 10), sales: Number(row.sales), transactions: Number(row.transactions) })),
       };
 
       document.querySelector("#connected-user-name").textContent = connectedUserLabel();
@@ -921,6 +923,19 @@
     else renderOverview();
   }
 
+  // Imported daily totals only fill days with no live sales. Managers and above only.
+  function withHistoryFacts(facts, ids, isPs) {
+    const history = isPs ? [] : liveData.dailyHistory || [];
+    return history.length ? [...facts, ...window.BranchlineDailyHistory.historyFacts(history, facts, ids)] : facts;
+  }
+
+  function storeCountsFor(ids, isPs) {
+    if (isPs) return [];
+    const real = liveData.branchWalkins.filter(row => ids.has(row.branch_id));
+    const history = (liveData.dailyHistory || []).filter(row => ids.has(row.branch_id));
+    return history.length ? [...real, ...window.BranchlineDailyHistory.historyWalkins(history, real)] : real;
+  }
+
   function analyticsFacts(ids) {
     const sales = currentProfile.role === "ps" ? visibleSales() : liveData.sales;
     const facts = [];
@@ -1107,7 +1122,7 @@
     });
     return {
       sales: [...bySale.values()],
-      storeCounts: isPs ? [] : liveData.branchWalkins.filter(row => ids.has(row.branch_id)),
+      storeCounts: storeCountsFor(ids, isPs),
       psCounts: liveData.psWalkins.filter(row => ids.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id)),
     };
   }
@@ -1205,7 +1220,8 @@
         const holidayDates = companyHolidayDates();
         const rules = A.makeRules(ui.anBasis, holidayDates);
         const facts = analyticsFacts(ids);
-        const daily = A.dailyTotals(facts);
+        const allFacts = withHistoryFacts(facts, ids, isPs);
+        const daily = A.dailyTotals(allFacts);
         const warning = "";
 
         const psProfiles = liveData.profiles.filter(profile => profile.role === "ps" && profile.active && !isTestProfile(profile) && ids.has(profile.branch_id));
@@ -1235,7 +1251,7 @@
         const actual = A.sumDaily(daily, monthStart, through);
         const forecast = A.forecastMonth({ month, refDate, daily, rules, partialDay: isCurrent });
         const pace = A.requiredPace({ target, actual, paceDays: forecast.paceDays });
-        const transactions = new Set(facts.filter(f => f.date >= monthStart && f.date <= through).map(f => f.saleId)).size;
+        const transactions = new Set(allFacts.filter(f => f.date >= monthStart && f.date <= through).map(f => f.saleId)).size;
         const series = A.cumulativeSeries({ month, refDate, daily, rules, rate: forecast.status === "projected" ? forecast.rate : null });
 
         const forecastText = forecast.status === "projected" || forecast.status === "final"
@@ -1252,9 +1268,9 @@
         const walk = A.walkInSummary({
           from: monthStart,
           to: through,
-          storeCounts: isPs ? [] : liveData.branchWalkins.filter(row => ids.has(row.branch_id)),
+          storeCounts: storeCountsFor(ids, isPs),
           psCounts: liveData.psWalkins.filter(row => ids.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id)),
-          transactions: [...new Map(facts.filter(f => f.date >= monthStart && f.date <= through).map(f => [f.saleId, { id: f.saleId, branchId: f.branchId, date: f.date }])).values()],
+          transactions: [...new Map(allFacts.filter(f => f.date >= monthStart && f.date <= through).map(f => [f.saleId, { id: f.saleId, branchId: f.branchId, date: f.date }])).values()],
         });
         walkInDailyCtx = { ids, isPs, monthStart, through };
         const walkSource = walk.coveredDays === 0 ? "No counts recorded yet"
@@ -1352,7 +1368,7 @@
             ${panel("Needs attention", "Lowest target achievement.", table(result.bottom), manualExport("an-bottom", "Needs attention", exportHead, result.bottom, exportRow))}`;
         }
 
-        const trafficCtx = trafficContext(facts, ids, isPs);
+        const trafficCtx = trafficContext(allFacts, ids, isPs);
         const traffic = trafficPanels(A, trafficCtx, month, through);
         const mtdPeriod = traffic.periods.find(item => item.name === "Month to date");
         const mix = computePaymentMix(month, ids, through);
@@ -1802,7 +1818,7 @@
           '<button class="button button-primary" type="button" data-open="product">+ Add product</button>',
           currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="import">Import Excel / CSV</button>' : "",
           currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="sync-categories">Update sales categories</button>' : "",
-          currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="sales-history">Import sales history</button>' : "",
+          currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="sales-history">Import sales history</button><button class="button button-outline" type="button" data-open="daily-history">Import daily monitoring</button>' : "",
           currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="payments">Payment modes</button>' : "",
         ].join(""),
       }),
@@ -2024,7 +2040,7 @@
   const HISTORY_BRANCH_HINTS = { CAU: "cauayan", ILA: "ilagan", STG: "santiago", TUG: "tuguegarao" };
 
   function openSalesHistoryModal() {
-    const batches = [...(liveData.importBatches || [])].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    const batches = [...(liveData.importBatches || [])].filter(batch => batch.kind !== "daily").sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
     const branches = [...liveData.branches].sort((a, b) => natural(a.name, b.name));
     let parsed = null;
     let fileName = "";
@@ -2106,15 +2122,111 @@
   }
 
   function openRemoveHistoryModal(batch) {
+    const daily = batch.kind === "daily";
     openModal({
-      title: "Remove imported sales",
-      intro: `Permanently remove "${batch.label}" — ${batch.sales_count} sales and ${batch.lines_count} items (${formatMoney(Number(batch.amount))}). Sales entered by your team are not affected.`,
+      title: daily ? "Remove imported daily totals" : "Remove imported sales",
+      intro: daily
+        ? `Permanently remove "${batch.label}" — ${batch.sales_count} day(s) of totals and walk-ins. Live sales and counts are not affected.`
+        : `Permanently remove "${batch.label}" — ${batch.sales_count} sales and ${batch.lines_count} items (${formatMoney(Number(batch.amount))}). Sales entered by your team are not affected.`,
       submitLabel: "Remove import",
       body: "",
       onSubmit: async () => {
         const result = mustRpc(await client.rpc("delete_sales_import", { p_batch: batch.id }));
         await refreshData();
-        return `<p>Removed ${escapeHTML(result.sales)} sale(s) and ${escapeHTML(result.lines)} item(s).</p>`;
+        return daily ? `<p>Removed ${escapeHTML(result.days)} day(s) of totals.</p>` : `<p>Removed ${escapeHTML(result.sales)} sale(s) and ${escapeHTML(result.lines)} item(s).</p>`;
+      },
+    });
+  }
+
+  function openDailyHistoryModal() {
+    const A = window.BranchlineDailyHistory;
+    const batches = (liveData.importBatches || []).filter(batch => batch.kind === "daily").sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    const branches = [...liveData.branches].sort((a, b) => natural(a.name, b.name));
+    const santiago = branches.find(branch => branch.name.toLowerCase().includes("santiago"));
+    const prevMonthEnd = new Date(new Date().getFullYear(), new Date().getMonth(), 0);
+    const defaultCutoff = `${prevMonthEnd.getFullYear()}-${String(prevMonthEnd.getMonth() + 1).padStart(2, "0")}-${String(prevMonthEnd.getDate()).padStart(2, "0")}`;
+    let book = null;
+    let fileName = "";
+    let batchId = null;
+    const batchList = batches.length
+      ? `<p class="dlg-intro"><strong>Previous imports</strong></p><ul class="push-list">${batches.map(batch => `<li><span>${escapeHTML(batch.label)} — ${escapeHTML(batch.sales_count)} day(s) (${escapeHTML(batch.date_from || "")} to ${escapeHTML(batch.date_to || "")})</span><button class="button button-outline button-small" type="button" data-history-remove="${escapeHTML(batch.id)}">Remove</button></li>`).join("")}</ul>`
+      : "";
+    openModal({
+      title: "Import daily monitoring file",
+      intro: "Admin only. Upload a monthly 'Daily Sales Monitoring' workbook (one sheet per month). It brings in daily sales, invoice counts and walk-ins for this year and last year. Days that already have live sales or counts are never overwritten. You can remove the whole import later.",
+      submitLabel: "Import",
+      wide: true,
+      body: `${batchList}
+        ${fieldHTML("Monitoring workbook", "file", '<input name="file" type="file" accept=".xlsx,.xls" required>')}
+        ${fieldHTML("Branch", "branch", selectHTML("branch", branches.map(branch => [branch.id, branch.name]), santiago ? santiago.id : ""))}
+        ${fieldHTML("Year of the 'this year' columns", "year", `<input name="year" type="number" min="2000" max="2100" value="${new Date().getFullYear()}" required>`)}
+        ${fieldHTML("Import this year's days up to", "cutoff", `<input name="cutoff" type="date" value="${defaultCutoff}" required>`)}
+        <div id="history-preview" class="dlg-preview">No file chosen.</div>
+        <p class="dlg-preview" id="history-progress" hidden></p>`,
+      onReady: form => {
+        const preview = form.querySelector("#history-preview");
+        let parsed = null;
+        const reparse = () => {
+          parsed = null;
+          if (!book) return;
+          try {
+            parsed = A.parseMonitoring(book, { year: Number(form.elements.year.value), cutoff: form.elements.cutoff.value });
+            const months = parsed.months.sort((a, b) => a.month - b.month).map(item => `<li>${A.MONTHS[item.month - 1]}: this year ${formatMoney(item.ty.sales)} (${item.ty.transactions} inv., ${item.ty.walkins} walk-ins) · last year ${formatMoney(item.ly.sales)} (${item.ly.transactions} inv., ${item.ly.walkins} walk-ins)</li>`).join("");
+            preview.innerHTML = `<strong>${parsed.rows.length}</strong> day(s) ready.${parsed.warnings.length ? `<br>${parsed.warnings.map(escapeHTML).join("<br>")}` : ""}<ul>${months}</ul>`;
+          } catch (error) {
+            preview.textContent = error.message;
+          }
+        };
+        form.querySelectorAll("[data-history-remove]").forEach(button => button.addEventListener("click", () => {
+          const batch = batches.find(item => item.id === button.dataset.historyRemove);
+          if (batch) openRemoveHistoryModal(batch);
+        }));
+        form.elements.year.addEventListener("change", reparse);
+        form.elements.cutoff.addEventListener("change", reparse);
+        form.elements.file.addEventListener("change", async () => {
+          book = null;
+          batchId = null;
+          const file = form.elements.file.files[0];
+          if (!file) return;
+          fileName = file.name;
+          const guess = file.name.match(/20\d\d/);
+          if (guess) form.elements.year.value = guess[0];
+          preview.textContent = "Reading the file…";
+          try {
+            await new Promise(resolve => setTimeout(resolve, 30));
+            const workbook = window.XLSX.read(await file.arrayBuffer(), { type: "array" });
+            book = {};
+            workbook.SheetNames.forEach(name => {
+              book[name] = window.XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, raw: true, defval: "" });
+            });
+            reparse();
+          } catch (error) {
+            preview.textContent = error.message;
+          }
+        });
+        form.reparse = () => parsed;
+      },
+      onSubmit: async form => {
+        const parsed = form.reparse && form.reparse();
+        if (!parsed || !parsed.rows.length) throw new Error("Choose a valid monitoring workbook first.");
+        const branch = form.elements.branch.value;
+        if (!branch) throw new Error("Choose a branch.");
+        if (!window.confirm(`Import ${parsed.rows.length} day(s) into the live data? Days with live sales or counts are left alone. You can remove the import afterwards.`)) throw new Error("Import cancelled.");
+        batchId ||= crypto.randomUUID();
+        const label = `${fileName.replace(/\.[^.]+$/, "").slice(0, 70) || "Daily monitoring"}`;
+        const progress = form.querySelector("#history-progress");
+        progress.hidden = false;
+        const totals = { days: 0, skipped_existing: 0 };
+        for (let index = 0; index < parsed.rows.length; index += 400) {
+          progress.textContent = `Importing… ${index} of ${parsed.rows.length} days`;
+          const part = mustRpc(await client.rpc("import_daily_history", {
+            p_batch: batchId, p_label: label, p_file: fileName, p_branch: branch,
+            p_rows: parsed.rows.slice(index, index + 400),
+          }));
+          Object.keys(totals).forEach(key => { totals[key] += Number(part[key]) || 0; });
+        }
+        await refreshData();
+        return `<p>Imported <strong>${totals.days}</strong> day(s).${totals.skipped_existing ? ` ${totals.skipped_existing} day(s) already existed and were left alone.` : ""}</p>`;
       },
     });
   }
@@ -2176,9 +2288,9 @@
     const ctx = walkInDailyCtx;
     if (!ctx) return;
     const { ids, isPs, monthStart, through } = ctx;
-    const storeCounts = isPs ? [] : liveData.branchWalkins.filter(row => ids.has(row.branch_id));
+    const storeCounts = storeCountsFor(ids, isPs);
     const psCounts = liveData.psWalkins.filter(row => ids.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id));
-    const transactions = [...new Map(analyticsFacts(ids).map(f => [f.saleId, { id: f.saleId, branchId: f.branchId, date: f.date }])).values()];
+    const transactions = [...new Map(withHistoryFacts(analyticsFacts(ids), ids, isPs).map(f => [f.saleId, { id: f.saleId, branchId: f.branchId, date: f.date }])).values()];
     const summarize = (from, to) => A.walkInSummary({ from, to, storeCounts, psCounts, transactions });
     const label = isPs ? "Clients assisted" : "Walk-in traffic";
     const total = summarize(monthStart, through);
@@ -2225,9 +2337,9 @@
     const A = window.BranchlineAnalytics;
     const ctx = walkInDailyCtx;
     if (!ctx) return;
-    const { ids, monthStart, through } = ctx;
+    const { ids, isPs, monthStart, through } = ctx;
     const perDay = new Map();
-    analyticsFacts(ids).forEach(f => {
+    withHistoryFacts(analyticsFacts(ids), ids, isPs).forEach(f => {
       if (!perDay.has(f.date)) perDay.set(f.date, new Set());
       perDay.get(f.date).add(f.saleId);
     });
@@ -3098,6 +3210,7 @@
     else if (open === "payment-targets") openPaymentTargetsModal();
     else if (open === "sync-categories") openSyncCategoriesModal();
     else if (open === "sales-history") openSalesHistoryModal();
+    else if (open === "daily-history") openDailyHistoryModal();
     else if (open === "target") openTargetModal();
     else if (open === "district") openDistrictModal();
     else if (open === "branch") openBranchModal();
