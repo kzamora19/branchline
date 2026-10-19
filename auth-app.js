@@ -21,15 +21,16 @@
   const pageLabels = {
     overview: "Overview",
     sales: "Sales",
+    analytics: "Analytics",
     targets: "Targets",
     products: "Products",
     users: "People & access",
   };
   const rolePages = {
-    ps: ["overview", "sales"],
-    manager: ["overview", "sales", "targets", "products"],
-    district_manager: ["overview", "sales", "targets", "products"],
-    admin: ["overview", "sales", "targets", "products", "users"],
+    ps: ["overview", "sales", "analytics"],
+    manager: ["overview", "sales", "analytics", "targets", "products"],
+    district_manager: ["overview", "sales", "analytics", "targets", "products"],
+    admin: ["overview", "sales", "analytics", "targets", "products", "users"],
   };
   const PAGE_SIZE = 10;
   const PERCENT_DECIMALS = 4;
@@ -42,8 +43,15 @@
   let activePage = "overview";
   let loadSequence = 0;
   let resultsView = null;
-  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "", pages: {} };
+  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", pages: {} };
+  let salesLogExport = null;
+  let walkInDailyCtx = null;
+  let pacePopupShown = false;
 
+  function isTestSale(sale) {
+    const test = value => /^\s*test(?![a-z])/i.test(String(value || ""));
+    return test(sale.customer_name) || test(sale.invoice_number);
+  }
   function setAuthMessage(message, isError = false) {
     authMessage.textContent = message;
     authMessage.classList.toggle("error", isError);
@@ -106,6 +114,9 @@
     ui.branch = "";
     ui.date = "";
     ui.search = "";
+    ui.logBranch = "";
+    ui.logFrom = "";
+    ui.logTo = "";
     ui.pages = {};
   }
 
@@ -123,6 +134,8 @@
     resultsView = null;
     activePage = "overview";
     resetUi();
+    pacePopupShown = false;
+    document.querySelector(".edge-glow")?.remove();
     connectedSidebar.classList.remove("open");
     connectedShell.hidden = true;
     demoApp.hidden = true;
@@ -207,13 +220,16 @@
 
       currentProfile = { ...profile, full_name: titleCase(profile.full_name), assigned_brand: titleCase(profile.assigned_brand) };
       const isPsUser = profile.role === "ps";
+      const psDashboardMonth = ui.period === "day"
+        ? periodDay().slice(0, 7)
+        : ui.month || currentMonth();
       // Every branch holds an identical copy of the catalog, so one branch's copy is enough (keeps the app fast).
       let catalogBranch = profile.branch_id;
       if (!catalogBranch) {
         const probe = await client.from("products").select("branch_id").eq("active", true).limit(1);
         catalogBranch = probe.data?.[0]?.branch_id || null;
       }
-      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes] = await Promise.all([
+      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages] = await Promise.all([
         fetchAll("branches", "id,name,district_id", [["name", true], ["id", true]]),
         fetchAll("districts", "id,name", [["name", true], ["id", true]]),
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
@@ -225,6 +241,13 @@
         fetchAll("manager_branches", "manager_id,branch_id", [["manager_id", true], ["branch_id", true]]),
         isPsUser ? client.rpc("brand_branch_sales") : Promise.resolve({ data: [], error: null }),
                 fetchAll("payment_modes", "id,name,position", [["position", true], ["name", true]]),
+        isPsUser
+          ? client.rpc("get_ps_dashboard", { p_month: `${psDashboardMonth}-01` })
+          : Promise.resolve({ data: [], error: null }),
+        fetchAll("company_holidays", "holiday_date,label", [["holiday_date", true]]),
+        fetchAll("ps_walkins", "branch_id,ps_id,counted_on,clients_assisted", [["counted_on", false], ["ps_id", true]]),
+        fetchAll("branch_walkins", "branch_id,counted_on,visitors", [["counted_on", false], ["branch_id", true]]),
+        fetchAll("push_messages", "id,status,message,created_at", [["created_at", true], ["id", true]]),
               ]);
 
       const visibleBranches = checkResult(branches, "Unable to load accessible branches").map(item => ({ ...item, name: titleCase(item.name) }));
@@ -236,6 +259,7 @@
       const visibleProfiles = checkResult(profiles, "Unable to load accessible staff profiles")
         .map(item => ({ ...item, full_name: titleCase(item.full_name), assigned_brand: titleCase(item.assigned_brand) }));
       if (brandTargets.error) console.warn("Brand targets are unavailable.", brandTargets.error);
+      if (psDashboard.error) console.warn("The personal target summary is unavailable.", psDashboard.error);
 
       const lines = checkResult(saleLines, "Unable to load sale details")
         .map(item => ({ ...item, brand: titleCase(item.brand), model_description: titleCase(item.model_description), category: titleCase(item.category) || "", sub_category: titleCase(item.sub_category) || "" }));
@@ -244,6 +268,7 @@
 
       if (sequence !== loadSequence || !currentSession) return;
 
+      const testSaleIds = new Set(visibleSales.filter(isTestSale).map(item => item.id));
       const linesBySale = new Map();
       lines.forEach(line => {
         if (!linesBySale.has(line.sale_id)) linesBySale.set(line.sale_id, []);
@@ -255,8 +280,9 @@
         districts: visibleDistricts,
         targets: visibleTargets,
         brandTargets: brandTargets.error ? [] : brandTargets.data.map(item => ({ ...item, brand: titleCase(item.brand) })),
-        sales: visibleSales,
-        saleLines: lines,
+        sales: visibleSales.filter(item => !isTestSale(item)),
+        testSales: visibleSales.filter(isTestSale),
+        saleLines: lines.filter(line => !testSaleIds.has(line.sale_id)),
         linesBySale,
         products: visibleProducts,
         profiles: visibleProfiles,
@@ -270,6 +296,11 @@
           model_description: titleCase(item.model_description),
           ps_name: titleCase(item.ps_name),
         })),
+        psDashboard: isPsUser && !psDashboard.error ? psDashboard.data?.[0] || null : null,
+        holidays: holidays.error ? [] : holidays.data.map(item => ({ date: String(item.holiday_date).slice(0, 10), label: item.label || "" })),
+        psWalkins: psWalkins.error ? [] : psWalkins.data,
+        branchWalkins: branchWalkins.error ? [] : branchWalkins.data,
+        pushMessages: pushMessages.error ? [] : pushMessages.data,
       };
 
       document.querySelector("#connected-user-name").textContent = connectedUserLabel();
@@ -282,9 +313,14 @@
             ? `${roleLabels[profile.role]} · ${ownDistrict}`
             : roleLabels[profile.role];
       document.querySelector("#connected-user-role").textContent = roleDetail;
+      refreshPushButton(profile.role === "ps");
       if (!ui.month) ui.month = currentMonth();
       activePage = rolePageAllowed(activePage) ? activePage : "overview";
       renderConnected();
+      if (profile.role === "ps") {
+        showPacePopup();
+        autoRegisterPush();
+      }
     } catch (error) {
       if (sequence !== loadSequence) return;
       console.error("Unable to load the authenticated Branchline workspace.", error);
@@ -412,6 +448,38 @@
     })).sort((a, b) => natural(a.district, b.district) || natural(a.branch.name, b.branch.name));
   }
 
+  function personalTargetProgress() {
+    const branchId = currentProfile.branch_id;
+    const activePsCount = Number(liveData.psDashboard?.ps_count) || 0;
+    const branchTarget = liveData.targets
+      .filter(row => row.branch_id === branchId && targetInPeriod(row.month))
+      .reduce((total, row) => total + Number(row.amount), 0);
+    const target = activePsCount ? branchTarget / activePsCount : 0;
+    const actual = liveData.sales
+      .filter(sale => sale.ps_id === currentProfile.id
+        && sale.branch_id === branchId
+        && inStatus(sale.sold_on))
+      .reduce((total, sale) => total + saleTotal(sale), 0);
+    return { actual, target, branchTarget, activePsCount };
+  }
+
+  function psTargetCharts(scope) {
+    const personal = personalTargetProgress();
+    const count = personal.activePsCount;
+    return [
+      progressChart(personal.actual, personal.branchTarget, scope, {
+        title: "My sales vs store target",
+        currentLabel: "My sales",
+        emptyText: "No branch target is set for this period yet.",
+      }),
+      progressChart(personal.actual, personal.target, `${scope} · store target ÷ ${count} PS${count === 1 ? "" : "s"} in the branch`, {
+        title: "My sales vs my share of the store target",
+        currentLabel: "My sales",
+        emptyText: count ? "No branch target is set for this period yet." : "The Product Specialist count is unavailable, so your share cannot be calculated.",
+      }),
+    ];
+  }
+
   function brandRows() {
     const ids = scopeBranchIds();
     const actual = new Map();
@@ -439,7 +507,19 @@
     const subList = brand => [...(subs.get(brand) || [])].sort(natural).join(", ") || "—";
     return [...new Set([...actual.keys(), ...target.keys()])]
       .map(brand => ({ brand, category: list(brand), subCategory: subList(brand), actual: actual.get(brand) || 0, target: target.get(brand) || 0 }))
-      .sort((a, b) => b.actual - a.actual || natural(a.brand, b.brand));
+      .sort((a, b) => {
+        const progress = row => (row.target > 0 ? row.actual / row.target : -1);
+        if (ui.brandSort === "target") return b.target - a.target || natural(a.brand, b.brand);
+        if (ui.brandSort === "progress") return progress(b) - progress(a) || natural(a.brand, b.brand);
+        if (ui.brandSort === "brand") return natural(a.brand, b.brand);
+        return b.actual - a.actual || natural(a.brand, b.brand);
+      });
+  }
+
+  const BRAND_SORTS = [["sales", "Sales"], ["target", "Target"], ["progress", "Progress"], ["brand", "Brand (A–Z)"]];
+
+  function brandSortControl() {
+    return `<label class="field log-filter"><span>Rank by</span>${selectHTML("brandSort", BRAND_SORTS, ui.brandSort, 'data-filter="brandSort"')}</label>`;
   }
 
   function brandTable(brands, emptyText) {
@@ -572,7 +652,8 @@
       const start = angle;
       angle += fraction * Math.PI * 2;
       const mid = (start + angle) / 2;
-      const tip = entry.muted ? "" : ` class="pie-slice" data-tip="${escapeHTML(`${entry.label}|${showAmounts ? formatMoney(entry.value) : ""}|${entry.percentText}`)}"`;
+      const glowClass = entry.glow ? ` pie-glow pie-glow-${entry.glow}` : "";
+      const tip = entry.muted ? "" : ` class="pie-slice${glowClass}" data-tip="${escapeHTML(`${entry.label}|${showAmounts ? formatMoney(entry.value) : ""}|${entry.percentText}`)}"`;
       const shape = fraction > 0.9999
         ? `<circle r="1" fill="${color}"${tip}></circle>`
         : `<path${tip} d="M0 0 L${Math.cos(start).toFixed(4)} ${Math.sin(start).toFixed(4)} A1 1 0 ${fraction > 0.5 ? 1 : 0} 1 ${Math.cos(angle).toFixed(4)} ${Math.sin(angle).toFixed(4)} Z" fill="${color}" stroke="#fff" stroke-width="0.02"></path>`;
@@ -597,17 +678,53 @@
       ${legend}</div></section>`;
   }
 
+  // Share of the target that should be reached by today: 1 for finished months, 0 for future ones,
+  // and the share of selling days elapsed for the current month. Year-to-date weights each month by its own target.
+  function paceFraction(scopeIds) {
+    const A = window.BranchlineAnalytics;
+    const today = localISODate();
+    const rules = A.makeRules(ui.anBasis, companyHolidayDates());
+    const monthFraction = month => {
+      if (month < today.slice(0, 7)) return 1;
+      if (month > today.slice(0, 7)) return 0;
+      const refDate = ui.period === "day" && periodDay() < today ? periodDay() : today;
+      const fraction = A.expectedFraction({ month, refDate, rules, partialDay: refDate === today });
+      return fraction ?? 1;
+    };
+    if (ui.period !== "year") return monthFraction(anchorMonth());
+    let weighted = 0;
+    let total = 0;
+    liveData.targets.forEach(row => {
+      if ((scopeIds && !scopeIds.has(row.branch_id)) || !targetInPeriod(row.month)) return;
+      const amount = Number(row.amount);
+      total += amount;
+      weighted += amount * monthFraction(row.month.slice(0, 7));
+    });
+    return total > 0 ? weighted / total : monthFraction(anchorMonth());
+  }
+
+  // Red = behind pace, green = on pace, blue = target reached or exceeded.
+  function paceStatus(actual, target) {
+    if (actual >= target) return { key: "exceeded", color: "#355ee8", label: "Target reached" };
+    const expected = paceFraction();
+    if (actual >= target * expected) return { key: "on", color: "#16a34a", label: "On pace" };
+    return { key: "behind", color: "#dc2626", label: "Behind pace" };
+  }
+
   function progressChart(actual, target, subtitle, options = {}) {
     const title = options.title || "Target progress";
     if (!(target > 0)) {
       return `<section class="connected-panel pie-card"><div class="connected-panel-heading"><h2>${escapeHTML(title)}</h2><p>${escapeHTML(subtitle)}</p></div><div class="empty-state">${escapeHTML(options.emptyText || "No target is set for this selection.")}</div></section>`;
     }
     const showAmounts = options.amounts !== false;
+    const status = paceStatus(actual, target);
+    const expected = paceFraction();
+    const paceText = `${status.label}${status.key === "exceeded" ? "" : ` (expected ${(expected * 100).toFixed(1)}% by now)`}`;
     return pieChart(
       title,
-      showAmounts ? `Target ${formatMoney(target)} · ${subtitle}` : subtitle,
+      `${showAmounts ? `Target ${formatMoney(target)} · ${subtitle}` : subtitle} · ${paceText}`,
       [
-        { label: options.currentLabel || "Current sales", value: Math.min(actual, target), color: "#16a34a", percentText: percent(actual, target), labelText: percent(actual, target, 2) },
+        { label: options.currentLabel || "Current sales", value: Math.min(actual, target), color: status.color, glow: { behind: "red", on: "green", exceeded: "blue" }[status.key], percentText: percent(actual, target), labelText: percent(actual, target, 2) },
         { label: "Remaining", value: Math.max(target - actual, 0), color: "#e2e8f0", muted: true },
       ],
       options,
@@ -637,6 +754,12 @@
     return `<div class="connected-table-wrap" data-table-key="${key}"><table class="connected-table"><thead><tr>${headers.map(header => `<th>${escapeHTML(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
       <div class="connected-pager"><span>${from}–${to} of ${items.length}</span>
         <div><button class="button button-outline" type="button" data-pager="${key}" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>Previous</button><span>Page ${page} of ${pages}</span><button class="button button-outline" type="button" data-pager="${key}" data-page="${page + 1}" ${page >= pages ? "disabled" : ""}>Next</button></div></div>`;
+  }
+
+  // Exports a table that is not built with tableBlock; returns the Export button for the panel header.
+  function manualExport(key, title, headers, items, rowHtml) {
+    tableStore[key] = { headers, items, rowHtml, title };
+    return `<button class="button button-outline button-small" type="button" data-export-table="${key}">Export</button>`;
   }
 
   function panel(title, detail, content, action = "") {
@@ -707,10 +830,236 @@
     ).join("");
 
     if (activePage === "sales") renderSalesPage();
+    else if (activePage === "analytics") renderAnalyticsPage();
     else if (activePage === "targets") renderTargetsPage();
     else if (activePage === "products") renderProductsPage();
     else if (activePage === "users") renderPeoplePage();
     else renderOverview();
+  }
+
+  function analyticsFacts(ids) {
+    const sales = currentProfile.role === "ps" ? visibleSales() : liveData.sales;
+    const facts = [];
+    sales.forEach(sale => {
+      if (!ids.has(sale.branch_id)) return;
+      linesForSale(sale.id).forEach(line => {
+        facts.push({
+          date: sale.sold_on.slice(0, 10),
+          saleId: sale.id,
+          branchId: sale.branch_id,
+          psId: sale.ps_id,
+          brand: (line.brand || "").trim() || "Unbranded",
+          product: (line.model_description || "").trim() || "Unnamed product",
+          amount: Number(line.selling_price) * Number(line.quantity),
+        });
+      });
+    });
+    return facts;
+  }
+
+  function analyticsChart(series, target, days) {
+    const width = 640;
+    const height = 220;
+    const pad = { left: 56, right: 12, top: 12, bottom: 24 };
+    const last = series.forecast.at(-1)?.value ?? 0;
+    const max = Math.max(target || 0, last, series.actual.at(-1)?.value || 0, 1);
+    const x = day => pad.left + ((day - 1) / Math.max(days - 1, 1)) * (width - pad.left - pad.right);
+    const y = value => pad.top + (1 - value / max) * (height - pad.top - pad.bottom);
+    const path = points => points.map((point, index) => `${index ? "L" : "M"}${x(point.day).toFixed(1)} ${y(point.value).toFixed(1)}`).join(" ");
+    const targetLine = target > 0
+      ? `<line class="an-target" x1="${pad.left}" x2="${width - pad.right}" y1="${y(target).toFixed(1)}" y2="${y(target).toFixed(1)}"/><text class="an-axis" x="${width - pad.right}" y="${(y(target) - 4).toFixed(1)}" text-anchor="end">Target ${escapeHTML(formatMoney(target))}</text>`
+      : "";
+    const ticks = [0, 0.5, 1].map(fraction => `<text class="an-axis" x="${pad.left - 6}" y="${(y(max * fraction) + 4).toFixed(1)}" text-anchor="end">${escapeHTML(formatMoney(max * fraction).replace(/\.\d+$/, ""))}</text>`).join("");
+    const dayTicks = [1, Math.ceil(days / 2), days].map(day => `<text class="an-axis" x="${x(day).toFixed(1)}" y="${height - 6}" text-anchor="middle">${day}</text>`).join("");
+    return `<svg class="an-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Cumulative sales this month: actual, forecast and target">
+      <line class="an-grid" x1="${pad.left}" x2="${width - pad.right}" y1="${y(0)}" y2="${y(0)}"/>
+      ${ticks}${dayTicks}${targetLine}
+      ${series.forecast.length > 1 ? `<path class="an-forecast" d="${path(series.forecast)}"/>` : ""}
+      ${series.actual.length ? `<path class="an-actual" d="${path(series.actual)}"/>` : ""}
+    </svg>
+    <div class="an-legend"><span class="an-key an-key-actual">Actual</span><span class="an-key an-key-forecast">Forecast (projection, not actual)</span>${target > 0 ? '<span class="an-key an-key-target">Target</span>' : ""}</div>`;
+  }
+
+  function growthCell(value) {
+    if (value === null) return '<span class="an-muted">n/a</span>';
+    const sign = value > 0 ? "+" : "";
+    return `<span class="${value < 0 ? "an-down" : "an-up"}">${sign}${(value * 100).toFixed(1)}%</span>`;
+  }
+
+  function renderAnalyticsPage() {
+    const A = window.BranchlineAnalytics;
+    const isPs = currentProfile.role === "ps";
+    const monthSelect = `<label class="field"><span>Month</span><select data-filter="month">${availableMonths().map(month =>
+      `<option value="${month}" ${ui.month === month ? "selected" : ""}>${escapeHTML(monthLabel(month))}</option>`).join("")}</select></label>`;
+    const basisSelect = `<label class="field"><span>Forecast selling days</span><select data-filter="anBasis">${Object.entries(A.RULES).map(([value, rule]) =>
+      `<option value="${value}" ${ui.anBasis === value ? "selected" : ""}>${escapeHTML(rule.label)}</option>`).join("")}</select></label>`;
+    const canEditHolidays = ["admin", "district_manager"].includes(currentProfile.role);
+    const walkInButton = isPs
+      ? '<button class="button button-outline" type="button" data-open="walkin-ps">Log clients assisted</button>'
+      : '<button class="button button-outline" type="button" data-open="walkin-store">Record store visitors</button>';
+    const filters = `${filterBar({ district: true, branch: true })}<div class="connected-filters" role="group" aria-label="Analytics options">${monthSelect}${basisSelect}<div class="filter-actions">${walkInButton}</div></div>`;
+
+    mountPage(
+      pageHeading("Analytics", "Actual results and forecasts for the selected month. Forecasts are projections and are always labelled."),
+      "",
+      filters,
+      () => {
+        const ids = scopeBranchIds();
+        const month = ui.month;
+        const today = localISODate();
+        const monthStart = A.monthStart(month);
+        const monthEnd = A.monthEnd(month);
+        const isCurrent = month === today.slice(0, 7);
+        const refDate = isCurrent ? today : (month < today.slice(0, 7) ? monthEnd : null);
+        const holidayDates = companyHolidayDates();
+        const rules = A.makeRules(ui.anBasis, holidayDates);
+        const facts = analyticsFacts(ids);
+        const daily = A.dailyTotals(facts);
+        const warning = "";
+
+        const psProfiles = liveData.profiles.filter(profile => profile.role === "ps" && profile.active && ids.has(profile.branch_id));
+        const psCountByBranch = new Map();
+        psProfiles.forEach(profile => addTo(psCountByBranch, profile.branch_id, 1));
+        const branchTargets = new Map();
+        liveData.targets.forEach(row => {
+          if (ids.has(row.branch_id) && row.month.slice(0, 7) === month) addTo(branchTargets, row.branch_id, Number(row.amount));
+        });
+        let target;
+        let targetNote;
+        if (isPs) {
+          const count = Number(liveData.psDashboard?.ps_count) || 0;
+          const store = branchTargets.get(currentProfile.branch_id) || 0;
+          target = count ? store / count : 0;
+          targetNote = `Your share: store target ${formatMoney(store)} ÷ ${count} PS${count === 1 ? "" : "s"}`;
+        } else {
+          target = [...branchTargets.values()].reduce((sum, value) => sum + value, 0);
+          targetNote = `${branchTargets.size} branch target${branchTargets.size === 1 ? "" : "s"} for ${monthLabel(month)}`;
+        }
+
+        if (!refDate) {
+          return `${warning}<div class="empty-state">${escapeHTML(monthLabel(month))} has not started yet, so there are no actual results or forecast to show.</div>`;
+        }
+
+        const through = refDate > monthEnd ? monthEnd : refDate;
+        const actual = A.sumDaily(daily, monthStart, through);
+        const forecast = A.forecastMonth({ month, refDate, daily, rules, partialDay: isCurrent });
+        const pace = A.requiredPace({ target, actual, paceDays: forecast.paceDays });
+        const transactions = new Set(facts.filter(f => f.date >= monthStart && f.date <= through).map(f => f.saleId)).size;
+        const series = A.cumulativeSeries({ month, refDate, daily, rules, rate: forecast.status === "projected" ? forecast.rate : null });
+
+        const forecastText = forecast.status === "projected" || forecast.status === "final"
+          ? formatMoney(forecast.value) : "Not enough data";
+        const forecastSmall = forecast.status === "projected"
+          ? `Projection · ${percent(forecast.value, target)} of target · avg ${formatMoney(forecast.rate)} per selling day`
+          : forecast.status === "final" ? "Month complete: this is the actual result"
+            : `Needs at least 5 finished selling days (${forecast.elapsedDays} so far)`;
+        const gapText = target <= 0 ? "No target" : pace.met ? "Target reached" : formatMoney(pace.gap);
+        const gapSmall = target <= 0 ? "Set a target to see the gap"
+          : pace.met ? `Over target by ${formatMoney(actual - target)}`
+            : pace.perDay != null ? `${formatMoney(pace.perDay)} needed per remaining selling day (${forecast.paceDays})` : "No selling days remain";
+        const sharePerPs = isPs || !psProfiles.length ? null : actual / psProfiles.length;
+        const walk = A.walkInSummary({
+          from: monthStart,
+          to: through,
+          storeCounts: isPs ? [] : liveData.branchWalkins.filter(row => ids.has(row.branch_id)),
+          psCounts: liveData.psWalkins.filter(row => ids.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id)),
+          transactions: [...new Map(facts.filter(f => f.date >= monthStart && f.date <= through).map(f => [f.saleId, { id: f.saleId, branchId: f.branchId, date: f.date }])).values()],
+        });
+        walkInDailyCtx = { ids, isPs, monthStart, through };
+        const walkSource = walk.coveredDays === 0 ? "No counts recorded yet"
+          : isPs ? `${walk.coveredDays} day(s) logged`
+            : `${walk.storeDays} day(s) from store counts, ${walk.psDays} from PS counts`;
+
+        const cards = `<div class="connected-metrics">
+          <article class="connected-metric"><span>Actual sales · ${escapeHTML(monthLabel(month))}${isCurrent ? " (to date)" : ""}</span><strong>${formatMoney(actual)}</strong><small>${escapeHTML(targetNote)}</small></article>
+          <article class="connected-metric"><span>Target achievement</span><strong>${target > 0 ? percent(actual, target) : "No target"}</strong><small>Target ${target > 0 ? formatMoney(target) : "not set"}</small></article>
+          <article class="connected-metric"><span>Remaining gap</span><strong>${gapText}</strong><small>${escapeHTML(gapSmall)}</small></article>
+          <article class="connected-metric an-forecast-card"><span>${forecast.status === "final" ? "Month-end result" : `Forecast month-end <em class="an-badge">Forecast</em>`}</span><strong>${forecastText}</strong><small>${escapeHTML(forecastSmall)}</small></article>
+          <article class="connected-metric"><span>Transactions</span><strong>${transactions}</strong><small>Average value ${transactions ? formatMoney(A.average(actual, transactions)) : "n/a"}</small><button class="button button-outline button-small wk-daily-btn" type="button" data-open="transactions-daily">View daily</button></article>
+          ${isPs ? "" : `<article class="connected-metric"><span>Sales per PS</span><strong>${sharePerPs === null ? "n/a" : formatMoney(sharePerPs)}</strong><small>${psProfiles.length} active PS${psProfiles.length === 1 ? "" : "s"} in view</small></article>`}
+          <article class="connected-metric"><span>${isPs ? "Clients assisted" : "Walk-in traffic"}</span><strong>${walk.coveredDays ? walk.visitors : "No data"}</strong><small>${escapeHTML(walkSource)}</small><button class="button button-outline button-small wk-daily-btn" type="button" data-open="walkin-daily">View daily</button></article>
+          <article class="connected-metric"><span>Conversion rate</span><strong>${walk.conversion === null ? "n/a" : `${(walk.conversion * 100).toFixed(1)}%`}</strong><small>${walk.conversion === null ? "Needs recorded walk-in counts" : `${walk.transactions} sale${walk.transactions === 1 ? "" : "s"} ÷ ${walk.visitors} on counted days`}</small></article>
+        </div>`;
+
+        const sum = (from, to) => A.sumDaily(daily, from, to);
+        const weekFrom = A.weekStart(through);
+        const comparisons = [
+          ["Day", `${through}${isCurrent ? " (today, still in progress)" : ""}`, sum(through, through), sum(A.addDays(through, -1), A.addDays(through, -1)), "vs previous day"],
+          ["Week to date", `${weekFrom} – ${through}`, sum(weekFrom, through), sum(A.addDays(weekFrom, -7), A.addDays(through, -7)), "vs same days last week"],
+          ["Month to date", `${monthStart} – ${through}`, sum(monthStart, through), sum(A.monthStart(A.shiftMonth(month, -1)), A.sameDayPriorMonth(through)), "vs same days last month"],
+          ["Year to date", `${month.slice(0, 4)}-01-01 – ${through}`, sum(`${month.slice(0, 4)}-01-01`, through), sum(`${Number(month.slice(0, 4)) - 1}-01-01`, A.sameDayPriorYear(through)), "vs same period last year"],
+        ];
+        const comparisonTable = `<div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Period</th><th>Dates</th><th>Actual</th><th>Prior</th><th>Growth</th></tr></thead><tbody>${comparisons.map(([name, dates, current, prior, note]) =>
+          `<tr><td>${escapeHTML(name)}<br><small class="an-muted">${escapeHTML(note)}</small></td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${growthCell(A.growth(current, prior))}</td></tr>`).join("")}</tbody></table></div>`;
+
+        const chartPanel = panel("Cumulative sales vs target", `${A.RULES[ui.anBasis].label}${holidayDates.length ? `, ${holidayDates.length} store-closed date(s) excluded` : ""}. Solid = actual, dashed = forecast.`,
+          `<div class="an-chart-wrap">${analyticsChart(series, target, series.days)}</div>`);
+
+        const current = { from: monthStart, to: through };
+        const previous = { from: A.monthStart(A.shiftMonth(month, -1)), to: A.sameDayPriorMonth(through) };
+        const dims = [["brand", "Brand"], ["product", "Product"]];
+        if (!isPs) dims.push(["ps", "Product Specialist"]);
+        if (!isPs && ids.size > 1) dims.push(["branch", "Branch"]);
+        if (!isPs && new Set([...ids].map(id => liveData.branches.find(b => b.id === id)?.district_id)).size > 1) dims.push(["district", "District"]);
+        const dim = dims.some(([value]) => value === ui.anDim) ? ui.anDim : "brand";
+        const keyOf = {
+          brand: f => f.brand,
+          product: f => f.product,
+          ps: f => liveData.profiles.find(p => p.id === f.psId)?.full_name || "Staff member",
+          branch: f => branchName(f.branchId),
+          district: f => branchDistrictName(f.branchId),
+        }[dim];
+        const trend = A.groupTrend(facts, keyOf, current, previous);
+        const dimLabel = dims.find(([value]) => value === dim)[1];
+        const trendPanel = panel(`Trend by ${dimLabel.toLowerCase()}`, "Month to date vs the same days last month.",
+          tableBlock("an-trend", [dimLabel, "Month to date", "Prior period", "Growth", "Share"], trend,
+            row => `<tr><td>${escapeHTML(row.key)}</td><td>${formatMoney(row.current)}</td><td>${formatMoney(row.previous)}</td><td>${growthCell(row.growth)}</td><td>${row.share === null ? "n/a" : (row.share * 100).toFixed(1) + "%"}</td></tr>`,
+            "No sales in this period."),
+          `<label class="field an-inline"><span class="visually-hidden">Group by</span><select data-filter="anDim">${dims.map(([value, label]) =>
+            `<option value="${value}" ${dim === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>`);
+
+        let psPanel = "";
+        if (!isPs) {
+          const entries = psProfiles.map(profile => {
+            const count = psCountByBranch.get(profile.branch_id) || 0;
+            const share = count ? (branchTargets.get(profile.branch_id) || 0) / count : 0;
+            const own = facts.filter(f => f.psId === profile.id && f.branchId === profile.branch_id && f.date >= monthStart && f.date <= through)
+              .reduce((total, f) => total + f.amount, 0);
+            return { name: profile.full_name || "Staff member", branch: branchName(profile.branch_id), actual: own, target: share };
+          });
+          const result = A.topAndBottom(entries, 3);
+          const expected = A.expectedFraction({ month, refDate, rules, partialDay: isCurrent });
+          const row = entry => {
+            const behind = expected !== null && entry.achievement < expected;
+            return `<tr><td>${escapeHTML(entry.name)}<br><small class="an-muted">${escapeHTML(entry.branch)}</small></td><td>${formatMoney(entry.actual)}</td><td>${formatMoney(entry.target)}</td><td>${(entry.achievement * 100).toFixed(1)}%</td><td>${behind ? '<span class="an-down">Behind pace</span>' : '<span class="an-up">On pace</span>'}</td></tr>`;
+          };
+          const head = "<thead><tr><th>Product Specialist</th><th>Actual</th><th>Individual target</th><th>Achievement</th><th>Pace</th></tr></thead>";
+          const table = list => list.length
+            ? `<div class="connected-table-wrap"><table class="connected-table">${head}<tbody>${list.map(row).join("")}</tbody></table></div>`
+            : '<div class="empty-state">Not enough Product Specialists with a target to rank.</div>';
+          const skipped = entries.length - result.ranked;
+          const paceNote = expected === null ? "" : ` Expected progress by now: ${(expected * 100).toFixed(1)}% of the month's selling days.`;
+          const skipNote = skipped ? ` ${skipped} PS${skipped === 1 ? "" : "s"} without a branch target are not ranked.` : "";
+          const exportHead = ["Product Specialist", "Branch", "Actual", "Individual target", "Achievement", "Pace"];
+          const exportRow = entry => {
+            const behind = expected !== null && entry.achievement < expected;
+            return `<tr><td>${escapeHTML(entry.name)}</td><td>${escapeHTML(entry.branch)}</td><td>${formatMoney(entry.actual)}</td><td>${formatMoney(entry.target)}</td><td>${(entry.achievement * 100).toFixed(1)}%</td><td>${behind ? "Behind pace" : "On pace"}</td></tr>`;
+          };
+          psPanel = `${panel("Top performers", `Individual target = branch target ÷ active PSs in the branch.${paceNote}${skipNote}`, table(result.top), manualExport("an-top", "Top performers", exportHead, result.top, exportRow))}
+            ${panel("Needs attention", "Lowest target achievement.", table(result.bottom), manualExport("an-bottom", "Needs attention", exportHead, result.bottom, exportRow))}`;
+        }
+
+        const missing = `<p class="an-note">Walk-in traffic and conversion use only days with a recorded count. A store count entered by a manager overrides the sum of PS counts. Nothing is estimated.</p>`;
+        const holidayRows = liveData.holidays.map(item => `<tr><td>${escapeHTML(item.date)}</td><td>${escapeHTML(item.label || "")}</td>${canEditHolidays ? `<td><button class="button button-outline" type="button" data-holiday-delete="${escapeHTML(item.date)}">Delete</button></td>` : ""}</tr>`).join("");
+        const holidayTable = liveData.holidays.length
+          ? `<div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Date</th><th>Label</th>${canEditHolidays ? "<th></th>" : ""}</tr></thead><tbody>${holidayRows}</tbody></table></div>`
+          : '<p class="an-note">No store-closed dates set.</p>';
+        const holidayPanel = panel("Store-closed dates", canEditHolidays ? "Company-wide. These dates are skipped in forecasts." : "Company-wide. Managed by district managers and admins.",
+          `${canEditHolidays ? '<p><button class="button" type="button" data-open="holiday">Add date</button></p>' : ""}${holidayTable}`);
+        return `${warning}${cards}${chartPanel}${panel("Period comparison", "Growth compares like-for-like elapsed days.", comparisonTable, manualExport("an-compare", "Period comparison", ["Period", "Comparison", "Dates", "Actual", "Prior", "Growth"], comparisons,
+          ([name, dates, current, prior, note]) => { const g = A.growth(current, prior); return `<tr><td>${escapeHTML(name)}</td><td>${escapeHTML(note)}</td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${g === null ? "n/a" : (g * 100).toFixed(1) + "%"}</td></tr>`; }))}${trendPanel}${psPanel}${holidayPanel}${missing}`;
+      },
+    );
   }
 
   function renderOverview() {
@@ -728,7 +1077,8 @@
         const totalYtd = rows.reduce((total, row) => total + row.ytd, 0);
         const totalYtdTarget = rows.reduce((total, row) => total + row.ytdTarget, 0);
         const periodTargetLabel = ui.period === "year" ? "Year-to-date target" : "Monthly target";
-        const charts = [progressChart(totalSales, totalTarget, label)];
+        const isPs = currentProfile.role === "ps";
+        const charts = isPs ? psTargetCharts(label) : [progressChart(totalSales, totalTarget, label)];
         if (rows.length > 1) {
           charts.push(pieChart("Sales by branch", label, rows.map(row => ({ label: row.branch.name, value: row.actual }))));
         }
@@ -748,7 +1098,7 @@
             "No branches match this selection.",
             5,
           ))}
-          ${panel("Brand performance", "Highest sales first.", brandTable(brands, "No brand sales for this selection."))}
+          ${panel("Brand performance", "Ranked by the selected measure.", brandTable(brands, "No brand sales for this selection."), currentProfile.role === "ps" ? "" : `${brandSortControl()}`)}
           ${psRankingPanel()}`;
       },
     );
@@ -768,38 +1118,48 @@
       () => {
         const ids = scopeBranchIds();
         const query = searchQuery();
-        const sales = visibleSales()
-          .filter(sale => ids.has(sale.branch_id) && inPeriod(sale.sold_on))
+        const logRange = !isPs && Boolean(ui.logFrom || ui.logTo);
+        const logSource = [...visibleSales(), ...liveData.testSales.filter(sale => !isPs || sale.ps_id === currentProfile.id)];
+        const sales = logSource
+          .filter(sale => ids.has(sale.branch_id)
+            && (isPs || !ui.logBranch || sale.branch_id === ui.logBranch)
+            && (logRange ? (!ui.logFrom || sale.sold_on >= ui.logFrom) && (!ui.logTo || sale.sold_on <= ui.logTo) : inPeriod(sale.sold_on)))
           .map(sale => ({
             sale,
+            isTest: isTestSale(sale),
             branch: branchName(sale.branch_id),
             person: isPs ? "You" : liveData.profiles.find(profile => profile.id === sale.ps_id)?.full_name || "Staff member",
+            lines: linesForSale(sale.id).map(line => `${line.model_description} × ${line.quantity}`),
             products: linesForSale(sale.id).map(line => `${line.model_description} × ${line.quantity}`).join(", "),
             total: saleTotal(sale),
           }))
           .filter(row => matches(query, row.sale.invoice_number, row.sale.customer_name, row.products, row.person, row.branch))
           .sort((a, b) => natural(a.branch, b.branch) || String(b.sale.created_at).localeCompare(String(a.sale.created_at)));
-        const total = sales.reduce((sum, row) => sum + row.total, 0);
+        const total = sales.filter(row => !row.isTest).reduce((sum, row) => sum + row.total, 0);
+        const testCount = sales.filter(row => row.isTest).length;
+        const isAdmin = currentProfile.role === "admin";
         const scope = statusLabel();
         const rows = branchRows();
-        const charts = [progressChart(
-          rows.reduce((sum, row) => sum + row.actual, 0),
-          rows.reduce((sum, row) => sum + row.target, 0),
-          scope,
-          isPs ? { title: "My sales vs branch target", currentLabel: "My sales" } : {},
-        )];
+        const charts = isPs
+          ? psTargetCharts(scope)
+          : [progressChart(rows.reduce((sum, row) => sum + row.actual, 0), rows.reduce((sum, row) => sum + row.target, 0), scope)];
         if (isPs) charts.push(brandProgressChart(scope));
         if (rows.length > 1) {
           charts.push(pieChart("Sales by branch", scope, rows.map(row => ({ label: row.branch.name, value: row.actual }))));
         }
         charts.push(brandPie("Sales by brand", isPs ? `${scope} · my sales` : scope, brandRows().map(row => ({ label: row.brand, value: row.actual }))));
-        const tools = `<div class="table-tools"><label class="table-search"><span class="visually-hidden">Search sales log</span><input type="search" data-filter="search" placeholder="Search invoice, customer, product, staff" value="${escapeHTML(ui.search)}" autocomplete="off"></label><button class="button button-outline" type="button" data-export="sales">Export</button></div>`;
+        salesLogExport = new Set(sales.map(row => row.sale.id));
+        const logBranches = liveData.branches.filter(branch => ids.has(branch.id)).sort((a, b) => natural(a.name, b.name));
+        const logFilters = isPs ? "" : `${logBranches.length > 1 ? `<label class="field log-filter"><span>Branch</span><select data-filter="logBranch"><option value="">All branches</option>${logBranches.map(branch =>
+          `<option value="${escapeHTML(branch.id)}" ${branch.id === ui.logBranch ? "selected" : ""}>${escapeHTML(branch.name)}</option>`).join("")}</select></label>` : ""}<label class="field log-filter"><span>From</span><input type="date" data-filter="logFrom" value="${escapeHTML(ui.logFrom)}"></label><label class="field log-filter"><span>To</span><input type="date" data-filter="logTo" value="${escapeHTML(ui.logTo)}"></label>${ui.logBranch || logRange ? '<button class="button button-outline" type="button" data-log-clear>Clear</button>' : ""}`;
+        const tools = `<div class="table-tools">${logFilters}<label class="table-search"><span class="visually-hidden">Search sales log</span><input type="search" data-filter="search" placeholder="Search invoice, customer, product, staff" value="${escapeHTML(ui.search)}" autocomplete="off"></label><button class="button button-outline" type="button" data-export="sales">Export</button></div>`;
+        const rangeNote = logRange ? `${ui.logFrom || "start"} to ${ui.logTo || "today"} · ` : ui.period === "day" ? "this day only · " : "";
         return `<div class="connected-charts">${charts.join("")}</div>
-          ${panel(isPs ? "My sales log" : "Sales log", `${sales.length} sale${sales.length === 1 ? "" : "s"} · ${formatMoney(total)} · ${ui.period === "day" ? "this day only · " : ""}ordered by branch, then newest first.`, tableBlock(
+          ${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} · ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by branch, then newest first.`, tableBlock(
             "sales",
-            ["Invoice", "Customer", "Products", "Payment", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(isPs ? [""] : [])],
+            ["Invoice", "Customer", "Products", "Payment", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(isPs || isAdmin ? [""] : [])],
             sales,
-            row => `<tr><td><strong>${escapeHTML(row.sale.invoice_number)}</strong></td><td>${escapeHTML(row.sale.customer_name)}</td><td>${escapeHTML(row.products || "—")}</td><td>${escapeHTML(row.sale.payment_mode || "—")}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td>${escapeHTML(new Date(row.sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</td><td><strong>${formatMoney(row.total)}</strong></td>${isPs ? `<td><button class="button button-outline button-small" type="button" data-edit-sale="${escapeHTML(row.sale.id)}">Edit</button></td>` : ""}</tr>`,
+            row => `<tr${row.isTest ? ' class="test-row"' : ""}><td><strong>${escapeHTML(row.sale.invoice_number)}</strong>${row.isTest ? ' <span class="test-badge">TEST – not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}</td><td>${row.lines.length ? row.lines.map(line => `<div class="product-line">${escapeHTML(line)}</div>`).join("") : "—"}</td><td>${escapeHTML(row.sale.payment_mode || "—")}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td>${escapeHTML(new Date(row.sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</td><td><strong>${formatMoney(row.total)}</strong></td>${isPs ? `<td><button class="button button-outline button-small" type="button" data-edit-sale="${escapeHTML(row.sale.id)}">Edit</button></td>` : isAdmin ? `<td><button class="button button-outline button-small button-danger" type="button" data-delete-sale="${escapeHTML(row.sale.id)}">Delete</button></td>` : ""}</tr>`,
             "No sales match these filters.",
           ), tools)}${isPs ? brandLogPanel() : ""}`;
       },
@@ -1037,7 +1397,7 @@
           "No targets match these filters.",
         ))}
         <div class="connected-charts">${pieChart("Sales by brand", scope, brands.map(row => ({ label: row.brand, value: row.actual })))}</div>
-        ${panel("Brand performance", `${scope} · highest sales first.`, brandTable(brands, "No brand sales or targets for this selection."))}
+        ${panel("Brand performance", `${scope} · ranked by the selected measure.`, brandTable(brands, "No brand sales or targets for this selection."), currentProfile.role === "ps" ? "" : `${brandSortControl()}`)}
         ${psRankingPanel()}`;
       },
     );
@@ -1148,9 +1508,201 @@
             return `<tr><td><strong>${escapeHTML(p.full_name)}</strong></td><td>${escapeHTML(row.role)}</td><td>${escapeHTML(row.brand)}</td><td>${escapeHTML(row.district)}</td><td>${escapeHTML(row.branch)}</td><td>${p.active ? "Active" : "Disabled"}</td><td class="manage-cell">${buttons}</td></tr>`;
           },
           "No staff profiles match these filters.",
-        )) + `<section class="panel danger-zone"><h2>Danger zone</h2><p>Permanently delete all districts, branches, staff logins, products, sales, targets and history. Administrator accounts and payment modes are kept. This cannot be undone.</p><button class="button button-danger" type="button" data-open="wipe">Delete all data</button></section>`;
+        )) + pushMessagesPanel() + `<section class="panel danger-zone"><h2>Danger zone</h2><p>Permanently delete all districts, branches, staff logins, products, sales, targets and history. Administrator accounts and payment modes are kept. This cannot be undone.</p><button class="button button-danger" type="button" data-open="wipe">Delete all data</button></section>`;
       },
     );
+  }
+
+  function companyHolidayDates() {
+    return (liveData.holidays || []).map(item => item.date);
+  }
+
+  const PACE_STATUS_LABELS = { behind: "Behind the pace", on: "On track", exceeded: "More than target" };
+
+  function pushMessagesPanel() {
+    if (currentProfile.role !== "admin") return "";
+    const groups = Object.entries(PACE_STATUS_LABELS).map(([status, label]) => {
+      const items = (liveData.pushMessages || []).filter(item => item.status === status);
+      const list = items.length
+        ? `<ul class="push-list">${items.map(item => `<li><span>${escapeHTML(item.message)}</span><button class="button button-outline button-small" type="button" data-push-delete="${escapeHTML(item.id)}">Delete</button></li>`).join("")}</ul>`
+        : '<p class="an-note">No messages yet. A built-in default is used until you add one.</p>';
+      return `<div class="push-group"><div class="push-group-head"><h3>${escapeHTML(label)}</h3><button class="button button-outline button-small" type="button" data-open="push-message" data-status="${status}">+ Add message</button></div>${list}</div>`;
+    }).join("");
+    return panel("Alert messages", "Sent daily as a push notification and shown after a PS signs in.     When several messages exist for a status, one is picked at random.", `<div class="push-groups">${groups}</div>${PLACEHOLDER_LEGEND}`);
+  }
+
+  const PLACEHOLDER_LEGEND = `<dl class="push-legend">
+    <dt>{name}</dt><dd>The Product Specialist's first name. Example: <em>Maria</em></dd>
+    <dt>{sold}</dt><dd>Their own sales so far this month (before today). Example: <em>₱1,250,000.00</em></dd>
+    <dt>{expected}</dt><dd>How much they should have sold by now to stay on pace (their share × the share of selling days passed). Example: <em>₱1,800,000.00</em></dd>
+    <dt>{share}</dt><dd>Their individual monthly target: the branch target ÷ number of PS in the branch. Example: <em>₱4,000,000.00</em></dd>
+  </dl>
+  <p class="an-note">Each placeholder is replaced with that person's own figures when the alert is sent, so every PS sees their own name and numbers.</p>`;
+
+  function openPushMessageModal(status) {
+    openModal({
+      title: `Add message · ${PACE_STATUS_LABELS[status]}`,
+      intro: "Placeholders are filled in automatically for each Product Specialist.",
+      submitLabel: "Add message",
+      body: fieldHTML("Message", "message", '<textarea name="message" rows="3" maxlength="240" required></textarea>') + PLACEHOLDER_LEGEND,
+      onSubmit: async form => {
+        mustRpc(await client.rpc("save_push_message", { p_status: status, p_message: form.elements.message.value.trim() }));
+        await refreshData();
+      },
+    });
+  }
+
+  function openDeleteSaleModal(sale) {
+    openModal({
+      title: "Delete transaction",
+      intro: `Permanently delete invoice ${sale.invoice_number} (${sale.customer_name}) and all of its items? A snapshot is kept in the deletion record, but the sale is removed from every total.`,
+      submitLabel: "Delete transaction",
+      body: "",
+      onSubmit: async () => {
+        mustRpc(await client.rpc("admin_delete_sale", { p_sale_id: sale.id }));
+        await refreshData();
+      },
+    });
+  }
+
+  function openHolidayModal() {
+    openModal({
+      title: "Add store-closed date",
+      intro: "Applies company-wide. The date is skipped when counting selling days in forecasts.",
+      submitLabel: "Add date",
+      body: fieldHTML("Date", "date", '<input name="date" type="date" required>') + fieldHTML("Label (optional)", "label", '<input name="label" maxlength="80" placeholder="e.g. Christmas Day">'),
+      onSubmit: async form => {
+        mustRpc(await client.rpc("save_company_holiday", { p_date: form.elements.date.value, p_label: form.elements.label.value.trim() || null }));
+        await refreshData();
+      },
+    });
+  }
+
+  function openWalkInModal(kind) {
+    const today = localISODate();
+    const isStore = kind === "store";
+    const branches = liveData.branches.filter(branch => scopeBranchIds().has(branch.id));
+    const branchField = isStore
+      ? fieldHTML("Branch", "branch", selectHTML("branch", branches.map(branch => [branch.id, branch.name]), branches[0]?.id || "")) : "";
+    openModal({
+      title: isStore ? "Record store visitors" : "Log clients assisted",
+      intro: isStore
+        ? "Total visitors for the whole store. This overrides the sum of PS counts for that day. Leave the count blank to clear it."
+        : "How many clients you assisted that day, whether or not they bought. Saving again replaces your count for that date.",
+      submitLabel: "Save",
+      body: branchField + fieldHTML("Date", "date", `<input name="date" type="date" max="${today}" value="${today}" required>`)
+        + fieldHTML(isStore ? "Visitors" : "Clients assisted", "count", `<input name="count" type="number" min="0" step="1" ${isStore ? "" : "required"}>`),
+      onSubmit: async form => {
+        const raw = form.elements.count.value.trim();
+        if (isStore) {
+          mustRpc(await client.rpc("save_branch_walkins", { p_branch_id: form.elements.branch.value, p_date: form.elements.date.value, p_count: raw === "" ? null : Number(raw) }));
+        } else {
+          mustRpc(await client.rpc("save_ps_walkins", { p_date: form.elements.date.value, p_count: Number(raw) }));
+        }
+        await refreshData();
+      },
+    });
+  }
+
+  function openWalkInDailyModal() {
+    const A = window.BranchlineAnalytics;
+    const ctx = walkInDailyCtx;
+    if (!ctx) return;
+    const { ids, isPs, monthStart, through } = ctx;
+    const storeCounts = isPs ? [] : liveData.branchWalkins.filter(row => ids.has(row.branch_id));
+    const psCounts = liveData.psWalkins.filter(row => ids.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id));
+    const transactions = [...new Map(analyticsFacts(ids).map(f => [f.saleId, { id: f.saleId, branchId: f.branchId, date: f.date }])).values()];
+    const summarize = (from, to) => A.walkInSummary({ from, to, storeCounts, psCounts, transactions });
+    const label = isPs ? "Clients assisted" : "Walk-in traffic";
+    const total = summarize(monthStart, through);
+    const priorFrom = A.sameDayPriorYear(monthStart);
+    const priorTo = A.sameDayPriorYear(through);
+    const priorTotal = summarize(priorFrom, priorTo);
+    const rate = summary => (summary.conversion === null ? "n/a" : `${(summary.conversion * 100).toFixed(1)}%`);
+    const value = summary => (summary.coveredDays ? summary.visitors : "—");
+    const change = (now, before) => {
+      if (!now.coveredDays || !before.coveredDays) return '<span class="an-muted">n/a</span>';
+      const diff = now.visitors - before.visitors;
+      const pct = before.visitors ? ` (${diff > 0 ? "+" : ""}${((diff / before.visitors) * 100).toFixed(1)}%)` : "";
+      return `<span class="${diff < 0 ? "an-down" : "an-up"}">${diff > 0 ? "+" : ""}${diff}${pct}</span>`;
+    };
+    const days = [];
+    for (let day = monthStart; day <= through; day = A.addDays(day, 1)) days.push(day);
+    const body = days.map(day => {
+      const now = summarize(day, day);
+      const before = summarize(A.sameDayPriorYear(day), A.sameDayPriorYear(day));
+      return `<tr><td>${escapeHTML(day)}</td><td>${value(now)}</td><td>${escapeHTML(A.sameDayPriorYear(day))}</td><td>${value(before)}</td><td>${change(now, before)}</td></tr>`;
+    }).reverse().join("");
+    closeModal();
+    modalRoot = document.createElement("div");
+    modalRoot.className = "dlg-backdrop";
+    const root = modalRoot;
+    root.innerHTML = `<div class="dlg dlg-xwide" role="dialog" aria-modal="true" aria-label="${escapeHTML(label)} by day">
+      <div class="dlg-head"><h2>${escapeHTML(label)} · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div>
+      <div class="dlg-form">
+        <div class="connected-metrics wk-totals">
+          <article class="connected-metric"><span>This year (month to date)</span><strong>${value(total)}</strong><small>${total.coveredDays} day(s) counted · conversion ${rate(total)}</small></article>
+          <article class="connected-metric"><span>Same days last year</span><strong>${value(priorTotal)}</strong><small>${priorTotal.coveredDays} day(s) counted · conversion ${rate(priorTotal)}</small></article>
+          <article class="connected-metric"><span>Change</span><strong>${change(total, priorTotal)}</strong><small>Only days with a recorded count are included</small></article>
+        </div>
+        <div class="ps-lines"><table class="connected-table"><thead><tr><th>Date</th><th>This year</th><th>Last year date</th><th>Last year</th><th>Change</th></tr></thead><tbody>${body}</tbody></table></div>
+        <div class="dlg-actions"><button class="button button-primary" type="button" data-modal-close>Close</button></div>
+      </div></div>`;
+    document.body.appendChild(root);
+    root.addEventListener("pointerdown", event => {
+      if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
+    });
+  }
+
+  function openTransactionsDailyModal() {
+    const A = window.BranchlineAnalytics;
+    const ctx = walkInDailyCtx;
+    if (!ctx) return;
+    const { ids, monthStart, through } = ctx;
+    const perDay = new Map();
+    analyticsFacts(ids).forEach(f => {
+      if (!perDay.has(f.date)) perDay.set(f.date, new Set());
+      perDay.get(f.date).add(f.saleId);
+    });
+    const count = (from, to) => {
+      let total = 0;
+      perDay.forEach((set, date) => { if (date >= from && date <= to) total += set.size; });
+      return total;
+    };
+    const total = count(monthStart, through);
+    const priorTotal = count(A.sameDayPriorYear(monthStart), A.sameDayPriorYear(through));
+    const change = (now, before) => {
+      const diff = now - before;
+      const pct = before ? ` (${diff > 0 ? "+" : ""}${((diff / before) * 100).toFixed(1)}%)` : "";
+      return `<span class="${diff < 0 ? "an-down" : "an-up"}">${diff > 0 ? "+" : ""}${diff}${pct}</span>`;
+    };
+    const days = [];
+    for (let day = monthStart; day <= through; day = A.addDays(day, 1)) days.push(day);
+    const body = days.map(day => {
+      const prior = A.sameDayPriorYear(day);
+      const now = perDay.get(day)?.size || 0;
+      const before = perDay.get(prior)?.size || 0;
+      return `<tr><td>${escapeHTML(day)}</td><td>${now}</td><td>${escapeHTML(prior)}</td><td>${before}</td><td>${change(now, before)}</td></tr>`;
+    }).reverse().join("");
+    closeModal();
+    modalRoot = document.createElement("div");
+    modalRoot.className = "dlg-backdrop";
+    const root = modalRoot;
+    root.innerHTML = `<div class="dlg dlg-xwide" role="dialog" aria-modal="true" aria-label="Transactions by day">
+      <div class="dlg-head"><h2>Transactions · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div>
+      <div class="dlg-form">
+        <div class="connected-metrics wk-totals">
+          <article class="connected-metric"><span>This year (month to date)</span><strong>${total}</strong><small>TEST transactions are not counted</small></article>
+          <article class="connected-metric"><span>Same days last year</span><strong>${priorTotal}</strong><small>${escapeHTML(A.sameDayPriorYear(monthStart))} to ${escapeHTML(A.sameDayPriorYear(through))}</small></article>
+          <article class="connected-metric"><span>Change</span><strong>${change(total, priorTotal)}</strong><small>Versus the same days last year</small></article>
+        </div>
+        <div class="ps-lines"><table class="connected-table"><thead><tr><th>Date</th><th>This year</th><th>Last year date</th><th>Last year</th><th>Change</th></tr></thead><tbody>${body}</tbody></table></div>
+        <div class="dlg-actions"><button class="button button-primary" type="button" data-modal-close>Close</button></div>
+      </div></div>`;
+    document.body.appendChild(root);
+    root.addEventListener("pointerdown", event => {
+      if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
+    });
   }
 
   function openWipeModal() {
@@ -1787,7 +2339,7 @@
 
   function exportSales() {
     const stamp = localISODate();
-    const sales = visibleSales();
+    const sales = visibleSales().filter(sale => !salesLogExport || salesLogExport.has(sale.id));
     const detail = [["Sale date", "Invoice", "Customer", "District", "Branch", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment"]];
     const byBranch = new Map();
     const byBrand = new Map();
@@ -1981,6 +2533,26 @@
     else if (open === "branch") openBranchModal();
     else if (open === "user") openUserModal();
     else if (open === "wipe") openWipeModal();
+    else if (open === "holiday") openHolidayModal();
+    else if (open === "walkin-ps") openWalkInModal("ps");
+    else if (open === "walkin-store") openWalkInModal("store");
+    else if (open === "walkin-daily") openWalkInDailyModal();
+    else if (open === "transactions-daily") openTransactionsDailyModal();
+    else if (open === "push-message") openPushMessageModal(event.target.closest("[data-open]").dataset.status);
+    const pushDelete = event.target.closest("[data-push-delete]");
+    if (pushDelete) {
+      pushDelete.disabled = true;
+      client.rpc("delete_push_message", { p_id: pushDelete.dataset.pushDelete })
+        .then(result => { mustRpc(result); return refreshData(); })
+        .catch(error => { pushDelete.disabled = false; alert(error.message || "Could not delete the message."); });
+    }
+    const holidayDelete = event.target.closest("[data-holiday-delete]");
+    if (holidayDelete) {
+      holidayDelete.disabled = true;
+      client.rpc("delete_company_holiday", { p_date: holidayDelete.dataset.holidayDelete })
+        .then(result => { mustRpc(result); return refreshData(); })
+        .catch(error => { holidayDelete.disabled = false; alert(error.message || "Could not delete the date."); });
+    }
     const geo = event.target.closest("[data-geo]");
     if (geo) {
       const [action, kind] = geo.dataset.geo.split("-");
@@ -1991,6 +2563,13 @@
     if (edit) {
       const target = liveData.targets.find(item => item.id === edit.dataset.editTarget);
       if (target) openTargetModal(target);
+    }
+    if (event.target.closest("[data-log-clear]")) {
+      ui.logBranch = "";
+      ui.logFrom = "";
+      ui.logTo = "";
+      ui.pages = {};
+      refreshResults();
     }
     if (event.target.closest("[data-export]")) {
       try { exportSales(); } catch (error) { console.error("Export failed.", error); }
@@ -2007,8 +2586,13 @@
     }
     const editSale = event.target.closest("[data-edit-sale]");
     if (editSale) {
-      const sale = liveData.sales.find(item => item.id === editSale.dataset.editSale);
+      const sale = [...liveData.sales, ...liveData.testSales].find(item => item.id === editSale.dataset.editSale);
       if (sale) openSaleModal(sale);
+    }
+    const deleteSale = event.target.closest("[data-delete-sale]");
+    if (deleteSale && currentProfile.role === "admin") {
+      const sale = [...liveData.sales, ...liveData.testSales].find(item => item.id === deleteSale.dataset.deleteSale);
+      if (sale) openDeleteSaleModal(sale);
     }
     const peopleAction = event.target.closest("[data-person]");
     if (peopleAction) {
@@ -2030,6 +2614,164 @@
       `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${localISODate()}`);
   }
 
+  // ---------- Push notifications (behind-pace alerts for PSs) ----------
+  const pushSupported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  const pushButton = () => document.querySelector("#push-toggle");
+
+  function vapidKeyBytes(key) {
+    const padded = (key + "=".repeat((4 - (key.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/");
+    return Uint8Array.from(atob(padded), char => char.charCodeAt(0));
+  }
+
+  async function currentPushSubscription() {
+    const registration = await navigator.serviceWorker.ready;
+    return registration.pushManager.getSubscription();
+  }
+
+  async function refreshPushButton(isPs) {
+    const button = pushButton();
+    if (!button) return;
+    if (!isPs || !config.vapidPublicKey) { button.hidden = true; return; }
+    button.hidden = false;
+    if (!pushSupported) {
+      button.disabled = true;
+      button.textContent = "Notifications not supported here";
+      return;
+    }
+    if (Notification.permission === "denied") {
+      button.disabled = true;
+      button.textContent = "Notifications blocked in browser";
+      return;
+    }
+    button.disabled = false;
+    const subscription = await currentPushSubscription().catch(() => null);
+    button.textContent = subscription ? "Turn off pace alerts" : "Turn on pace alerts";
+    button.dataset.on = subscription ? "1" : "";
+  }
+
+  const pushOptOutKey = () => `branchline-push-off-${currentProfile?.id || ""}`;
+
+  async function saveCurrentPushSubscription(registration) {
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: vapidKeyBytes(config.vapidPublicKey),
+      });
+    }
+    const json = subscription.toJSON();
+    mustRpc(await client.rpc("save_push_subscription", { p_endpoint: json.endpoint, p_p256dh: json.keys.p256dh, p_auth: json.keys.auth }));
+  }
+
+  // Once the phone/browser has granted permission, every app open silently (re)registers this device for the signed-in PS.
+  async function autoRegisterPush() {
+    if (!pushSupported || !config.vapidPublicKey || currentProfile?.role !== "ps") return;
+    if (Notification.permission !== "granted" || localStorage.getItem(pushOptOutKey())) return;
+    try {
+      await saveCurrentPushSubscription(await navigator.serviceWorker.ready);
+    } catch (error) {
+      console.warn("Could not register this device for alerts.", error);
+    }
+    refreshPushButton(true);
+  }
+
+  async function enablePush() {
+    if ((await Notification.requestPermission()) !== "granted") throw new Error("Notifications were not allowed. You can allow them in your browser or phone settings for this site.");
+    localStorage.removeItem(pushOptOutKey());
+    await saveCurrentPushSubscription(await navigator.serviceWorker.ready);
+  }
+
+  async function togglePush() {
+    const button = pushButton();
+    button.disabled = true;
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const existing = await registration.pushManager.getSubscription();
+      if (existing) {
+        mustRpc(await client.rpc("delete_push_subscription", { p_endpoint: existing.endpoint }));
+        await existing.unsubscribe();
+        localStorage.setItem(pushOptOutKey(), "1");
+      } else {
+        await enablePush();
+      }
+    } catch (error) {
+      alert(error.message || "Could not change notification settings.");
+    }
+    await refreshPushButton(currentProfile?.role === "ps");
+  }
+
+  // ---------- Pace pop-up shown after sign-in ----------
+  const PACE_DEFAULTS = {
+    behind: "{name}, you are behind pace: {sold} sold vs {expected} expected by today. You can still catch up!",
+    on: "{name}, you are on track: {sold} sold vs {expected} expected by today. Keep it up!",
+    exceeded: "{name}, target reached! {sold} sold against your {share} share. Outstanding work!",
+  };
+  const PACE_TITLES = { behind: "You're behind pace", on: "You're on track", exceeded: "Target reached!" };
+
+  function paceMessage(status, vars) {
+    const pool = (liveData.pushMessages || []).filter(item => item.status === status);
+    const raw = pool.length ? pool[Math.floor(Math.random() * pool.length)].message : PACE_DEFAULTS[status];
+    return String(raw).split("{name}").join(vars.name).split("{sold}").join(vars.sold).split("{expected}").join(vars.expected).split("{share}").join(vars.share);
+  }
+
+  function flashScreenEdges(color) {
+    document.querySelector(".edge-glow")?.remove();
+    const glow = document.createElement("div");
+    glow.className = "edge-glow";
+    glow.style.setProperty("--glow", color);
+    glow.setAttribute("aria-hidden", "true");
+    document.body.appendChild(glow);
+    window.setTimeout(() => glow.remove(), 5000);
+  }
+
+  function showPacePopup() {
+    if (currentProfile?.role !== "ps" || pacePopupShown) return;
+    const { actual, target } = personalTargetProgress();
+    if (!(target > 0)) return;
+    pacePopupShown = true;
+    const status = paceStatus(actual, target);
+    const expected = target * paceFraction();
+    const text = paceMessage(status.key, {
+      name: String(currentProfile.full_name || "").split(" ")[0] || "there",
+      sold: formatMoney(actual),
+      expected: formatMoney(expected),
+      share: formatMoney(target),
+    });
+    const canAsk = pushSupported && config.vapidPublicKey && Notification.permission === "default";
+    closeModal();
+    modalRoot = document.createElement("div");
+    modalRoot.className = "dlg-backdrop";
+    const root = modalRoot;
+    root.innerHTML = `<div class="dlg pace-popup pace-${status.key}" style="--glow:${status.color}" role="dialog" aria-modal="true" aria-label="Pace update">
+      <div class="dlg-head"><h2>${escapeHTML(PACE_TITLES[status.key])}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div>
+      <div class="dlg-form">
+        <p class="pace-text">${escapeHTML(text)}</p>
+        <div class="pace-numbers"><div><span>Sold (MTD)</span><strong>${escapeHTML(formatMoney(actual))}</strong></div><div><span>Expected by now</span><strong>${escapeHTML(formatMoney(expected))}</strong></div><div><span>Your target share</span><strong>${escapeHTML(formatMoney(target))}</strong></div></div>
+        <p class="dlg-error" role="alert" hidden></p>
+        <div class="dlg-actions">${canAsk ? '<button class="button button-outline" type="button" data-pace-enable>Turn on alerts</button>' : ""}<button class="button button-primary" type="button" data-modal-close>Got it</button></div>
+      </div></div>`;
+    document.body.appendChild(root);
+    root.addEventListener("pointerdown", event => {
+      if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
+    });
+    root.querySelector("[data-pace-enable]")?.addEventListener("click", async event => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        await enablePush();
+        button.textContent = "Alerts on ✓";
+        refreshPushButton(true);
+      } catch (error) {
+        const box = root.querySelector(".dlg-error");
+        box.textContent = error.message || "Could not turn on alerts.";
+        box.hidden = false;
+        button.disabled = false;
+      }
+    });
+    flashScreenEdges(status.color);
+  }
+
+  document.querySelector("#push-toggle")?.addEventListener("click", togglePush);
   document.querySelector("#change-password").addEventListener("click", openPasswordModal);
   document.querySelector("#show-password").addEventListener("change", event => {
     loginForm.elements.password.type = event.target.checked ? "text" : "password";

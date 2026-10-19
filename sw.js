@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "branchline-shell-v40";
+const CACHE_NAME = "branchline-shell-v44";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
@@ -9,6 +9,7 @@ const APP_SHELL_URLS = [
   "./app.js",
   "./auth-app.js",
   "./currency.js",
+  "./analytics.js",
   "./supabase-config.js",
   "./manifest.webmanifest",
   "./icon.svg",
@@ -31,6 +32,28 @@ self.addEventListener("activate", event => {
       .then(keys => Promise.all(keys.filter(key => key.startsWith("branchline-") && key !== CACHE_NAME).map(key => caches.delete(key))))
       .then(() => self.clients.claim()),
   );
+});
+
+self.addEventListener("push", event => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data ? event.data.text() : "" }; }
+  event.waitUntil(self.registration.showNotification(data.title || "Branchline", {
+    body: data.body || "",
+    icon: new URL("./icons/icon-192.png", self.registration.scope).href,
+    badge: new URL("./icons/icon-192.png", self.registration.scope).href,
+    tag: data.tag || "branchline",
+    data: { url: data.url || "./" },
+  }));
+});
+
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.url || "./", self.registration.scope).href;
+  event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(clients => {
+    const open = clients.find(client => client.url.startsWith(self.registration.scope));
+    if (open) return open.focus();
+    return self.clients.openWindow(target);
+  }));
 });
 
 self.addEventListener("fetch", event => {
