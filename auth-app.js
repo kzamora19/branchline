@@ -262,7 +262,7 @@
         const probe = await client.from("products").select("branch_id").eq("active", true).limit(1);
         catalogBranch = probe.data?.[0]?.branch_id || null;
       }
-      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages] = await Promise.all([
+      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, paymentTargets] = await Promise.all([
         fetchAll("branches", "id,name,district_id", [["name", true], ["id", true]]),
         fetchAll("districts", "id,name", [["name", true], ["id", true]]),
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
@@ -281,6 +281,7 @@
         fetchAll("ps_walkins", "branch_id,ps_id,counted_on,clients_assisted", [["counted_on", false], ["ps_id", true]]),
         fetchAll("branch_walkins", "branch_id,counted_on,visitors", [["counted_on", false], ["branch_id", true]]),
         fetchAll("push_messages", "id,status,message,created_at", [["created_at", true], ["id", true]]),
+        fetchAll("payment_mode_targets", "id,branch_id,month,mode,share_pct,amount", [["month", false], ["id", true]]),
               ]);
 
       const visibleBranches = checkResult(branches, "Unable to load accessible branches").map(item => ({ ...item, name: titleCase(item.name) }));
@@ -338,6 +339,7 @@
         psWalkins: psWalkins.error ? [] : psWalkins.data,
         branchWalkins: branchWalkins.error ? [] : branchWalkins.data,
         pushMessages: pushMessages.error ? [] : pushMessages.data,
+        paymentTargets: paymentTargets.error ? [] : paymentTargets.data.map(item => ({ ...item, month: String(item.month).slice(0, 10), share_pct: item.share_pct === null ? null : Number(item.share_pct), amount: item.amount === null ? null : Number(item.amount) })),
       };
 
       document.querySelector("#connected-user-name").textContent = connectedUserLabel();
@@ -932,6 +934,8 @@
           subCategory: (line.sub_category || "").trim(),
           product: (line.model_description || "").trim() || "Unnamed product",
           amount: Number(line.selling_price) * Number(line.quantity),
+          srpAmount: line.srp != null && Number(line.srp) > 0 && Number(line.selling_price) > 0 ? Number(line.srp) * Number(line.quantity) : 0,
+          soldAmount: line.srp != null && Number(line.srp) > 0 && Number(line.selling_price) > 0 ? Number(line.selling_price) * Number(line.quantity) : 0,
         });
       });
     });
@@ -965,6 +969,208 @@
     if (value === null) return '<span class="an-muted">n/a</span>';
     const sign = value > 0 ? "+" : "";
     return `<span class="${value < 0 ? "an-down" : "an-up"}">${sign}${(value * 100).toFixed(1)}%</span>`;
+  }
+
+  // ---------- Payment mix ----------
+  function canSetPaymentTargets() {
+    return ["admin", "district_manager", "manager"].includes(currentProfile.role);
+  }
+
+  function computePaymentMix(month, ids, through) {
+    const isPs = currentProfile.role === "ps";
+    const sales = (isPs ? visibleSales() : liveData.sales)
+      .filter(sale => ids.has(sale.branch_id) && sale.sold_on.slice(0, 7) === month && (!through || sale.sold_on.slice(0, 10) <= through))
+      .map(sale => ({ mode: sale.payment_mode, amount: saleTotal(sale) }));
+    const branchTargets = new Map();
+    liveData.targets.filter(row => ids.has(row.branch_id) && row.month.slice(0, 7) === month)
+      .forEach(row => addTo(branchTargets, row.branch_id, Number(row.amount)));
+    // Targets are branch-level, so a PS only sees their own mix without a target comparison.
+    const targets = isPs ? [] : liveData.paymentTargets.filter(row => ids.has(row.branch_id) && row.month.slice(0, 7) === month);
+    return window.BranchlineAnalytics.paymentMix({ sales, modes: liveData.paymentModes.map(item => item.name), targets, branchTargets });
+  }
+
+  const MIX_STATUS = { above: "Above target", below: "Below target", on: "On target", none: "No target" };
+
+  function paymentMixPanels(month, mix, label) {
+    const hasTarget = mix.hasTargets;
+    const head = ["Payment mode", "Transactions", "Sales", "Actual mix", "Target mix", "Target (₱)", "Achievement", "Status"];
+    const rowHtml = row => `<tr><td><strong>${escapeHTML(row.mode)}</strong></td><td>${row.transactions}</td><td>${formatMoney(row.sales)}</td><td>${row.share === null ? "n/a" : row.share.toFixed(1) + "%"}</td><td>${row.targetPct === null ? "—" : row.targetPct.toFixed(1) + "%"}</td><td>${row.targetAmount === null ? "—" : formatMoney(row.targetAmount)}</td><td>${row.achievement === null ? "—" : (row.achievement * 100).toFixed(1) + "%"}</td><td><span class="${row.status === "none" ? "an-muted" : "mix-" + row.status}">${MIX_STATUS[row.status]}</span></td></tr>`;
+    const totalRow = `<tr class="total-row"><td><strong>Total</strong></td><td>${mix.totalTransactions}</td><td>${formatMoney(mix.total)}</td><td>${mix.total ? "100%" : "n/a"}</td><td colspan="4"></td></tr>`;
+    const table = mix.rows.length
+      ? `<div class="connected-table-wrap"><table class="connected-table"><thead><tr>${head.map(item => `<th>${item}</th>`).join("")}</tr></thead><tbody>${mix.rows.map(rowHtml).join("")}${totalRow}</tbody></table></div>`
+      : '<div class="empty-state">No sales or targets for this month.</div>';
+    const exportButton = manualExport("mix-table", `Payment mix ${monthLabel(month)}`, head, mix.rows, rowHtml);
+    const editButton = canSetPaymentTargets() ? `<button class="button button-primary button-small" type="button" data-open="payment-targets">Set mix targets</button>` : "";
+    const pies = [pieChart("Sales by payment mode", label, mix.rows.map(row => ({ label: row.mode, value: row.sales })))];
+    if (hasTarget) {
+      const targetEntries = mix.rows.filter(row => row.targetPct !== null).map(row => ({ label: row.mode, value: row.targetPct }));
+      pies.push(pieChart("Target payment mix", `${monthLabel(month)} · share of sales`, targetEntries, { amounts: false }));
+    }
+    return `<div class="connected-charts">${pies.join("")}</div>${panel("Payment mix vs target", `${label}. Status compares each mode's share of sales with its target share (±2 points counts as on target).`, table, `${editButton}${exportButton}`)}`;
+  }
+
+  function openPaymentTargetsModal() {
+    const branches = [...liveData.branches].sort((a, b) => natural(a.name, b.name));
+    const modes = liveData.paymentModes.map(item => item.name);
+    const startBranch = branches.find(branch => branch.id === ui.branch)?.id || branches[0]?.id;
+    const month = ui.month || currentMonth();
+    const rowsHtml = modes.map((name, index) => `<tr><td>${escapeHTML(name)}</td><td><input name="pct_${index}" type="number" min="0" max="100" step="0.01" placeholder="%"></td><td><input name="amt_${index}" type="number" min="0" step="0.01" placeholder="₱"></td></tr>`).join("");
+    openModal({
+      title: "Payment mix targets",
+      intro: "Set a share target (%), a peso target, or both for each payment mode. Targets are per branch and per month; a new month starts empty until you set it (or copy last month).",
+      submitLabel: "Save targets",
+      wide: true,
+      body: `${fieldHTML("Branch", "branch", selectHTML("branch", [...(branches.length > 1 ? [["all", `All my branches (${branches.length})`]] : []), ...branches.map(branch => [branch.id, branch.name])], startBranch))}
+        ${fieldHTML("Month", "month", `<input name="month" type="month" value="${month}" required>`)}
+        <div class="connected-table-wrap"><table class="connected-table pm-table"><thead><tr><th>Payment mode</th><th>Share target (%)</th><th>Peso target (₱)</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
+        <p class="an-note" id="pm-note"></p>
+        <button class="button button-outline button-small" type="button" id="pm-copy">Copy last month's targets</button>`,
+      onReady: form => {
+        const note = form.querySelector("#pm-note");
+        const fill = (monthValue, silent) => {
+          const branchId = form.elements.branch.value;
+          modes.forEach((name, index) => { form.elements[`pct_${index}`].value = ""; form.elements[`amt_${index}`].value = ""; });
+          if (branchId === "all") { if (!silent) note.textContent = "Applies to every listed branch. Blank rows are left unchanged."; return 0; }
+          const found = liveData.paymentTargets.filter(row => row.branch_id === branchId && row.month.slice(0, 7) === monthValue);
+          found.forEach(row => {
+            const index = modes.indexOf(row.mode);
+            if (index < 0) return;
+            form.elements[`pct_${index}`].value = row.share_pct ?? "";
+            form.elements[`amt_${index}`].value = row.amount ?? "";
+          });
+          if (!silent) note.textContent = found.length ? "" : "No targets set for this branch and month yet. Blank rows are cleared on save.";
+          return found.length;
+        };
+        const reload = () => fill(form.elements.month.value);
+        form.elements.branch.addEventListener("change", reload);
+        form.elements.month.addEventListener("change", reload);
+        form.querySelector("#pm-copy").addEventListener("click", () => {
+          const previousMonth = window.BranchlineAnalytics.shiftMonth(form.elements.month.value, -1);
+          const copied = fill(previousMonth, true);
+          note.textContent = copied ? `Copied ${copied} target(s) from ${monthLabel(previousMonth)}. Review and save.` : `No targets found for ${monthLabel(previousMonth)}.`;
+        });
+        reload();
+      },
+      onSubmit: async form => {
+        const read = name => {
+          const raw = form.elements[name].value.trim();
+          return raw === "" ? null : Number(raw);
+        };
+        const entries = modes.map((name, index) => ({ name, pct: read(`pct_${index}`), amt: read(`amt_${index}`) }));
+        entries.forEach(entry => {
+          if (entry.pct !== null && (!Number.isFinite(entry.pct) || entry.pct < 0 || entry.pct > 100)) throw new Error(`${entry.name}: the share must be between 0 and 100.`);
+          if (entry.amt !== null && (!Number.isFinite(entry.amt) || entry.amt < 0)) throw new Error(`${entry.name}: enter a valid peso amount.`);
+        });
+        const shareTotal = entries.reduce((sum, entry) => sum + (entry.pct || 0), 0);
+        if (shareTotal > 100.01) throw new Error(`The share targets add up to ${shareTotal.toFixed(2)}%. They must not exceed 100%.`);
+        const selected = form.elements.branch.value;
+        const ids = selected === "all" ? branches.map(branch => branch.id) : [selected];
+        const monthDate = `${form.elements.month.value}-01`;
+        const stamp = new Date().toISOString();
+        const upserts = [];
+        ids.forEach(id => entries.forEach(entry => {
+          if (entry.pct === null && entry.amt === null) return;
+          upserts.push({ dealer_id: currentProfile.dealer_id, branch_id: id, month: monthDate, mode: entry.name, share_pct: entry.pct, amount: entry.amt, created_by: currentProfile.id, updated_at: stamp });
+        }));
+        if (upserts.length) {
+          const saved = await client.from("payment_mode_targets").upsert(upserts, { onConflict: "branch_id,month,mode" });
+          if (saved.error) throw saved.error;
+        }
+        const blank = entries.filter(entry => entry.pct === null && entry.amt === null).map(entry => entry.name);
+        if (selected !== "all" && blank.length) {
+          const removed = await client.from("payment_mode_targets").delete().eq("branch_id", selected).eq("month", monthDate).in("mode", blank);
+          if (removed.error) throw removed.error;
+        }
+        await refreshData();
+      },
+    });
+  }
+
+  // ---------- Traffic, transactions and conversion comparison ----------
+  function trafficStats(A, ctx, from, to) {
+    const inRange = ctx.sales.filter(sale => sale.date >= from && sale.date <= to);
+    const total = inRange.reduce((sum, sale) => sum + sale.amount, 0);
+    const walk = A.walkInSummary({ from, to, storeCounts: ctx.storeCounts, psCounts: ctx.psCounts, transactions: inRange.map(sale => ({ id: sale.id, branchId: sale.branchId, date: sale.date })) });
+    return { sales: total, transactions: inRange.length, avgTicket: A.average(total, inRange.length), visitors: walk.visitors, covered: walk.coveredDays, conversion: walk.conversion, matched: walk.transactions };
+  }
+
+  function trafficContext(facts, ids, isPs) {
+    const bySale = new Map();
+    facts.forEach(fact => {
+      const entry = bySale.get(fact.saleId) || { id: fact.saleId, branchId: fact.branchId, date: fact.date, amount: 0 };
+      entry.amount += fact.amount;
+      bySale.set(fact.saleId, entry);
+    });
+    return {
+      sales: [...bySale.values()],
+      storeCounts: isPs ? [] : liveData.branchWalkins.filter(row => ids.has(row.branch_id)),
+      psCounts: liveData.psWalkins.filter(row => ids.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id)),
+    };
+  }
+
+  function trafficPanels(A, ctx, month, through) {
+    const monthStart = A.monthStart(month);
+    const weekFrom = A.weekStart(through);
+    const yearStart = `${month.slice(0, 4)}-01-01`;
+    const periods = [
+      ["Day", through, through, A.addDays(through, -1), A.addDays(through, -1), "vs previous day"],
+      ["Week to date", weekFrom, through, A.addDays(weekFrom, -7), A.addDays(through, -7), "vs same days last week"],
+      ["Month to date", monthStart, through, A.monthStart(A.shiftMonth(month, -1)), A.sameDayPriorMonth(through), "vs same days last month"],
+      ["Year to date", yearStart, through, `${Number(month.slice(0, 4)) - 1}-01-01`, A.sameDayPriorYear(through), "vs same period last year"],
+    ].map(([name, from, to, pFrom, pTo, note]) => ({ name, note, cur: trafficStats(A, ctx, from, to), prev: trafficStats(A, ctx, pFrom, pTo) }));
+    const rate = value => (value === null || value === undefined ? "n/a" : `${(value * 100).toFixed(1)}%`);
+    const points = (cur, prev) => {
+      if (cur === null || prev === null) return '<span class="an-muted">n/a</span>';
+      const diff = (cur - prev) * 100;
+      return `<span class="${diff < 0 ? "an-down" : "an-up"}">${diff > 0 ? "+" : ""}${diff.toFixed(1)} pts</span>`;
+    };
+    const perDay = (stat, key) => (stat.covered > 0 ? stat[key] / stat.covered : null);
+    const rows = [];
+    periods.forEach(p => {
+      rows.push(["Sales", p, formatMoney(p.cur.sales), formatMoney(p.prev.sales), growthCell(A.growth(p.cur.sales, p.prev.sales))]);
+      rows.push(["Transactions", p, String(p.cur.transactions), String(p.prev.transactions), growthCell(A.growth(p.cur.transactions, p.prev.transactions))]);
+      rows.push(["Average sale", p, p.cur.avgTicket === null ? "n/a" : formatMoney(p.cur.avgTicket), p.prev.avgTicket === null ? "n/a" : formatMoney(p.prev.avgTicket), growthCell(A.growth(p.cur.avgTicket, p.prev.avgTicket))]);
+      rows.push(["Walk-ins", p, p.cur.covered ? `${p.cur.visitors} (${p.cur.covered} day${p.cur.covered === 1 ? "" : "s"})` : "No data", p.prev.covered ? `${p.prev.visitors} (${p.prev.covered} day${p.prev.covered === 1 ? "" : "s"})` : "No data", growthCell(A.growth(perDay(p.cur, "visitors"), perDay(p.prev, "visitors")))]);
+      rows.push(["Conversion", p, rate(p.cur.conversion), rate(p.prev.conversion), points(p.cur.conversion, p.prev.conversion)]);
+    });
+    const order = ["Sales", "Transactions", "Average sale", "Walk-ins", "Conversion"];
+    rows.sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
+    const head = ["Metric", "Period", "Current", "Prior", "Change"];
+    const rowHtml = ([metric, p, current, prior, change]) => `<tr><td><strong>${escapeHTML(metric)}</strong></td><td>${escapeHTML(p.name)}<br><small class="an-muted">${escapeHTML(p.note)}</small></td><td>${current}</td><td>${prior}</td><td>${change}</td></tr>`;
+    const table = `<div class="connected-table-wrap"><table class="connected-table"><thead><tr>${head.map(item => `<th>${item}</th>`).join("")}</tr></thead><tbody>${rows.map(rowHtml).join("")}</tbody></table></div>`;
+    const compare = panel("Transactions, walk-ins and conversion: day, week, month, year", "Walk-in change is per counted day so days without a count never distort it. Conversion only uses counted days.", table, manualExport("traffic-compare", "Traffic comparison", head, rows, rowHtml));
+
+    const months = [];
+    for (let step = 11; step >= 0; step -= 1) months.push(A.shiftMonth(month, -step));
+    const trendRows = months.map(value => {
+      const to = value === month ? through : A.monthEnd(value);
+      const stat = trafficStats(A, ctx, A.monthStart(value), to);
+      const lastYear = A.shiftMonth(value, -12);
+      const ly = trafficStats(A, ctx, A.monthStart(lastYear), value === month ? A.sameDayPriorYear(through) : A.monthEnd(lastYear));
+      return { month: value, stat, ly };
+    });
+    const trendHead = ["Month", "Sales", "Transactions", "Average sale", "Walk-ins", "Conversion", "Sales vs same month last year"];
+    const trendRowHtml = row => `<tr><td>${escapeHTML(monthLabel(row.month))}</td><td>${formatMoney(row.stat.sales)}</td><td>${row.stat.transactions}</td><td>${row.stat.avgTicket === null ? "n/a" : formatMoney(row.stat.avgTicket)}</td><td>${row.stat.covered ? row.stat.visitors : "—"}</td><td>${rate(row.stat.conversion)}</td><td>${growthCell(A.growth(row.stat.sales, row.ly.sales))}</td></tr>`;
+    const trendTable = `<div class="connected-table-wrap"><table class="connected-table"><thead><tr>${trendHead.map(item => `<th>${item}</th>`).join("")}</tr></thead><tbody>${[...trendRows].reverse().map(trendRowHtml).join("")}</tbody></table></div>`;
+    const trend = panel("Last 12 months", "Monthly view with a year-on-year check. Walk-ins show only for months that have counts.", trendTable, manualExport("traffic-monthly", "Last 12 months", trendHead, [...trendRows].reverse(), trendRowHtml));
+    return { compare, trend, periods };
+  }
+
+  // ---------- Diagnosis and action plan ----------
+  function insightsPanel(insights) {
+    if (!insights.length) return panel("Diagnosis and action plan", "", '<div class="empty-state">Nothing to flag right now. Add targets and daily walk-in counts for deeper analysis.</div>');
+    const LEVEL = { high: "High priority", medium: "Needs attention", low: "Watch", good: "Going well" };
+    const list = items => (items.length ? `<ul>${items.map(item => `<li>${escapeHTML(item)}</li>`).join("")}</ul>` : "");
+    const cards = insights.map(item => `<article class="insight insight-${item.level}">
+      <header><span class="insight-level">${LEVEL[item.level]}</span><span class="insight-area">${escapeHTML(item.area)}</span></header>
+      <h3>${escapeHTML(item.title)}</h3><p>${escapeHTML(item.finding)}</p>
+      ${item.causes.length ? `<h4>Possible causes</h4>${list(item.causes)}` : ""}
+      ${item.effects.length ? `<h4>Possible effects</h4>${list(item.effects)}` : ""}
+      ${item.plans.length ? `<h4>Action plan</h4>${list(item.plans)}` : ""}
+    </article>`).join("");
+    const head = ["Priority", "Area", "Finding", "Possible causes", "Possible effects", "Action plan"];
+    const rowHtml = item => `<tr><td>${escapeHTML(LEVEL[item.level])}</td><td>${escapeHTML(item.area)}</td><td>${escapeHTML(`${item.title}. ${item.finding}`)}</td><td>${escapeHTML(item.causes.join(" "))}</td><td>${escapeHTML(item.effects.join(" "))}</td><td>${escapeHTML(item.plans.join(" "))}</td></tr>`;
+    return panel("Diagnosis and action plan", "Generated from your numbers. Causes are likely explanations to check on the floor, not proven facts.", `<div class="insight-grid">${cards}</div>`, manualExport("insights", "Diagnosis and action plan", head, insights, rowHtml));
   }
 
   function renderAnalyticsPage() {
@@ -1110,6 +1316,7 @@
             `<option value="${value}" ${dim === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>`);
 
         let psPanel = "";
+        let psEntries = [];
         if (!isPs) {
           const entries = psProfiles.map(profile => {
             const count = psCountByBranch.get(profile.branch_id) || 0;
@@ -1118,6 +1325,7 @@
               .reduce((total, f) => total + f.amount, 0);
             return { id: profile.id, name: profile.full_name || "Staff member", branch: branchName(profile.branch_id), actual: own, target: share };
           });
+          psEntries = entries.map(entry => ({ ...entry, achievement: A.achievement(entry.actual, entry.target) }));
           const result = A.topAndBottom(entries, 3);
           const expected = A.expectedFraction({ month, refDate, rules, partialDay: isCurrent });
           const row = entry => {
@@ -1140,6 +1348,31 @@
             ${panel("Needs attention", "Lowest target achievement.", table(result.bottom), manualExport("an-bottom", "Needs attention", exportHead, result.bottom, exportRow))}`;
         }
 
+        const trafficCtx = trafficContext(facts, ids, isPs);
+        const traffic = trafficPanels(A, trafficCtx, month, through);
+        const mtdPeriod = traffic.periods.find(item => item.name === "Month to date");
+        const mix = computePaymentMix(month, ids, through);
+        const mixLabel = `${monthLabel(month)}${isCurrent ? " (to date)" : ""}`;
+        const brandTrend = A.groupTrend(facts, f => f.brand, current, previous);
+        const priceFacts = facts.filter(f => f.date >= monthStart && f.date <= through);
+        const insights = A.buildInsights({
+          fmt: formatMoney,
+          target, achievement: A.achievement(actual, target), expected: A.expectedFraction({ month, refDate, rules, partialDay: isCurrent }),
+          forecast, pace, elapsedDays: Number(through.slice(8, 10)),
+          mtd: { sales: mtdPeriod.cur.sales, priorSales: mtdPeriod.prev.sales },
+          traffic: {
+            visitors: mtdPeriod.cur.visitors, priorVisitors: mtdPeriod.prev.visitors,
+            coveredDays: mtdPeriod.cur.covered, priorCoveredDays: mtdPeriod.prev.covered,
+            transactions: mtdPeriod.cur.matched, priorTransactions: mtdPeriod.prev.matched,
+            conversion: mtdPeriod.cur.conversion, priorConversion: mtdPeriod.prev.conversion,
+            avgTicket: mtdPeriod.cur.avgTicket, priorAvgTicket: mtdPeriod.prev.avgTicket,
+          },
+          brands: brandTrend, priorBrandTotal: brandTrend.reduce((sum, row) => sum + row.previous, 0),
+          ps: psEntries,
+          paymentMix: mix,
+          pricing: { sold: priceFacts.reduce((sum, f) => sum + f.soldAmount, 0), srpBasis: priceFacts.reduce((sum, f) => sum + f.srpAmount, 0) },
+        });
+
         const missing = `<p class="an-note">Walk-in traffic and conversion use only days with a recorded count. A store count entered by a manager overrides the sum of PS counts. Nothing is estimated.</p>`;
         const holidayRows = liveData.holidays.map(item => `<tr><td>${escapeHTML(item.date)}</td><td>${escapeHTML(item.label || "")}</td>${canEditHolidays ? `<td><button class="button button-outline" type="button" data-holiday-delete="${escapeHTML(item.date)}">Delete</button></td>` : ""}</tr>`).join("");
         const holidayTable = liveData.holidays.length
@@ -1147,8 +1380,8 @@
           : '<p class="an-note">No store-closed dates set.</p>';
         const holidayPanel = panel("Store-closed dates", canEditHolidays ? "Company-wide. These dates are skipped in forecasts." : "Company-wide. Managed by district managers and admins.",
           `${canEditHolidays ? '<p><button class="button" type="button" data-open="holiday">Add date</button></p>' : ""}${holidayTable}`);
-        return `${warning}${cards}${chartPanel}${panel("Period comparison", "Growth compares like-for-like elapsed days.", comparisonTable, manualExport("an-compare", "Period comparison", ["Period", "Comparison", "Dates", "Actual", "Prior", "Growth"], comparisons,
-          ([name, dates, current, prior, note]) => { const g = A.growth(current, prior); return `<tr><td>${escapeHTML(name)}</td><td>${escapeHTML(note)}</td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${g === null ? "n/a" : (g * 100).toFixed(1) + "%"}</td></tr>`; }))}${trendPanel}${psPanel}${holidayPanel}${missing}`;
+        return `${warning}${cards}${insightsPanel(insights)}${chartPanel}${panel("Period comparison", "Growth compares like-for-like elapsed days.", comparisonTable, manualExport("an-compare", "Period comparison", ["Period", "Comparison", "Dates", "Actual", "Prior", "Growth"], comparisons,
+          ([name, dates, current, prior, note]) => { const g = A.growth(current, prior); return `<tr><td>${escapeHTML(name)}</td><td>${escapeHTML(note)}</td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${g === null ? "n/a" : (g * 100).toFixed(1) + "%"}</td></tr>`; }))}${traffic.compare}${traffic.trend}${paymentMixPanels(month, mix, mixLabel)}${trendPanel}${psPanel}${holidayPanel}${missing}`;
       },
     );
   }
@@ -1548,6 +1781,7 @@
           "No targets match these filters.",
         ))}
         <div class="connected-charts">${progress}${pieChart("Sales by brand", scope, brands.map(row => ({ label: row.brand, value: row.actual })))}</div>
+        ${paymentMixPanels(anchorMonth(), computePaymentMix(anchorMonth(), ids, ui.period === "day" ? periodDay() : null), monthLabel(anchorMonth()))}
         ${panel("Brand performance", `${scope} · ranked by the selected measure.`, brandTable(brands, "No brand sales or targets for this selection."), currentProfile.role === "ps" ? "" : `${brandSortControl()}`)}
         ${psRankingPanel()}`;
       },
@@ -2750,6 +2984,7 @@
     if (open === "product") openProductModal();
     else if (open === "payments") openPaymentModesModal();
     else if (open === "import") openImportModal();
+    else if (open === "payment-targets") openPaymentTargetsModal();
     else if (open === "sync-categories") openSyncCategoriesModal();
     else if (open === "target") openTargetModal();
     else if (open === "district") openDistrictModal();

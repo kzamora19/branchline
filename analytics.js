@@ -265,7 +265,215 @@
     };
   }
 
+  /* Payment-mix: actual share per payment mode against the managers' targets.
+     Per branch a mode target may be a share (percent of that branch's monthly target) and/or a peso amount.
+     A peso amount wins; otherwise the share is turned into pesos using the branch target. */
+  const UNSPECIFIED = "Unspecified";
+  function paymentMix({ sales = [], modes = [], targets = [], branchTargets = new Map(), tolerance = 2 }) {
+    const rows = new Map();
+    const slot = mode => {
+      if (!rows.has(mode)) rows.set(mode, { mode, sales: 0, transactions: 0, peso: null, base: 0, pctSum: 0, pctN: 0, hasShare: false });
+      return rows.get(mode);
+    };
+    modes.forEach(slot);
+    let total = 0;
+    let totalTransactions = 0;
+    sales.forEach(sale => {
+      const entry = slot(String(sale.mode || "").trim() || UNSPECIFIED);
+      entry.sales += Number(sale.amount) || 0;
+      entry.transactions += 1;
+      total += Number(sale.amount) || 0;
+      totalTransactions += 1;
+    });
+    targets.forEach(item => {
+      const entry = slot(item.mode);
+      const branchTarget = Number(branchTargets.get(item.branch_id)) || 0;
+      const hasAmount = item.amount !== null && item.amount !== undefined && item.amount !== "";
+      const hasShare = item.share_pct !== null && item.share_pct !== undefined && item.share_pct !== "";
+      let peso = null;
+      if (hasAmount) peso = Number(item.amount);
+      else if (hasShare && branchTarget > 0) peso = (Number(item.share_pct) / 100) * branchTarget;
+      if (peso !== null) entry.peso = (entry.peso || 0) + peso;
+      if (branchTarget > 0) entry.base += branchTarget;
+      if (hasShare) { entry.pctSum += Number(item.share_pct); entry.pctN += 1; entry.hasShare = true; }
+    });
+    const order = new Map(modes.map((mode, index) => [mode, index]));
+    const list = [...rows.values()].map(entry => {
+      let targetPct = null;
+      if (entry.peso !== null && entry.base > 0) targetPct = (entry.peso / entry.base) * 100;
+      else if (entry.pctN) targetPct = entry.pctSum / entry.pctN;
+      const share = total > 0 ? (entry.sales / total) * 100 : null;
+      let status = "none";
+      if (targetPct !== null && share !== null) {
+        const diff = share - targetPct;
+        status = Math.abs(diff) <= tolerance ? "on" : diff > 0 ? "above" : "below";
+      } else if (entry.peso !== null && entry.peso > 0) {
+        const ratio = entry.sales / entry.peso;
+        status = Math.abs(ratio - 1) <= tolerance / 100 ? "on" : ratio > 1 ? "above" : "below";
+      }
+      return {
+        mode: entry.mode,
+        sales: entry.sales,
+        transactions: entry.transactions,
+        share,
+        targetPct,
+        targetAmount: entry.peso,
+        achievement: entry.peso > 0 ? entry.sales / entry.peso : null,
+        status,
+      };
+    }).filter(entry => entry.sales > 0 || entry.transactions > 0 || entry.targetPct !== null || entry.targetAmount !== null)
+      .sort((a, b) => (order.has(a.mode) ? order.get(a.mode) : 999) - (order.has(b.mode) ? order.get(b.mode) : 999) || b.sales - a.sales);
+    return { rows: list, total, totalTransactions, hasTargets: list.some(entry => entry.targetPct !== null || entry.targetAmount !== null) };
+  }
+
+  /* Rule-based diagnosis. Every finding is derived from numbers passed in; causes are labelled as likely
+     causes to verify on the floor, never as facts the data cannot prove. */
+  function buildInsights(ctx) {
+    const fmt = ctx.fmt || (value => String(Math.round(value)));
+    const pct = (value, digits = 1) => `${(value * 100).toFixed(digits)}%`;
+    const out = [];
+    const add = item => out.push({ levelRank: { high: 0, medium: 1, low: 2, good: 3 }[item.level], ...item });
+    const t = ctx.traffic || {};
+    const perDay = (value, days) => (days > 0 ? value / days : null);
+    const visitorsPerDay = perDay(t.visitors, t.coveredDays);
+    const priorVisitorsPerDay = perDay(t.priorVisitors, t.priorCoveredDays);
+    const trafficChange = growth(visitorsPerDay, priorVisitorsPerDay);
+    const conversionDrop = t.conversion !== null && t.conversion !== undefined && t.priorConversion !== null && t.priorConversion !== undefined
+      ? t.conversion - t.priorConversion : null;
+    const ticketChange = growth(t.avgTicket, t.priorAvgTicket);
+    const salesGrowth = ctx.mtd ? growth(ctx.mtd.sales, ctx.mtd.priorSales) : null;
+
+    const drivers = [];
+    if (trafficChange !== null && trafficChange <= -0.05) drivers.push({ key: "traffic", text: `walk-in traffic is down ${pct(-trafficChange)} per counted day (${Math.round(visitorsPerDay)} vs ${Math.round(priorVisitorsPerDay)})` });
+    if (conversionDrop !== null && conversionDrop <= -0.01) drivers.push({ key: "conversion", text: `conversion fell ${(-conversionDrop * 100).toFixed(1)} points (${pct(t.conversion)} vs ${pct(t.priorConversion)})` });
+    if (ticketChange !== null && ticketChange <= -0.05) drivers.push({ key: "ticket", text: `the average sale is down ${pct(-ticketChange)} (${fmt(t.avgTicket)} vs ${fmt(t.priorAvgTicket)})` });
+    const dataGaps = [];
+    if (!t.coveredDays) dataGaps.push("No walk-in counts are recorded this period, so traffic and conversion cannot be checked.");
+    else if (ctx.elapsedDays && t.coveredDays < Math.ceil(ctx.elapsedDays * 0.5)) dataGaps.push(`Walk-ins are counted on only ${t.coveredDays} of ${ctx.elapsedDays} days, so conversion is a partial view.`);
+
+    // 1. Target pace
+    if (ctx.target > 0 && ctx.achievement !== null && ctx.expected !== null) {
+      const gapPts = ctx.expected - ctx.achievement;
+      const forecastShort = ctx.forecast && ctx.forecast.status === "projected" ? ctx.target - ctx.forecast.value : null;
+      if (gapPts > 0.05) {
+        const causes = drivers.length
+          ? drivers.map(d => `Compared with the prior period, ${d.text}.`)
+          : [t.coveredDays ? "Traffic, conversion and average sale are all steady against the prior period, so the shortfall looks like a volume or target-setting gap rather than one broken step." : "The cause cannot be pinned down without walk-in counts; sales volume is simply behind the target pace."];
+        if (salesGrowth !== null && salesGrowth < 0) causes.push(`Month-to-date sales are ${pct(-salesGrowth)} below the same days last month.`);
+        add({
+          id: "pace", level: gapPts > 0.15 ? "high" : "medium", area: "Target pace",
+          title: `Behind target pace by ${(gapPts * 100).toFixed(1)} points`,
+          finding: `${pct(ctx.achievement)} of the ${fmt(ctx.target)} target is done, against ${pct(ctx.expected)} expected by now.`,
+          causes: dataGaps.length ? [...causes, ...dataGaps] : causes,
+          effects: [forecastShort !== null && forecastShort > 0 ? `At the current rate the month ends about ${fmt(forecastShort)} short of target (forecast ${fmt(ctx.forecast.value)}).` : "If the pace does not change, the target will be missed.", "Missing the target lowers the branch's share of the district result and the PS incentive base."],
+          plans: [ctx.pace && ctx.pace.perDay != null ? `Aim for ${fmt(ctx.pace.perDay)} per remaining selling day to still reach target.` : "Review the remaining days with the branch manager.", ...planForDrivers(drivers), "Check the weekend (Fri–Sun) schedule: fully staff the brands that sell most."],
+        });
+      } else if (ctx.achievement >= ctx.expected) {
+        add({ id: "pace-ok", level: "good", area: "Target pace", title: "On or ahead of target pace", finding: `${pct(ctx.achievement)} done against ${pct(ctx.expected)} expected.`, causes: [], effects: ["The target is on course if this rate holds."], plans: ["Protect the lead: keep stock of the top brands and avoid discount-driven sales that erode margin."] });
+      }
+    } else if (!(ctx.target > 0)) {
+      add({ id: "no-target", level: "medium", area: "Data", title: "No target set for this selection", finding: "Pace, achievement and PS ranking cannot be judged without a target.", causes: ["The branch target for this month has not been entered."], effects: ["Underperformance goes unnoticed and PS targets show as zero."], plans: ["Ask the branch manager to set the monthly target in Targets."] });
+    }
+
+    // 2. Traffic and conversion health
+    if (t.coveredDays && t.conversion !== null && t.conversion !== undefined && !drivers.some(d => d.key === "conversion")) {
+      if (t.conversion < 0.15) {
+        add({ id: "low-conv", level: "medium", area: "Conversion", title: `Low conversion (${pct(t.conversion)})`, finding: `${t.transactions} sale(s) from ${t.visitors} visitors on counted days.`,
+          causes: ["Likely causes (verify on the floor): visitors browsing without a PS approach, stock or price not matching what visitors ask for, weak closing of financing/instalment offers.", ...dataGaps],
+          effects: ["Most store traffic is leaving without buying, so more foot traffic alone will not lift sales."],
+          plans: ["Ask every PS to greet and qualify each visitor and record the reason for no sale for one week.", "Run a short coaching round on closing and the financing options.", "Compare PS conversion to find who to learn from."] });
+      }
+    }
+    drivers.forEach(driver => {
+      if (driver.key === "traffic") add({ id: "traffic", level: trafficChange <= -0.15 ? "high" : "medium", area: "Traffic", title: "Walk-in traffic is falling", finding: `Traffic ${driver.text}.`, causes: ["Likely causes (verify): weaker promotions or advertising, fewer paydays/holidays in the period, competitor activity, mall or road disruption."], effects: ["Fewer visitors means fewer chances to sell; sales fall even if conversion holds."], plans: ["Plan a promotion or social post around the next payday weekend.", "Invite past customers and warm leads to visit.", "Check whether store-closed days or events reduced opening hours."] });
+      if (driver.key === "conversion") add({ id: "conv-drop", level: "high", area: "Conversion", title: "Conversion is dropping", finding: `Conversion ${driver.text}.`, causes: ["Likely causes (verify): stock-outs on requested models, prices above competitors, PS absent or busy at peak hours, a change in staffing."], effects: ["Traffic is being wasted: the same visitors produce fewer sales."], plans: ["Review stock availability for the best-selling models.", "Ensure PS coverage at peak hours (weekends, paydays).", "Review recent price or promo changes."] });
+      if (driver.key === "ticket") add({ id: "ticket", level: "medium", area: "Average sale", title: "Average sale value is shrinking", finding: `Customers are spending less per sale: ${driver.text}.`, causes: ["Likely causes (verify): more low-price items, heavier discounting, fewer big-ticket sales (aircon, TV, refrigerator)."], effects: ["Sales fall even when the number of transactions holds."], plans: ["Train PS on add-ons and step-up models.", "Feature big-ticket items with financing offers."] });
+    });
+    if (dataGaps.length && !out.some(item => item.id === "pace")) {
+      add({ id: "walkin-gap", level: "low", area: "Data", title: "Walk-in counts are incomplete", finding: dataGaps[0], causes: ["Store visitors or PS clients assisted are not being logged every day."], effects: ["Conversion and traffic diagnosis are unreliable, so root causes are guesses."], plans: ["Make daily walk-in logging part of the opening/closing routine (store visitors by the manager, clients assisted by PS)."] });
+    }
+
+    // 3. Brands
+    const brands = ctx.brands || [];
+    const declining = brands.filter(b => b.growth !== null && b.growth <= -0.15 && b.previous > 0 && b.previous >= (ctx.priorBrandTotal || 0) * 0.05).slice(0, 3);
+    declining.forEach(b => add({
+      id: `brand-${b.key}`, level: b.growth <= -0.3 ? "high" : "medium", area: "Brand", title: `${b.key} is down ${pct(-b.growth, 0)}`,
+      finding: `${fmt(b.current)} vs ${fmt(b.previous)} in the prior period.`,
+      causes: ["Likely causes (verify): low stock or missing models, a competitor promo, the brand's PS absent or inactive, price changes, end of a campaign."],
+      effects: [`The brand's lost sales (${fmt(b.previous - b.current)}) widen the gap to the branch target.`],
+      plans: [`Confirm stock and display of ${b.key} models.`, `Ask the ${b.key} PS for the three top customer objections and act on them.`, "Consider a short brand promotion or bundle."],
+    }));
+    const top = brands[0];
+    if (top && top.share !== null && top.share >= 0.5 && brands.length > 1) {
+      add({ id: "concentration", level: "low", area: "Brand mix", title: `${top.key} carries ${pct(top.share, 0)} of sales`, finding: "Sales depend heavily on one brand.", causes: ["Other brands are under-performing or under-promoted."], effects: ["A stock-out or promo change from this brand would swing the whole branch result."], plans: ["Set growth targets for the next two brands and promote them on the floor."] });
+    }
+
+    // 4. Product specialists
+    const ps = (ctx.ps || []).filter(entry => entry.achievement !== null);
+    if (ps.length && ctx.expected !== null) {
+      const behind = ps.filter(entry => entry.achievement < ctx.expected - 0.05);
+      const zero = (ctx.ps || []).filter(entry => entry.actual <= 0);
+      if (behind.length) {
+        add({ id: "ps-behind", level: behind.length / ps.length > 0.5 ? "high" : "medium", area: "Product specialists", title: `${behind.length} of ${ps.length} PS are behind pace`,
+          finding: `Lowest: ${behind.slice().sort((a, b) => a.achievement - b.achievement).slice(0, 3).map(entry => `${entry.name} (${pct(entry.achievement, 0)})`).join(", ")}.`,
+          causes: ["Likely causes (verify): brand with seasonal or slow demand, low traffic at that PS's category, schedule/leave, or a target that is too high for the brand."],
+          effects: ["The branch target rests on fewer people, raising the required pace for the rest."],
+          plans: ["Hold a one-to-one with each lagging PS: agree a daily sales and client-contact goal.", "Pair lagging PS with a strong PS for floor coaching.", "Review whether the individual target fits the brand's potential."] });
+      }
+      if (zero.length) {
+        add({ id: "ps-zero", level: "medium", area: "Product specialists", title: `${zero.length} PS with no sales this period`, finding: zero.slice(0, 5).map(entry => entry.name).join(", ") + ".", causes: ["Not yet recorded, on leave, new hires, or sales entered under another PS."], effects: ["Their share of the branch target is not being covered."], plans: ["Confirm each PS's status and that their sales are being recorded under their own name."] });
+      }
+    }
+
+    // 5. Payment mix
+    const mix = ctx.paymentMix;
+    if (mix && mix.total > 0) {
+      const off = mix.rows.filter(row => row.status === "below" || row.status === "above");
+      if (mix.hasTargets && off.length) {
+        const worst = off.slice().sort((a, b) => Math.abs((b.share || 0) - (b.targetPct || 0)) - Math.abs((a.share || 0) - (a.targetPct || 0)))[0];
+        add({ id: "mix", level: "medium", area: "Payment mix", title: `${off.length} payment mode(s) off the target mix`,
+          finding: off.slice(0, 4).map(row => `${row.mode}: ${row.share === null ? "n/a" : row.share.toFixed(1) + "%"} vs ${row.targetPct === null ? "peso target" : row.targetPct.toFixed(1) + "%"} target`).join("; ") + ".",
+          causes: [`Likely causes (verify): customers choose the mode that is easiest to offer; ${worst.mode} is ${worst.status === "below" ? "not being pushed" : "over-used"} at the counter.`],
+          effects: ["A skewed mix changes cash flow, financing cost and the commission mix."],
+          plans: ["Brief PS on the target mix and the benefits of each mode.", "Promote the under-used mode (e.g. instalment plan, card promo) at the point of sale.", "Review mix again next week."] });
+      }
+      const unspecified = mix.rows.find(row => row.mode === UNSPECIFIED);
+      if (unspecified && mix.total > 0 && unspecified.sales / mix.total > 0.1) {
+        add({ id: "mix-blank", level: "low", area: "Data", title: "Many sales have no payment mode", finding: `${pct(unspecified.sales / mix.total, 0)} of sales value has no payment mode recorded.`, causes: ["Older entries made before payment modes existed, or the field is skipped."], effects: ["The payment-mix pie understates the real mix."], plans: ["Make the payment mode required when entering a sale and correct old entries."] });
+      }
+    }
+
+    // 6. Pricing / discounting against SRP
+    const pr = ctx.pricing;
+    if (pr && pr.srpBasis > 0) {
+      const ratio = pr.sold / pr.srpBasis;
+      if (ratio < 0.92) {
+        add({ id: "discount", level: ratio < 0.85 ? "high" : "medium", area: "Pricing", title: `Selling at ${pct(ratio)} of SRP on average`, finding: `Recorded prices are about ${pct(1 - ratio)} below SRP on lines that have an SRP.`,
+          causes: ["Likely causes (verify): promotional pricing, negotiated discounts, or SRP outdated in the catalog."],
+          effects: ["Sales volume may be held up by price cuts at the cost of margin."],
+          plans: ["Set a discount ceiling by brand and require manager approval beyond it.", "Check the catalog SRPs are current."] });
+      }
+    }
+
+    // 7. Growth highlights
+    if (salesGrowth !== null && salesGrowth >= 0.1 && !out.some(item => item.id === "pace")) {
+      add({ id: "growth", level: "good", area: "Growth", title: `Sales up ${pct(salesGrowth)} on last month`, finding: "Month-to-date sales are ahead of the same days last month.", causes: [], effects: ["Momentum improves the chance of reaching target."], plans: ["Identify which brand or PS drove the lift and repeat it."] });
+    }
+    return out.sort((a, b) => a.levelRank - b.levelRank);
+  }
+
+  function planForDrivers(drivers) {
+    const plans = [];
+    drivers.forEach(driver => {
+      if (driver.key === "traffic") plans.push("Run a traffic builder: payday promo, social post, and call-outs to past customers.");
+      if (driver.key === "conversion") plans.push("Improve conversion: PS approach every visitor, check stock of requested models, push financing offers.");
+      if (driver.key === "ticket") plans.push("Lift the average sale: step-up models, bundles and add-ons.");
+    });
+    return plans;
+  }
+
   const api = {
+    paymentMix, buildInsights, UNSPECIFIED,
     RULES, addDays, weekday, daysInMonth, monthStart, monthEnd, shiftMonth, weekStart,
     sameDayPriorMonth, sameDayPriorYear, growth, sumDaily, dailyTotals, parseHolidays, makeRules,
     isSellingDay, countSellingDays, forecastMonth, requiredPace, expectedFraction, cumulativeSeries,
