@@ -1563,6 +1563,7 @@
         actions: [
           '<button class="button button-primary" type="button" data-open="product">+ Add product</button>',
           currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="import">Import Excel / CSV</button>' : "",
+          currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="sync-categories">Update sales categories</button>' : "",
           currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="payments">Payment modes</button>' : "",
         ].join(""),
       }),
@@ -1726,6 +1727,49 @@
         }
         productSelection.clear();
         await refreshData();
+      },
+    });
+  }
+
+  function openSyncCategoriesModal() {
+    const iso = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const now = new Date();
+    const ranges = {
+      all: ["Entire history", null, null],
+      month: ["This month", iso(new Date(now.getFullYear(), now.getMonth(), 1)), iso(new Date(now.getFullYear(), now.getMonth() + 1, 0))],
+      last: ["Last month", iso(new Date(now.getFullYear(), now.getMonth() - 1, 1)), iso(new Date(now.getFullYear(), now.getMonth(), 0))],
+      quarter: ["Last 3 months", iso(new Date(now.getFullYear(), now.getMonth() - 2, 1)), iso(new Date(now.getFullYear(), now.getMonth() + 1, 0))],
+      year: ["This year", `${now.getFullYear()}-01-01`, `${now.getFullYear()}-12-31`],
+      custom: ["Custom dates", null, null],
+    };
+    openModal({
+      title: "Update sales categories",
+      intro: "Copies each product's current category and sub-category from the Products list onto recorded sales (matched by barcode). Amounts, prices, SRP and quantities are never changed.",
+      submitLabel: "Update sales",
+      body: `
+        ${fieldHTML("Which sales", "range", `<select name="range">${Object.entries(ranges).map(([key, value]) => `<option value="${key}">${value[0]}</option>`).join("")}</select>`)}
+        <div class="field-row" id="sync-custom" hidden>
+          ${fieldHTML("From", "from", '<input name="from" type="date">')}
+          ${fieldHTML("To", "to", '<input name="to" type="date">')}
+        </div>
+        ${fieldHTML("Which lines", "mode", '<select name="mode"><option value="missing">Only lines with no category yet</option><option value="all">Every line (replace existing categories)</option></select>')}`,
+      onReady: form => {
+        const toggle = () => { form.querySelector("#sync-custom").hidden = form.elements.range.value !== "custom"; };
+        form.elements.range.addEventListener("change", toggle);
+        toggle();
+      },
+      onSubmit: async form => {
+        const choice = form.elements.range.value;
+        let from = ranges[choice][1];
+        let to = ranges[choice][2];
+        if (choice === "custom") {
+          from = form.elements.from.value || null;
+          to = form.elements.to.value || null;
+          if (!from && !to) throw new Error("Pick a start date, an end date, or both.");
+        }
+        const result = mustRpc(await client.rpc("sync_sale_categories", { p_from: from, p_to: to, p_overwrite: form.elements.mode.value === "all" }));
+        await refreshData();
+        return `<p>Checked <strong>${escapeHTML(result.lines_checked)}</strong> sale line(s) and updated <strong>${escapeHTML(result.lines_updated)}</strong>.</p>`;
       },
     });
   }
@@ -2706,6 +2750,7 @@
     if (open === "product") openProductModal();
     else if (open === "payments") openPaymentModesModal();
     else if (open === "import") openImportModal();
+    else if (open === "sync-categories") openSyncCategoriesModal();
     else if (open === "target") openTargetModal();
     else if (open === "district") openDistrictModal();
     else if (open === "branch") openBranchModal();
