@@ -43,7 +43,9 @@
   let activePage = "overview";
   let loadSequence = 0;
   let resultsView = null;
-  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", pages: {} };
+  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", pages: {}, sort: {} };
+  const productSelection = new Set();
+  let productsFiltered = [];
   let salesLogExport = null;
   let walkInDailyCtx = null;
   let pacePopupShown = false;
@@ -118,6 +120,8 @@
     ui.logFrom = "";
     ui.logTo = "";
     ui.pages = {};
+    ui.sort = {};
+    productSelection.clear();
   }
 
   function setWorkspaceMode(mode) {
@@ -143,6 +147,33 @@
     setAuthMessage("");
     loginForm.reset();
     loginForm.elements.password.type = "password";
+    applyRememberedLogin();
+  }
+
+  // "Remember me": the session lives in localStorage (kept across restarts) or, when unticked, sessionStorage (ends with the tab or app).
+  const REMEMBER_KEY = "branchline-remember";
+  const LAST_LOGIN_KEY = "branchline-last-login";
+  const rememberMe = () => localStorage.getItem(REMEMBER_KEY) !== "0";
+  const authStorage = {
+    getItem: key => sessionStorage.getItem(key) ?? localStorage.getItem(key),
+    setItem: (key, value) => {
+      const keep = rememberMe() ? localStorage : sessionStorage;
+      const drop = rememberMe() ? sessionStorage : localStorage;
+      keep.setItem(key, value);
+      drop.removeItem(key);
+    },
+    removeItem: key => {
+      localStorage.removeItem(key);
+      sessionStorage.removeItem(key);
+    },
+  };
+
+  function applyRememberedLogin() {
+    const box = document.querySelector("#remember-me");
+    if (!box) return;
+    box.checked = rememberMe();
+    const last = localStorage.getItem(LAST_LOGIN_KEY);
+    if (box.checked && last && loginForm.elements.email) loginForm.elements.email.value = last;
   }
 
   function showProfileError(message) {
@@ -293,6 +324,8 @@
         brandSales: brandSales.error ? [] : (brandSales.data || []).map(item => ({
           ...item,
           brand: titleCase(item.brand),
+          category: titleCase(item.category || ""),
+          sub_category: titleCase(item.sub_category || ""),
           model_description: titleCase(item.model_description),
           ps_name: titleCase(item.ps_name),
         })),
@@ -402,6 +435,15 @@
 
   function visibleSales() {
     return liveData.sales.filter(sale => currentProfile.role !== "ps" || sale.ps_id === currentProfile.id);
+  }
+
+  // "Brand - Scope" (e.g. "Lg - Aircon") limits a PS to one category of a brand; plain "Brand" has no scope.
+  function psBrandParts(assigned) {
+    const full = String(assigned || "").trim();
+    const at = full.indexOf("-");
+    const isBrand = liveData.products.some(product => product.brand.trim().toLowerCase() === full.toLowerCase());
+    if (at < 0 || isBrand) return { base: full, scope: "" };
+    return { base: full.slice(0, at).trim(), scope: full.slice(at + 1).trim() };
   }
 
   function scopeBranchIds() {
@@ -739,8 +781,34 @@
   }
 
   const tableStore = {};
+  const SELECT_HEADER = "__select__";
+  const isDataHeader = header => header !== "" && header !== SELECT_HEADER;
+
+  // Sorts rows by the text of one column (numbers, money and percentages compare numerically; a data-sort attribute overrides the text).
+  function sortedItems(items, rowHtml, sort) {
+    const doc = new DOMParser().parseFromString(`<table><tbody>${items.map(rowHtml).join("")}</tbody></table>`, "text/html");
+    const keys = [...doc.querySelectorAll("tbody > tr")].map(tr => {
+      const cell = tr.children[sort.col];
+      const text = (cell?.dataset.sort ?? cell?.textContent ?? "").trim();
+      const number = /\d/.test(text) ? Number(text.replace(/[₱,%#+\s]/g, "")) : NaN;
+      return { text, number: Number.isNaN(number) ? null : number, empty: !text || text === "—" };
+    });
+    const direction = sort.dir === "desc" ? -1 : 1;
+    return items
+      .map((item, index) => ({ item, index, key: keys[index] }))
+      .sort((a, b) => {
+        if (a.key.empty !== b.key.empty) return a.key.empty ? 1 : -1;
+        let result;
+        if (a.key.number !== null && b.key.number !== null) result = a.key.number - b.key.number;
+        else result = natural(a.key.text, b.key.text);
+        return (result * direction) || a.index - b.index;
+      })
+      .map(entry => entry.item);
+  }
 
   function tableBlock(key, headers, items, rowHtml, emptyText, pageSize = PAGE_SIZE) {
+    const sort = ui.sort[key];
+    if (sort && isDataHeader(headers[sort.col] ?? "")) items = sortedItems(items, rowHtml, sort);
     tableStore[key] = { headers, items, rowHtml };
     const pages = Math.max(1, Math.ceil(items.length / pageSize));
     const page = Math.min(Math.max(1, ui.pages[key] || 1), pages);
@@ -751,7 +819,13 @@
       : `<tr><td colspan="${headers.length}"><div class="empty-state">${escapeHTML(emptyText)}</div></td></tr>`;
     const from = slice.length ? (page - 1) * pageSize + 1 : 0;
     const to = slice.length ? from + slice.length - 1 : 0;
-    return `<div class="connected-table-wrap" data-table-key="${key}"><table class="connected-table"><thead><tr>${headers.map(header => `<th>${escapeHTML(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
+    const head = headers.map((header, col) => {
+      if (header === SELECT_HEADER) return '<th class="select-cell"><input type="checkbox" data-product-select-all ${productsFiltered.length && productSelection.size === productsFiltered.length ? "checked" : ""} aria-label="Select all products"></th>';
+      if (!isDataHeader(header)) return "<th></th>";
+      const active = sort?.col === col ? sort.dir : "";
+      return `<th aria-sort="${active === "asc" ? "ascending" : active === "desc" ? "descending" : "none"}"><button class="sort-btn" type="button" data-sort-table="${key}" data-sort-col="${col}">${escapeHTML(header)}<span class="sort-arrow">${active === "asc" ? "▲" : active === "desc" ? "▼" : ""}</span></button></th>`;
+    }).join("");
+    return `<div class="connected-table-wrap" data-table-key="${key}"><table class="connected-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
       <div class="connected-pager"><span>${from}–${to} of ${items.length}</span>
         <div><button class="button button-outline" type="button" data-pager="${key}" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>Previous</button><span>Page ${page} of ${pages}</span><button class="button button-outline" type="button" data-pager="${key}" data-page="${page + 1}" ${page >= pages ? "disabled" : ""}>Next</button></div></div>`;
   }
@@ -849,6 +923,8 @@
           branchId: sale.branch_id,
           psId: sale.ps_id,
           brand: (line.brand || "").trim() || "Unbranded",
+          category: (line.category || "").trim(),
+          subCategory: (line.sub_category || "").trim(),
           product: (line.model_description || "").trim() || "Unnamed product",
           amount: Number(line.selling_price) * Number(line.quantity),
         });
@@ -1011,9 +1087,19 @@
         }[dim];
         const trend = A.groupTrend(facts, keyOf, current, previous);
         const dimLabel = dims.find(([value]) => value === dim)[1];
+        const metaOf = new Map();
+        facts.forEach(f => { if (!metaOf.has(keyOf(f))) metaOf.set(keyOf(f), f); });
+        const withProduct = dim === "product";
+        const trendHead = [...(withProduct ? ["Brand", "Category", "Sub-category"] : []), dimLabel, "Month to date", "Prior period", "Growth", "Share"];
         const trendPanel = panel(`Trend by ${dimLabel.toLowerCase()}`, "Month to date vs the same days last month.",
-          tableBlock("an-trend", [dimLabel, "Month to date", "Prior period", "Growth", "Share"], trend,
-            row => `<tr><td>${escapeHTML(row.key)}</td><td>${formatMoney(row.current)}</td><td>${formatMoney(row.previous)}</td><td>${growthCell(row.growth)}</td><td>${row.share === null ? "n/a" : (row.share * 100).toFixed(1) + "%"}</td></tr>`,
+          tableBlock("an-trend", trendHead, trend,
+            row => {
+              const meta = metaOf.get(row.key) || {};
+              const link = dim === "ps" && meta.psId ? ` class="rank-row" data-ps-detail="${escapeHTML(meta.psId)}" tabindex="0"`
+                : dim === "brand" ? ` class="rank-row" data-brand-detail="${escapeHTML(row.key)}" tabindex="0"` : "";
+              const lead = withProduct ? `<td>${escapeHTML(meta.brand || "—")}</td><td>${escapeHTML(meta.category || "—")}</td><td>${escapeHTML(meta.subCategory || "—")}</td>` : "";
+              return `<tr${link}>${lead}<td>${escapeHTML(row.key)}</td><td>${formatMoney(row.current)}</td><td>${formatMoney(row.previous)}</td><td>${growthCell(row.growth)}</td><td>${row.share === null ? "n/a" : (row.share * 100).toFixed(1) + "%"}</td></tr>`;
+            },
             "No sales in this period."),
           `<label class="field an-inline"><span class="visually-hidden">Group by</span><select data-filter="anDim">${dims.map(([value, label]) =>
             `<option value="${value}" ${dim === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>`);
@@ -1025,13 +1111,13 @@
             const share = count ? (branchTargets.get(profile.branch_id) || 0) / count : 0;
             const own = facts.filter(f => f.psId === profile.id && f.branchId === profile.branch_id && f.date >= monthStart && f.date <= through)
               .reduce((total, f) => total + f.amount, 0);
-            return { name: profile.full_name || "Staff member", branch: branchName(profile.branch_id), actual: own, target: share };
+            return { id: profile.id, name: profile.full_name || "Staff member", branch: branchName(profile.branch_id), actual: own, target: share };
           });
           const result = A.topAndBottom(entries, 3);
           const expected = A.expectedFraction({ month, refDate, rules, partialDay: isCurrent });
           const row = entry => {
             const behind = expected !== null && entry.achievement < expected;
-            return `<tr><td>${escapeHTML(entry.name)}<br><small class="an-muted">${escapeHTML(entry.branch)}</small></td><td>${formatMoney(entry.actual)}</td><td>${formatMoney(entry.target)}</td><td>${(entry.achievement * 100).toFixed(1)}%</td><td>${behind ? '<span class="an-down">Behind pace</span>' : '<span class="an-up">On pace</span>'}</td></tr>`;
+            return `<tr class="rank-row" data-ps-detail="${escapeHTML(entry.id)}" tabindex="0"><td>${escapeHTML(entry.name)}<br><small class="an-muted">${escapeHTML(entry.branch)}</small></td><td>${formatMoney(entry.actual)}</td><td>${formatMoney(entry.target)}</td><td>${(entry.achievement * 100).toFixed(1)}%</td><td>${behind ? '<span class="an-down">Behind pace</span>' : '<span class="an-up">On pace</span>'}</td></tr>`;
           };
           const head = "<thead><tr><th>Product Specialist</th><th>Actual</th><th>Individual target</th><th>Achievement</th><th>Pace</th></tr></thead>";
           const table = list => list.length
@@ -1129,12 +1215,13 @@
             isTest: isTestSale(sale),
             branch: branchName(sale.branch_id),
             person: isPs ? "You" : liveData.profiles.find(profile => profile.id === sale.ps_id)?.full_name || "Staff member",
-            lines: linesForSale(sale.id).map(line => `${line.model_description} × ${line.quantity}`),
-            products: linesForSale(sale.id).map(line => `${line.model_description} × ${line.quantity}`).join(", "),
+            lines: linesForSale(sale.id),
+            products: linesForSale(sale.id).map(line => `${line.brand} ${line.category} ${line.sub_category} ${line.model_description}`).join(", "),
+            qty: linesForSale(sale.id).reduce((sum, line) => sum + Number(line.quantity || 0), 0),
             total: saleTotal(sale),
           }))
           .filter(row => matches(query, row.sale.invoice_number, row.sale.customer_name, row.products, row.person, row.branch))
-          .sort((a, b) => natural(a.branch, b.branch) || String(b.sale.created_at).localeCompare(String(a.sale.created_at)));
+          .sort((a, b) => String(b.sale.sold_on).localeCompare(String(a.sale.sold_on)) || String(b.sale.created_at).localeCompare(String(a.sale.created_at)));
         const total = sales.filter(row => !row.isTest).reduce((sum, row) => sum + row.total, 0);
         const testCount = sales.filter(row => row.isTest).length;
         const isAdmin = currentProfile.role === "admin";
@@ -1155,27 +1242,35 @@
         const tools = `<div class="table-tools">${logFilters}<label class="table-search"><span class="visually-hidden">Search sales log</span><input type="search" data-filter="search" placeholder="Search invoice, customer, product, staff" value="${escapeHTML(ui.search)}" autocomplete="off"></label><button class="button button-outline" type="button" data-export="sales">Export</button></div>`;
         const rangeNote = logRange ? `${ui.logFrom || "start"} to ${ui.logTo || "today"} · ` : ui.period === "day" ? "this day only · " : "";
         return `<div class="connected-charts">${charts.join("")}</div>
-          ${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} · ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by branch, then newest first.`, tableBlock(
+          ${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} ·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a column heading to sort.`, tableBlock(
             "sales",
-            ["Invoice", "Customer", "Products", "Payment", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(isPs || isAdmin ? [""] : [])],
+                      ["Invoice", "Customer", "Products", "Qty", "Payment", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(isPs || isAdmin ? [""] : [])],
             sales,
-            row => `<tr${row.isTest ? ' class="test-row"' : ""}><td><strong>${escapeHTML(row.sale.invoice_number)}</strong>${row.isTest ? ' <span class="test-badge">TEST – not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}</td><td>${row.lines.length ? row.lines.map(line => `<div class="product-line">${escapeHTML(line)}</div>`).join("") : "—"}</td><td>${escapeHTML(row.sale.payment_mode || "—")}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td>${escapeHTML(new Date(row.sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</td><td><strong>${formatMoney(row.total)}</strong></td>${isPs ? `<td><button class="button button-outline button-small" type="button" data-edit-sale="${escapeHTML(row.sale.id)}">Edit</button></td>` : isAdmin ? `<td><button class="button button-outline button-small button-danger" type="button" data-delete-sale="${escapeHTML(row.sale.id)}">Delete</button></td>` : ""}</tr>`,
+                      row => `<tr${row.isTest ? ' class="test-row"' : ""}><td><strong>${escapeHTML(row.sale.invoice_number)}</strong>${row.isTest ? ' <span class="test-badge">TEST – not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}</td><td>${row.lines.length ? row.lines.map(productLineHTML).join("") : "—"}</td><td>${row.qty}</td><td>${escapeHTML(row.sale.payment_mode || "—")}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td data-sort="${escapeHTML(row.sale.created_at)}">${escapeHTML(new Date(row.sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</td><td><strong>${formatMoney(row.total)}</strong></td>${isPs ? `<td><button class="button button-outline button-small" type="button" data-edit-sale="${escapeHTML(row.sale.id)}">Edit</button></td>` : isAdmin ? `<td><button class="button button-outline button-small button-danger" type="button" data-delete-sale="${escapeHTML(row.sale.id)}">Delete</button></td>` : ""}</tr>`,
             "No sales match these filters.",
           ), tools)}${isPs ? brandLogPanel() : ""}`;
       },
     );
   }
 
+  // One product line: brand · category · sub-category, then the description and quantity.
+  function productLineHTML(line) {
+    const meta = [line.brand, line.category, line.sub_category].filter(Boolean).map(escapeHTML).join(" · ");
+    return `<div class="product-line"><span class="pl-meta">${meta}</span>${escapeHTML(line.model_description)} × ${escapeHTML(line.quantity)}</div>`;
+  }
+
   function brandProgressChart(scope) {
     const brand = String(currentProfile.assigned_brand || "").trim();
+    const { base } = psBrandParts(brand);
+    const targetFor = name => liveData.brandTargets
+      .filter(row => row.branch_id === currentProfile.branch_id
+        && row.brand.trim().toLowerCase() === name.toLowerCase()
+        && targetInPeriod(row.month))
+      .reduce((sum, row) => sum + Number(row.amount), 0);
     const actual = liveData.brandSales
       .filter(row => inStatus(row.sold_on))
       .reduce((sum, row) => sum + Number(row.amount), 0);
-    const target = liveData.brandTargets
-      .filter(row => row.branch_id === currentProfile.branch_id
-        && row.brand.trim().toLowerCase() === brand.toLowerCase()
-        && targetInPeriod(row.month))
-      .reduce((sum, row) => sum + Number(row.amount), 0);
+    const target = targetFor(brand) || (base !== brand ? targetFor(base) : 0);
     return progressChart(actual, target, scope, {
       title: `${brand || "Brand"} progress · whole branch`,
       currentLabel: "Brand sales",
@@ -1191,9 +1286,9 @@
       .sort((a, b) => String(b.sold_on).localeCompare(String(a.sold_on)) || natural(a.ps_name, b.ps_name));
     return panel(`${brand} sales log · branch-wide`, `${rows.length} line${rows.length === 1 ? "" : "s"} sold by everyone in your branch for your brand, newest first.`, tableBlock(
       "brandlog",
-      ["Sale date", "Invoice", "Product Specialist", "Product", "Qty"],
+      ["Sale date", "Invoice", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Qty"],
       rows,
-      row => `<tr><td>${escapeHTML(row.sold_on)}</td><td><strong>${escapeHTML(row.invoice_number)}</strong></td><td>${escapeHTML(row.ps_name)}</td><td>${escapeHTML(row.model_description)}</td><td>${escapeHTML(row.quantity)}</td></tr>`,
+      row => `<tr><td>${escapeHTML(row.sold_on)}</td><td><strong>${escapeHTML(row.invoice_number)}</strong></td><td>${escapeHTML(row.ps_name)}</td><td>${escapeHTML(row.brand)}</td><td>${escapeHTML(row.category || "—")}</td><td>${escapeHTML(row.sub_category || "—")}</td><td>${escapeHTML(row.model_description)}</td><td>${escapeHTML(row.quantity)}</td></tr>`,
       "No sales of your brand match this period.",
     ));
   }
@@ -1226,8 +1321,28 @@
     }
     return out;
   }
-
   const productLabel = product => `${product.brand} · ${product.model_description} · ${product.barcode}`;
+
+  const isIndoorSplit = product => /split/i.test(`${product.sub_category || ""} ${product.model_description || ""}`)
+    && !/outdoor/i.test(product.model_description || "");
+
+  // Finds the outdoor unit that goes with a split-type indoor unit: same brand, "Outdoor" in the description, most similar model text.
+  function findOutdoorPartner(indoor, catalog) {
+    const tokens = text => new Set(String(text || "").toLowerCase().replace(/\b(indoor|outdoor)\b/g, " ").split(/[^a-z0-9]+/).filter(Boolean));
+    const base = tokens(indoor.model_description);
+    let best = null;
+    for (const item of catalog) {
+      if (item.brand !== indoor.brand || !/outdoor/i.test(item.model_description || "")) continue;
+      const other = tokens(item.model_description);
+      const shared = [...base].filter(token => other.has(token)).length;
+      const score = shared / Math.max(new Set([...base, ...other]).size, 1);
+      const gap = Math.abs((Number(item.barcode) || 0) - (Number(indoor.barcode) || 0));
+      if (score >= 0.6 && (!best || score > best.score || (score === best.score && gap < best.gap))) best = { item, score, gap };
+    }
+    if (best) return best.item;
+    const next = String(Number(indoor.barcode) + 1).padStart(indoor.barcode.length, "0");
+    return /^\d+$/.test(indoor.barcode) ? catalog.find(item => item.barcode === next && /outdoor/i.test(item.model_description || "")) || null : null;
+  }
 
   function saleLineRow(line = {}) {
     const product = line.barcode
@@ -1305,10 +1420,37 @@
           });
           form.querySelector("#sale-total").textContent = formatMoney(grand);
         };
+        let linkSeq = 0;
+        const syncOutdoor = row => {
+          const typed = row.querySelector('[name="product"]');
+          const product = resolve(typed.value);
+          const linked = row.dataset.outdoorRow ? form.querySelector(`[data-outdoor-of="${row.dataset.outdoorRow}"]`) : null;
+          if (linked && (!product || row.dataset.outdoorFor !== product.barcode)) {
+            linked.remove();
+            delete row.dataset.outdoorRow;
+            delete row.dataset.outdoorFor;
+          }
+          if (!product || row.dataset.outdoorOf || row.dataset.outdoorFor === product.barcode || !isIndoorSplit(product)) return;
+          const partner = findOutdoorPartner(product, catalog);
+          row.dataset.outdoorFor = product.barcode;
+          if (!partner || [...form.querySelectorAll('[name="code"]')].some(input => input.value === partner.barcode)) return;
+          const id = String(++linkSeq);
+          row.dataset.outdoorRow = id;
+          row.insertAdjacentHTML("afterend", saleLineRow({ barcode: partner.barcode, selling_price: 0, srp: partner.srp, quantity: row.querySelector('[name="quantity"]').value || 1 }));
+          const added = row.nextElementSibling;
+          added.dataset.outdoorOf = id;
+          enableCurrencyInput(added);
+        };
         form.addEventListener("input", event => {
           if (event.target.name === "product") {
             form.querySelector("#sale-products").innerHTML = productSuggestions(event.target.value)
               .map(item => `<option value="${escapeHTML(productLabel(item))}"></option>`).join("");
+            syncOutdoor(event.target.closest(".sale-row"));
+          }
+          if (event.target.name === "quantity") {
+            const row = event.target.closest(".sale-row");
+            const linked = row.dataset.outdoorRow ? form.querySelector(`[data-outdoor-of="${row.dataset.outdoorRow}"] [name="quantity"]`) : null;
+            if (linked) linked.value = event.target.value;
           }
           recalc();
         });
@@ -1323,8 +1465,10 @@
             enableCurrencyInput(form.querySelector(".sale-row:last-child"));
           }
           const remove = event.target.closest("[data-remove-line]");
-          if (remove && form.querySelectorAll(".sale-row").length > 1) {
-            remove.closest(".sale-row").remove();
+          if (remove && form.querySelectorAll(".sale-row").length > (remove.closest(".sale-row").dataset.outdoorRow ? 2 : 1)) {
+            const row = remove.closest(".sale-row");
+            if (row.dataset.outdoorRow) form.querySelector(`[data-outdoor-of="${row.dataset.outdoorRow}"]`)?.remove();
+            row.remove();
             recalc();
           }
         });
@@ -1389,6 +1533,9 @@
           .sort((a, b) => natural(a.district, b.district) || natural(a.branch, b.branch) || b.month.localeCompare(a.month));
         const brands = brandRows();
         const scope = statusLabel();
+        const branchTotals = branchRows();
+        const progress = currentProfile.role === "ps" ? ""
+          : progressChart(branchTotals.reduce((sum, row) => sum + row.actual, 0), branchTotals.reduce((sum, row) => sum + row.target, 0), scope);
         return `${panel("Monthly branch targets", "Ordered by district, then branch.", tableBlock(
           "targets",
           ["District", "Branch", "Month", "Target", "Actual sales", "Progress", ""],
@@ -1396,7 +1543,7 @@
           row => `<tr><td>${escapeHTML(row.district)}</td><td><strong>${escapeHTML(row.branch)}</strong></td><td>${escapeHTML(monthLabel(row.month))}</td><td>${formatMoney(row.amount)}</td><td>${formatMoney(row.actual)}</td><td>${percent(row.actual, row.amount)}</td><td><button class="button button-outline button-small" type="button" data-edit-target="${escapeHTML(row.target.id)}">Edit</button></td></tr>`,
           "No targets match these filters.",
         ))}
-        <div class="connected-charts">${pieChart("Sales by brand", scope, brands.map(row => ({ label: row.brand, value: row.actual })))}</div>
+        <div class="connected-charts">${progress}${pieChart("Sales by brand", scope, brands.map(row => ({ label: row.brand, value: row.actual })))}</div>
         ${panel("Brand performance", `${scope} · ranked by the selected measure.`, brandTable(brands, "No brand sales or targets for this selection."), currentProfile.role === "ps" ? "" : `${brandSortControl()}`)}
         ${psRankingPanel()}`;
       },
@@ -1427,13 +1574,21 @@
           })
           .filter(product => matches(query, product.brand, product.category, product.sub_category, product.model_description, product.barcode))
           .sort((a, b) => natural(a.brand, b.brand) || natural(a.model_description, b.model_description));
-        return panel("Product catalog", "Alphabetical by brand, then description.", tableBlock(
+        productsFiltered = products.map(product => product.barcode.trim().toLowerCase());
+        const visibleKeys = new Set(productsFiltered);
+        [...productSelection].forEach(key => { if (!visibleKeys.has(key)) productSelection.delete(key); });
+        const isAdminUser = currentProfile.role === "admin";
+        const picked = productSelection.size;
+        const deleteButton = isAdminUser
+          ? `<button class="button button-outline button-small danger" type="button" data-delete-products ${picked ? "" : "disabled"}>Delete selected${picked ? ` (${picked})` : ""}</button>`
+          : "";
+        return panel("Product catalog", `Alphabetical by brand, then description. Click a heading to sort.${isAdminUser ? ` ${picked} of ${products.length} selected.` : ""}`, tableBlock(
           "products",
-          ["Brand", "Category", "Sub-category", "Description", "Barcode", "SRP", ""],
+          [...(isAdminUser ? [SELECT_HEADER] : []), "Brand", "Category", "Sub-category", "Description", "Barcode", "SRP", ""],
           products,
-                    product => `<tr><td><strong>${escapeHTML(product.brand)}</strong></td><td>${escapeHTML(product.category || "—")}</td><td>${escapeHTML(product.sub_category || "—")}</td><td>${escapeHTML(product.model_description)}</td><td>${escapeHTML(product.barcode)}</td><td>${product.srp == null ? "—" : formatMoney(product.srp)}</td><td class="manage-cell"><button class="button button-outline button-small" type="button" data-edit-product="${escapeHTML(product.barcode)}">Edit</button></td></tr>`,
+          product => `<tr>${isAdminUser ? `<td class="select-cell"><input type="checkbox" data-product-select="${escapeHTML(product.barcode.trim().toLowerCase())}" ${productSelection.has(product.barcode.trim().toLowerCase()) ? "checked" : ""} aria-label="Select ${escapeHTML(product.model_description)}"></td>` : ""}<td><strong>${escapeHTML(product.brand)}</strong></td><td>${escapeHTML(product.category || "—")}</td><td>${escapeHTML(product.sub_category || "—")}</td><td>${escapeHTML(product.model_description)}</td><td>${escapeHTML(product.barcode)}</td><td>${product.srp == null ? "—" : formatMoney(product.srp)}</td><td class="manage-cell"><button class="button button-outline button-small" type="button" data-edit-product="${escapeHTML(product.barcode)}">Edit</button></td></tr>`,
           "No products match your search.",
-        ));
+        ), deleteButton);
       },
     );
   }
@@ -1547,6 +1702,25 @@
       body: fieldHTML("Message", "message", '<textarea name="message" rows="3" maxlength="240" required></textarea>') + PLACEHOLDER_LEGEND,
       onSubmit: async form => {
         mustRpc(await client.rpc("save_push_message", { p_status: status, p_message: form.elements.message.value.trim() }));
+        await refreshData();
+      },
+    });
+  }
+
+  function openDeleteProductsModal() {
+    const barcodes = [...productSelection];
+    const everything = barcodes.length === productsFiltered.length;
+    const needsTyping = barcodes.length >= 50;
+    openModal({
+      title: "Delete products",
+      intro: `Permanently delete ${barcodes.length} selected product${barcodes.length === 1 ? "" : "s"}${everything ? " (everything in the current list)" : ""}? They are removed from every branch. Past sales keep their own product details, and a snapshot is kept.`,
+      submitLabel: `Delete ${barcodes.length}`,
+      body: needsTyping ? fieldHTML("Type DELETE to confirm", "confirm", '<input name="confirm" autocomplete="off" required pattern="DELETE">') : "",
+      onSubmit: async () => {
+        for (let i = 0; i < barcodes.length; i += 2000) {
+          mustRpc(await client.rpc("delete_products", { p_barcodes: barcodes.slice(i, i + 2000) }));
+        }
+        productSelection.clear();
         await refreshData();
       },
     });
@@ -2355,8 +2529,8 @@
     if (currentProfile.role === "ps") {
       sheets.push({
         name: "Brand branch-wide",
-        rows: [["Sale date", "Invoice", "Product Specialist", "Brand", "Product", "Qty"],
-          ...liveData.brandSales.map(row => [row.sold_on, row.invoice_number, row.ps_name, row.brand, row.model_description, Number(row.quantity)])],
+        rows: [["Sale date", "Invoice", "Product Specialist",         "Brand", "Category", "Sub-category", "Product", "Qty"],
+                  ...liveData.brandSales.map(row => [row.sold_on, row.invoice_number, row.ps_name, row.brand, row.category, row.sub_category, row.model_description, Number(row.quantity)])],
       });
     } else {
       sheets.push({ name: "By branch", rows: [["Branch", "Sales"], ...[...byBranch].sort((a, b) => b[1] - a[1])] });
@@ -2605,12 +2779,12 @@
   function exportTable(key) {
     const table = tableStore[key];
     if (!table) return;
-    const keep = table.headers.map(header => header !== "");
+    const keep = table.headers.map(isDataHeader);
     const doc = new DOMParser().parseFromString(`<table><tbody>${table.items.map(table.rowHtml).join("")}</tbody></table>`, "text/html");
     const rows = [...doc.querySelectorAll("tr")].map(tr =>
       [...tr.children].filter((_, index) => keep[index]).map(cell => cell.textContent.trim()));
     const title = table.title || key;
-    exportWorkbook([{ name: title.replace(/[\\/?*[\]:]/g, " "), rows: [table.headers.filter(Boolean), ...rows] }],
+    exportWorkbook([{ name: title.replace(/[\\/?*[\]:]/g, " "), rows: [table.headers.filter(isDataHeader), ...rows] }],
       `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${localISODate()}`);
   }
 
@@ -2868,8 +3042,36 @@
     const brandRow = event.target.closest("[data-brand-detail]");
     if (brandRow) openBrandDetailModal(brandRow.dataset.brandDetail);
     const pagerButton = event.target.closest("[data-pager]");
+    const sortButton = event.target.closest("[data-sort-table]");
+    if (sortButton) {
+      const { sortTable: tableKey, sortCol } = sortButton.dataset;
+      const current = ui.sort[tableKey];
+      const col = Number(sortCol);
+      ui.sort[tableKey] = current?.col === col ? { col, dir: current.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" };
+      ui.pages[tableKey] = 1;
+      refreshResults();
+      return;
+    }
+    if (event.target.closest("[data-delete-products]") && currentProfile.role === "admin" && productSelection.size) {
+      openDeleteProductsModal();
+      return;
+    }
     if (pagerButton && !pagerButton.disabled) {
       ui.pages[pagerButton.dataset.pager] = Number(pagerButton.dataset.page);
+      refreshResults();
+    }
+  });
+
+  connectedContent.addEventListener("change", event => {
+    if (currentProfile?.role !== "admin") return;
+    const row = event.target.closest?.("[data-product-select]");
+    if (row) {
+      if (row.checked) productSelection.add(row.dataset.productSelect);
+      else productSelection.delete(row.dataset.productSelect);
+      refreshResults();
+    } else if (event.target.matches?.("[data-product-select-all]")) {
+      productSelection.clear();
+      if (event.target.checked) productsFiltered.forEach(key => productSelection.add(key));
       refreshResults();
     }
   });
@@ -2892,12 +3094,16 @@
     const submit = loginForm.querySelector('[type="submit"]');
     submit.disabled = true;
     setAuthMessage("Signing in…");
+    const remember = document.querySelector("#remember-me")?.checked !== false;
+    localStorage.setItem(REMEMBER_KEY, remember ? "1" : "0");
     try {
       const { data, error } = await client.auth.signInWithPassword({
         email: loginEmail(loginForm.elements.email.value) || loginForm.elements.email.value.trim(),
         password: loginForm.elements.password.value,
       });
       if (error) throw error;
+      if (remember) localStorage.setItem(LAST_LOGIN_KEY, loginForm.elements.email.value.trim());
+      else localStorage.removeItem(LAST_LOGIN_KEY);
       await loadLiveWorkspace(data.session);
     } catch (error) {
       console.error("Branchline sign-in failed.", error);
@@ -2934,7 +3140,8 @@
   });
 
   if (window.supabase?.createClient && config?.url && config?.publishableKey) {
-    client = window.supabase.createClient(config.url, config.publishableKey);
+    client = window.supabase.createClient(config.url, config.publishableKey, { auth: { storage: authStorage } });
+    applyRememberedLogin();
     configWarning.hidden = true;
     client.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT") {
