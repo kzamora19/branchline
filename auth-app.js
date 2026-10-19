@@ -262,11 +262,11 @@
         const probe = await client.from("products").select("branch_id").eq("active", true).limit(1);
         catalogBranch = probe.data?.[0]?.branch_id || null;
       }
-      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, paymentTargets] = await Promise.all([
+      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, paymentTargets, importBatches] = await Promise.all([
         fetchAll("branches", "id,name,district_id", [["name", true], ["id", true]]),
         fetchAll("districts", "id,name", [["name", true], ["id", true]]),
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
-        fetchAll("sales",         "id,branch_id,ps_id,customer_name,invoice_number,sold_on,payment_mode,created_at,updated_at", [["sold_on", false], ["id", true]]),
+        fetchAll("sales",         "id,branch_id,ps_id,ps_name,customer_name,invoice_number,sold_on,payment_mode,created_at,updated_at", [["sold_on", false], ["id", true]]),
                 fetchAll("products", "id,branch_id,barcode,model_description,brand,category,sub_category,active,srp", [["model_description", true], ["id", true]], query => (catalogBranch ? query.eq("branch_id", catalogBranch) : query).eq("active", true)),
         fetchAll("profiles", "id,full_name,role,branch_id,district_id,assigned_brand,active,login_id,email", [["id", true]]),
         fetchAll("brand_targets", "id,branch_id,month,brand,amount", [["month", false], ["id", true]]),
@@ -282,6 +282,7 @@
         fetchAll("branch_walkins", "branch_id,counted_on,visitors", [["counted_on", false], ["branch_id", true]]),
         fetchAll("push_messages", "id,status,message,created_at", [["created_at", true], ["id", true]]),
         fetchAll("payment_mode_targets", "id,branch_id,month,mode,share_pct,amount", [["month", false], ["id", true]]),
+        isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("sales_import_batches", "id,label,source_file,created_at,sales_count,lines_count,amount,date_from,date_to", [["created_at", false], ["id", true]]),
               ]);
 
       const visibleBranches = checkResult(branches, "Unable to load accessible branches").map(item => ({ ...item, name: titleCase(item.name) }));
@@ -340,6 +341,7 @@
         branchWalkins: branchWalkins.error ? [] : branchWalkins.data,
         pushMessages: pushMessages.error ? [] : pushMessages.data,
         paymentTargets: paymentTargets.error ? [] : paymentTargets.data.map(item => ({ ...item, month: String(item.month).slice(0, 10), share_pct: item.share_pct === null ? null : Number(item.share_pct), amount: item.amount === null ? null : Number(item.amount) })),
+        importBatches: importBatches.error ? [] : importBatches.data,
       };
 
       document.querySelector("#connected-user-name").textContent = connectedUserLabel();
@@ -616,6 +618,7 @@
     const filtered = Boolean(filters.brand || filters.category || filters.sub);
     const totals = new Map();
     liveData.sales.forEach(sale => {
+      if (!sale.ps_id) return;
       const owner = liveData.profiles.find(item => item.id === sale.ps_id);
       // A transferred PS starts over: only sales in their current branch count.
       if (owner?.branch_id && owner.branch_id !== sale.branch_id) return;
@@ -929,6 +932,7 @@
           saleId: sale.id,
           branchId: sale.branch_id,
           psId: sale.ps_id,
+          psName: sale.ps_name || "",
           brand: (line.brand || "").trim() || "Unbranded",
           category: (line.category || "").trim(),
           subCategory: (line.sub_category || "").trim(),
@@ -1292,7 +1296,7 @@
         const keyOf = {
           brand: f => f.brand,
           product: f => f.product,
-          ps: f => liveData.profiles.find(p => p.id === f.psId)?.full_name || "Staff member",
+          ps: f => liveData.profiles.find(p => p.id === f.psId)?.full_name || titleCase(f.psName || "") || "Staff member",
           branch: f => branchName(f.branchId),
           district: f => branchDistrictName(f.branchId),
         }[dim];
@@ -1452,7 +1456,7 @@
             sale,
             isTest: isTestSale(sale, liveData.testPsIds),
             branch: branchName(sale.branch_id),
-            person: isPs ? "You" : liveData.profiles.find(profile => profile.id === sale.ps_id)?.full_name || "Staff member",
+            person: isPs ? "You" : liveData.profiles.find(profile => profile.id === sale.ps_id)?.full_name || titleCase(sale.ps_name || "") || "Staff member",
             lines: linesForSale(sale.id),
             products: linesForSale(sale.id).map(line => `${line.brand} ${line.category} ${line.sub_category} ${line.model_description}`).join(", "),
             qty: linesForSale(sale.id).reduce((sum, line) => sum + Number(line.quantity || 0), 0),
@@ -1798,6 +1802,7 @@
           '<button class="button button-primary" type="button" data-open="product">+ Add product</button>',
           currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="import">Import Excel / CSV</button>' : "",
           currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="sync-categories">Update sales categories</button>' : "",
+          currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="sales-history">Import sales history</button>' : "",
           currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="payments">Payment modes</button>' : "",
         ].join(""),
       }),
@@ -2004,6 +2009,112 @@
         const result = mustRpc(await client.rpc("sync_sale_categories", { p_from: from, p_to: to, p_overwrite: form.elements.mode.value === "all" }));
         await refreshData();
         return `<p>Checked <strong>${escapeHTML(result.lines_checked)}</strong> sale line(s) and updated <strong>${escapeHTML(result.lines_updated)}</strong>.</p>`;
+      },
+    });
+  }
+
+  async function readHistoryRows(file) {
+    if (/\.csv$/i.test(file.name)) return parseCsv(await file.text());
+    if (!window.XLSX) throw new Error("The Excel reader could not load. Save the file as CSV and try again.");
+    const workbook = window.XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    return window.XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
+  }
+
+  const HISTORY_BRANCH_HINTS = { CAU: "cauayan", ILA: "ilagan", STG: "santiago", TUG: "tuguegarao" };
+
+  function openSalesHistoryModal() {
+    const batches = [...(liveData.importBatches || [])].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    const branches = [...liveData.branches].sort((a, b) => natural(a.name, b.name));
+    let parsed = null;
+    let fileName = "";
+    let batchId = null;
+    const batchList = batches.length
+      ? `<p class="dlg-intro"><strong>Previous imports</strong></p><ul class="push-list">${batches.map(batch => `<li><span>${escapeHTML(batch.label)} — ${escapeHTML(batch.sales_count)} sales, ${escapeHTML(batch.lines_count)} items, ${formatMoney(Number(batch.amount))} (${escapeHTML(batch.date_from || "")} to ${escapeHTML(batch.date_to || "")})</span><button class="button button-outline button-small" type="button" data-history-remove="${escapeHTML(batch.id)}">Remove</button></li>`).join("")}</ul>`
+      : "";
+    openModal({
+      title: "Import sales history",
+      intro: "Admin only. Upload the company sales database (.xlsx or .csv, one row per item sold). Everything is tagged as one import, so you can remove the whole import later. Dates that Excel scrambled are repaired automatically.",
+      submitLabel: "Import",
+      wide: true,
+      body: `${batchList}
+        ${fieldHTML("Sales database file", "file", '<input name="file" type="file" accept=".xlsx,.xls,.csv" required>')}
+        ${fieldHTML("Name for this import", "label", '<input name="label" maxlength="80" placeholder="e.g. Jan–Jun 2026 sales">')}
+        <div id="history-preview" class="dlg-preview">No file chosen.</div>
+        <div id="history-map"></div>
+        <p class="dlg-preview" id="history-progress" hidden></p>`,
+      onReady: form => {
+        form.querySelectorAll("[data-history-remove]").forEach(button => button.addEventListener("click", () => {
+          const batch = batches.find(item => item.id === button.dataset.historyRemove);
+          if (batch) openRemoveHistoryModal(batch);
+        }));
+        form.elements.file.addEventListener("change", async () => {
+          const preview = form.querySelector("#history-preview");
+          const map = form.querySelector("#history-map");
+          parsed = null;
+          batchId = null;
+          map.innerHTML = "";
+          const file = form.elements.file.files[0];
+          if (!file) return;
+          fileName = file.name;
+          if (!form.elements.label.value) form.elements.label.value = file.name.replace(/\.[^.]+$/, "").slice(0, 80);
+          preview.textContent = "Reading the file… large files can take up to a minute.";
+          try {
+            await new Promise(resolve => setTimeout(resolve, 30));
+            parsed = window.BranchlineSalesHistory.parseSalesHistory(await readHistoryRows(file));
+            const { stats } = parsed;
+            const months = Object.keys(stats.byMonth).sort().map(month => `<li>${escapeHTML(month)}: ${formatMoney(stats.byMonth[month].amount)} (${stats.byMonth[month].lines} items)</li>`).join("");
+            preview.innerHTML = `<strong>${stats.sales}</strong> sales, <strong>${stats.lines}</strong> items, net <strong>${formatMoney(stats.amount)}</strong>, ${escapeHTML(stats.from)} to ${escapeHTML(stats.to)}.<br>${stats.datesFixed} scrambled date(s) repaired${stats.returns ? `, ${stats.returns} return line(s) included as negatives` : ""}${stats.skipped ? `, ${stats.skipped} unusable row(s) skipped` : ""}.<ul>${months}</ul>`;
+            map.innerHTML = Object.keys(stats.byDivision).sort().map(division => {
+              const hint = HISTORY_BRANCH_HINTS[division];
+              const guess = branches.find(branch => hint && branch.name.toLowerCase().includes(hint));
+              const options = [["", "Skip this branch"], ...branches.map(branch => [branch.id, branch.name])];
+              const entry = stats.byDivision[division];
+              return fieldHTML(`${division} → ${entry.sales} sales, ${formatMoney(entry.amount)}`, `div-${division}`, selectHTML(`div-${division}`, options, guess ? guess.id : ""));
+            }).join("");
+          } catch (error) {
+            parsed = null;
+            preview.textContent = error.message;
+          }
+        });
+      },
+      onSubmit: async form => {
+        if (!parsed || !parsed.sales.length) throw new Error("Choose a valid sales database file first.");
+        const branchFor = {};
+        Object.keys(parsed.stats.byDivision).forEach(division => { branchFor[division] = form.elements[`div-${division}`]?.value || ""; });
+        const sales = parsed.sales.filter(sale => branchFor[sale.division]).map(sale => ({ ...sale, branch_id: branchFor[sale.division] }));
+        if (!sales.length) throw new Error("Match at least one branch code to a branch.");
+        if (!window.confirm(`Import ${sales.length} sales into the live data? You can remove the whole import afterwards.`)) throw new Error("Import cancelled.");
+        batchId ||= crypto.randomUUID();
+        const label = form.elements.label.value.trim() || fileName || "Sales history";
+        const progress = form.querySelector("#history-progress");
+        progress.hidden = false;
+        const totals = { sales: 0, lines: 0, skipped_existing: 0, matched_ps: 0 };
+        const chunks = window.BranchlineSalesHistory.chunkSales(sales, 200);
+        for (let index = 0; index < chunks.length; index += 1) {
+          progress.textContent = `Importing… ${Math.min(index * 200, sales.length)} of ${sales.length} sales`;
+          const part = mustRpc(await client.rpc("import_sales_history", {
+            p_batch: batchId, p_label: label, p_file: fileName,
+            p_sales: chunks[index].map(sale => ({ branch_id: sale.branch_id, invoice: sale.invoice, sold_on: sale.sold_on, customer: sale.customer, ps_name: sale.ps_name, payment_mode: sale.payment_mode, lines: sale.lines })),
+          }));
+          Object.keys(totals).forEach(key => { totals[key] += Number(part[key]) || 0; });
+        }
+        await refreshData();
+        return `<p>Imported <strong>${totals.sales}</strong> sales (${totals.lines} items). ${totals.matched_ps} were matched to a Product Specialist account; the rest keep the salesperson's name only.${totals.skipped_existing ? ` ${totals.skipped_existing} invoice(s) already existed and were left alone.` : ""}</p>`;
+      },
+    });
+  }
+
+  function openRemoveHistoryModal(batch) {
+    openModal({
+      title: "Remove imported sales",
+      intro: `Permanently remove "${batch.label}" — ${batch.sales_count} sales and ${batch.lines_count} items (${formatMoney(Number(batch.amount))}). Sales entered by your team are not affected.`,
+      submitLabel: "Remove import",
+      body: "",
+      onSubmit: async () => {
+        const result = mustRpc(await client.rpc("delete_sales_import", { p_batch: batch.id }));
+        await refreshData();
+        return `<p>Removed ${escapeHTML(result.sales)} sale(s) and ${escapeHTML(result.lines)} item(s).</p>`;
       },
     });
   }
@@ -2789,8 +2900,8 @@
     }
   }
 
-  function psNameOf(psId) {
-    return liveData.profiles.find(profile => profile.id === psId)?.full_name || (psId === currentProfile.id ? currentProfile.full_name : "—");
+  function psNameOf(psId, fallbackName = "") {
+    return liveData.profiles.find(profile => profile.id === psId)?.full_name || (psId && psId === currentProfile.id ? currentProfile.full_name : titleCase(fallbackName || "") || "—");
   }
 
   function exportSales() {
@@ -2802,7 +2913,7 @@
     sales.forEach(sale => {
       linesForSale(sale.id).forEach(line => {
         const amount = Number(line.selling_price) * Number(line.quantity);
-        detail.push([sale.sold_on, sale.invoice_number, sale.customer_name, branchDistrictName(sale.branch_id), branchName(sale.branch_id), psNameOf(sale.ps_id), line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), amount, sale.payment_mode || ""]);
+        detail.push([sale.sold_on, sale.invoice_number, sale.customer_name, branchDistrictName(sale.branch_id), branchName(sale.branch_id), psNameOf(sale.ps_id, sale.ps_name), line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), amount, sale.payment_mode || ""]);
         addTo(byBranch, branchName(sale.branch_id), amount);
         addTo(byBrand, (line.brand || "Unbranded").trim(), amount);
       });
@@ -2986,6 +3097,7 @@
     else if (open === "import") openImportModal();
     else if (open === "payment-targets") openPaymentTargetsModal();
     else if (open === "sync-categories") openSyncCategoriesModal();
+    else if (open === "sales-history") openSalesHistoryModal();
     else if (open === "target") openTargetModal();
     else if (open === "district") openDistrictModal();
     else if (open === "branch") openBranchModal();
