@@ -577,9 +577,9 @@
     }
     return tableBlock(
       "brands",
-      ["Brand", "Category", "Sub-category", "Sales", "Target", "Progress"],
+      ["Brand", "Sales", "Target", "Progress"],
       brands,
-      row => `<tr class="rank-row" data-brand-detail="${escapeHTML(row.brand)}" tabindex="0"><td><strong>${escapeHTML(row.brand)}</strong></td><td>${escapeHTML(row.category)}</td><td>${escapeHTML(row.subCategory)}</td><td>${formatMoney(row.actual)}</td><td>${formatMoney(row.target)}</td><td>${percent(row.actual, row.target)}</td></tr>`,
+      row => `<tr class="rank-row" data-brand-detail="${escapeHTML(row.brand)}" tabindex="0"><td><strong>${escapeHTML(row.brand)}</strong></td><td>${formatMoney(row.actual)}</td><td>${formatMoney(row.target)}</td><td>${percent(row.actual, row.target)}</td></tr>`,
       emptyText,
     );
   }
