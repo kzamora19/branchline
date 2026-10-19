@@ -71,7 +71,7 @@
 
   function formatMoney(value) {
     const amount = Number(value);
-    return `₱${(Number.isFinite(amount) ? amount : 0).toLocaleString("en-PH", {
+    return `â‚±${(Number.isFinite(amount) ? amount : 0).toLocaleString("en-PH", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}`;
@@ -98,7 +98,7 @@
   }
 
   function percent(actual, target, decimals = PERCENT_DECIMALS) {
-    return target > 0 ? `${((actual / target) * 100).toFixed(decimals)}%` : "—";
+    return target > 0 ? `${((actual / target) * 100).toFixed(decimals)}%` : "â€”";
   }
 
   function rolePageAllowed(page) {
@@ -230,7 +230,7 @@
     const sequence = ++loadSequence;
     currentSession = session;
     setWorkspaceMode("connected");
-    connectedContent.innerHTML = '<div class="app-loader" role="status" aria-label="Loading"><svg viewBox="0 0 512 512" width="84" height="84" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#355ee8"/><g fill="#fff"><rect class="ldr-bar b1" x="124" y="267" width="56" height="133" rx="20"/><rect class="ldr-bar b2" x="228" y="164" width="56" height="236" rx="20"/><rect class="ldr-bar b3" x="332" y="306" width="56" height="94" rx="20"/></g></svg><span>Loading…</span></div>';
+    connectedContent.innerHTML = '<div class="app-loader" role="status" aria-label="Loading"><svg viewBox="0 0 512 512" width="84" height="84" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#355ee8"/><g fill="#fff"><rect class="ldr-bar b1" x="124" y="267" width="56" height="133" rx="20"/><rect class="ldr-bar b2" x="228" y="164" width="56" height="236" rx="20"/><rect class="ldr-bar b3" x="332" y="306" width="56" height="94" rx="20"/></g></svg><span>Loadingâ€¦</span></div>';
 
     try {
       const profile = checkResult(await client
@@ -339,11 +339,11 @@
       document.querySelector("#connected-user-name").textContent = connectedUserLabel();
       const ownDistrict = visibleDistricts.find(item => item.id === profile.district_id)?.name;
       const roleDetail = profile.role === "ps"
-        ? `${roleLabels[profile.role]}${profile.assigned_brand ? ` · ${profile.assigned_brand}` : ""}`
+        ? `${roleLabels[profile.role]}${profile.assigned_brand ? ` Â· ${profile.assigned_brand}` : ""}`
         : profile.role === "manager" && visibleBranches.length
-          ? `${roleLabels[profile.role]} · ${visibleBranches.map(item => item.name).join(", ")}`
+          ? `${roleLabels[profile.role]} Â· ${visibleBranches.map(item => item.name).join(", ")}`
           : profile.role === "district_manager" && ownDistrict
-            ? `${roleLabels[profile.role]} · ${ownDistrict}`
+            ? `${roleLabels[profile.role]} Â· ${ownDistrict}`
             : roleLabels[profile.role];
       document.querySelector("#connected-user-role").textContent = roleDetail;
       refreshPushButton(profile.role === "ps");
@@ -366,7 +366,7 @@
   }
 
   function districtName(districtId) {
-    return liveData?.districts.find(district => district.id === districtId)?.name || "—";
+    return liveData?.districts.find(district => district.id === districtId)?.name || "â€”";
   }
 
   function branchDistrictName(branchId) {
@@ -411,7 +411,7 @@
     const day = periodDay();
     const month = new Date(`${day}T12:00:00`).toLocaleDateString("en", { month: "long", year: "numeric" });
     const [monthName, year] = month.split(" ");
-    return `${monthName} 1–${Number(day.slice(8, 10))}, ${year}`;
+    return `${monthName} 1â€“${Number(day.slice(8, 10))}, ${year}`;
   }
 
   function targetInPeriod(monthText) {
@@ -437,13 +437,14 @@
     return liveData.sales.filter(sale => currentProfile.role !== "ps" || sale.ps_id === currentProfile.id);
   }
 
-  // "Brand - Scope" (e.g. "Lg - Aircon") limits a PS to one category of a brand; plain "Brand" has no scope.
+  // An assignment can list several brands separated by "/" (e.g. "Fujidenzo / Whirlpool"), and each one can be limited
+  // to a category with "Brand - Scope" (e.g. "Carrier / Condura - Aircon").
   function psBrandParts(assigned) {
-    const full = String(assigned || "").trim();
-    const at = full.indexOf("-");
-    const isBrand = liveData.products.some(product => product.brand.trim().toLowerCase() === full.toLowerCase());
-    if (at < 0 || isBrand) return { base: full, scope: "" };
-    return { base: full.slice(0, at).trim(), scope: full.slice(at + 1).trim() };
+    return String(assigned || "").split("/").map(part => part.trim()).filter(Boolean).map(full => {
+      const at = full.indexOf("-");
+      const isBrand = liveData.products.some(product => product.brand.trim().toLowerCase() === full.toLowerCase());
+      return at < 0 || isBrand ? { full, base: full, scope: "" } : { full, base: full.slice(0, at).trim(), scope: full.slice(at + 1).trim() };
+    });
   }
 
   function scopeBranchIds() {
@@ -514,7 +515,7 @@
         currentLabel: "My sales",
         emptyText: "No branch target is set for this period yet.",
       }),
-      progressChart(personal.actual, personal.target, `${scope} · store target ÷ ${count} PS${count === 1 ? "" : "s"} in the branch`, {
+      progressChart(personal.actual, personal.target, `${scope} Â· store target Ã· ${count} PS${count === 1 ? "" : "s"} in the branch`, {
         title: "My sales vs my share of the store target",
         currentLabel: "My sales",
         emptyText: count ? "No branch target is set for this period yet." : "The Product Specialist count is unavailable, so your share cannot be calculated.",
@@ -545,8 +546,8 @@
     liveData.brandTargets.forEach(row => {
       if (ids.has(row.branch_id) && targetInPeriod(row.month)) addTo(target, row.brand.trim(), Number(row.amount));
     });
-    const list = brand => [...(categories.get(brand) || [])].sort(natural).join(", ") || "—";
-    const subList = brand => [...(subs.get(brand) || [])].sort(natural).join(", ") || "—";
+    const list = brand => [...(categories.get(brand) || [])].sort(natural).join(", ") || "â€”";
+    const subList = brand => [...(subs.get(brand) || [])].sort(natural).join(", ") || "â€”";
     return [...new Set([...actual.keys(), ...target.keys()])]
       .map(brand => ({ brand, category: list(brand), subCategory: subList(brand), actual: actual.get(brand) || 0, target: target.get(brand) || 0 }))
       .sort((a, b) => {
@@ -558,7 +559,7 @@
       });
   }
 
-  const BRAND_SORTS = [["sales", "Sales"], ["target", "Target"], ["progress", "Progress"], ["brand", "Brand (A–Z)"]];
+  const BRAND_SORTS = [["sales", "Sales"], ["target", "Target"], ["progress", "Progress"], ["brand", "Brand (Aâ€“Z)"]];
 
   function brandSortControl() {
     return `<label class="field log-filter"><span>Rank by</span>${selectHTML("brandSort", BRAND_SORTS, ui.brandSort, 'data-filter="brandSort"')}</label>`;
@@ -627,8 +628,8 @@
       return {
         id,
         name: profile?.full_name || "Staff member",
-        brand: profile?.assigned_brand || "—",
-        branch: profile?.branch_id ? branchName(profile.branch_id) : "—",
+        brand: profile?.assigned_brand || "â€”",
+        branch: profile?.branch_id ? branchName(profile.branch_id) : "â€”",
         total,
       };
     }).sort((a, b) => b.total - a.total || natural(a.name, b.name))
@@ -647,10 +648,10 @@
     const categories = uniqueSorted(lines.map(line => line.category));
     const subs = uniqueSorted(lines.filter(line => !ui.rankCategory || line.category === ui.rankCategory).map(line => line.sub_category));
     const filters = `<div class="rank-filters">${rankFilterSelect("rankBrand", "Brand", brands, ui.rankBrand)}${rankFilterSelect("rankCategory", "Category", categories, ui.rankCategory)}${rankFilterSelect("rankSub", "Sub-category", subs, ui.rankSub)}</div>`;
-    const active = [ui.rankBrand, ui.rankCategory, ui.rankSub].filter(Boolean).join(" › ");
+    const active = [ui.rankBrand, ui.rankCategory, ui.rankSub].filter(Boolean).join(" â€º ");
     return panel(
       "Product Specialist ranking",
-      `${periodLabel()} · ${active ? `sales of ${active}` : "overall sales regardless of brand"}, highest first. Click a name to see their sales.`,
+      `${periodLabel()} Â· ${active ? `sales of ${active}` : "overall sales regardless of brand"}, highest first. Click a name to see their sales.`,
       filters + tableBlock(
         "psrank",
         ["Rank", "Product Specialist", "Brand", "Branch", "Total sales"],
@@ -712,7 +713,7 @@
       return { shape, label, color, entry, fraction };
     });
     const legend = showLegend ? `<ul class="pie-legend">${slices.filter(slice => !slice.entry.muted).map(slice =>
-      `<li><i style="background:${slice.color}"></i><span>${escapeHTML(slice.entry.label)}</span><strong>${showAmounts ? `${formatMoney(slice.entry.value)} · ` : ""}${slice.entry.percentText || `${(slice.fraction * 100).toFixed(2)}%`}</strong></li>`
+      `<li><i style="background:${slice.color}"></i><span>${escapeHTML(slice.entry.label)}</span><strong>${showAmounts ? `${formatMoney(slice.entry.value)} Â· ` : ""}${slice.entry.percentText || `${(slice.fraction * 100).toFixed(2)}%`}</strong></li>`
     ).join("")}</ul>` : "";
     const description = shown.filter(entry => !entry.muted).map(entry => showAmounts ? `${entry.label} ${formatMoney(entry.value)}` : `${entry.label} ${entry.percentText}`).join("; ");
     return `<section class="connected-panel pie-card">${heading}
@@ -764,7 +765,7 @@
     const paceText = `${status.label}${status.key === "exceeded" ? "" : ` (expected ${(expected * 100).toFixed(1)}% by now)`}`;
     return pieChart(
       title,
-      `${showAmounts ? `Target ${formatMoney(target)} · ${subtitle}` : subtitle} · ${paceText}`,
+      `${showAmounts ? `Target ${formatMoney(target)} Â· ${subtitle}` : subtitle} Â· ${paceText}`,
       [
         { label: options.currentLabel || "Current sales", value: Math.min(actual, target), color: status.color, glow: { behind: "red", on: "green", exceeded: "blue" }[status.key], percentText: percent(actual, target), labelText: percent(actual, target, 2) },
         { label: "Remaining", value: Math.max(target - actual, 0), color: "#e2e8f0", muted: true },
@@ -790,8 +791,8 @@
     const keys = [...doc.querySelectorAll("tbody > tr")].map(tr => {
       const cell = tr.children[sort.col];
       const text = (cell?.dataset.sort ?? cell?.textContent ?? "").trim();
-      const number = /\d/.test(text) ? Number(text.replace(/[₱,%#+\s]/g, "")) : NaN;
-      return { text, number: Number.isNaN(number) ? null : number, empty: !text || text === "—" };
+      const number = /\d/.test(text) ? Number(text.replace(/[â‚±,%#+\s]/g, "")) : NaN;
+      return { text, number: Number.isNaN(number) ? null : number, empty: !text || text === "â€”" };
     });
     const direction = sort.dir === "desc" ? -1 : 1;
     return items
@@ -820,13 +821,13 @@
     const from = slice.length ? (page - 1) * pageSize + 1 : 0;
     const to = slice.length ? from + slice.length - 1 : 0;
     const head = headers.map((header, col) => {
-      if (header === SELECT_HEADER) return '<th class="select-cell"><input type="checkbox" data-product-select-all ${productsFiltered.length && productSelection.size === productsFiltered.length ? "checked" : ""} aria-label="Select all products"></th>';
+      if (header === SELECT_HEADER) return `<th class="select-cell"><input type="checkbox" data-product-select-all ${productsFiltered.length && productSelection.size === productsFiltered.length ? "checked" : ""} aria-label="Select all products"></th>`;
       if (!isDataHeader(header)) return "<th></th>";
       const active = sort?.col === col ? sort.dir : "";
-      return `<th aria-sort="${active === "asc" ? "ascending" : active === "desc" ? "descending" : "none"}"><button class="sort-btn" type="button" data-sort-table="${key}" data-sort-col="${col}">${escapeHTML(header)}<span class="sort-arrow">${active === "asc" ? "▲" : active === "desc" ? "▼" : ""}</span></button></th>`;
+      return `<th aria-sort="${active === "asc" ? "ascending" : active === "desc" ? "descending" : "none"}"><button class="sort-btn" type="button" data-sort-table="${key}" data-sort-col="${col}">${escapeHTML(header)}<span class="sort-arrow">${active === "asc" ? "â–²" : active === "desc" ? "â–¼" : ""}</span></button></th>`;
     }).join("");
     return `<div class="connected-table-wrap" data-table-key="${key}"><table class="connected-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
-      <div class="connected-pager"><span>${from}–${to} of ${items.length}</span>
+      <div class="connected-pager"><span>${from}â€“${to} of ${items.length}</span>
         <div><button class="button button-outline" type="button" data-pager="${key}" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>Previous</button><span>Page ${page} of ${pages}</span><button class="button button-outline" type="button" data-pager="${key}" data-page="${page + 1}" ${page >= pages ? "disabled" : ""}>Next</button></div></div>`;
   }
 
@@ -1006,7 +1007,7 @@
           const count = Number(liveData.psDashboard?.ps_count) || 0;
           const store = branchTargets.get(currentProfile.branch_id) || 0;
           target = count ? store / count : 0;
-          targetNote = `Your share: store target ${formatMoney(store)} ÷ ${count} PS${count === 1 ? "" : "s"}`;
+          targetNote = `Your share: store target ${formatMoney(store)} Ã· ${count} PS${count === 1 ? "" : "s"}`;
         } else {
           target = [...branchTargets.values()].reduce((sum, value) => sum + value, 0);
           targetNote = `${branchTargets.size} branch target${branchTargets.size === 1 ? "" : "s"} for ${monthLabel(month)}`;
@@ -1026,7 +1027,7 @@
         const forecastText = forecast.status === "projected" || forecast.status === "final"
           ? formatMoney(forecast.value) : "Not enough data";
         const forecastSmall = forecast.status === "projected"
-          ? `Projection · ${percent(forecast.value, target)} of target · avg ${formatMoney(forecast.rate)} per selling day`
+          ? `Projection Â· ${percent(forecast.value, target)} of target Â· avg ${formatMoney(forecast.rate)} per selling day`
           : forecast.status === "final" ? "Month complete: this is the actual result"
             : `Needs at least 5 finished selling days (${forecast.elapsedDays} so far)`;
         const gapText = target <= 0 ? "No target" : pace.met ? "Target reached" : formatMoney(pace.gap);
@@ -1047,23 +1048,23 @@
             : `${walk.storeDays} day(s) from store counts, ${walk.psDays} from PS counts`;
 
         const cards = `<div class="connected-metrics">
-          <article class="connected-metric"><span>Actual sales · ${escapeHTML(monthLabel(month))}${isCurrent ? " (to date)" : ""}</span><strong>${formatMoney(actual)}</strong><small>${escapeHTML(targetNote)}</small></article>
+          <article class="connected-metric"><span>Actual sales Â· ${escapeHTML(monthLabel(month))}${isCurrent ? " (to date)" : ""}</span><strong>${formatMoney(actual)}</strong><small>${escapeHTML(targetNote)}</small></article>
           <article class="connected-metric"><span>Target achievement</span><strong>${target > 0 ? percent(actual, target) : "No target"}</strong><small>Target ${target > 0 ? formatMoney(target) : "not set"}</small></article>
           <article class="connected-metric"><span>Remaining gap</span><strong>${gapText}</strong><small>${escapeHTML(gapSmall)}</small></article>
           <article class="connected-metric an-forecast-card"><span>${forecast.status === "final" ? "Month-end result" : `Forecast month-end <em class="an-badge">Forecast</em>`}</span><strong>${forecastText}</strong><small>${escapeHTML(forecastSmall)}</small></article>
           <article class="connected-metric"><span>Transactions</span><strong>${transactions}</strong><small>Average value ${transactions ? formatMoney(A.average(actual, transactions)) : "n/a"}</small><button class="button button-outline button-small wk-daily-btn" type="button" data-open="transactions-daily">View daily</button></article>
           ${isPs ? "" : `<article class="connected-metric"><span>Sales per PS</span><strong>${sharePerPs === null ? "n/a" : formatMoney(sharePerPs)}</strong><small>${psProfiles.length} active PS${psProfiles.length === 1 ? "" : "s"} in view</small></article>`}
           <article class="connected-metric"><span>${isPs ? "Clients assisted" : "Walk-in traffic"}</span><strong>${walk.coveredDays ? walk.visitors : "No data"}</strong><small>${escapeHTML(walkSource)}</small><button class="button button-outline button-small wk-daily-btn" type="button" data-open="walkin-daily">View daily</button></article>
-          <article class="connected-metric"><span>Conversion rate</span><strong>${walk.conversion === null ? "n/a" : `${(walk.conversion * 100).toFixed(1)}%`}</strong><small>${walk.conversion === null ? "Needs recorded walk-in counts" : `${walk.transactions} sale${walk.transactions === 1 ? "" : "s"} ÷ ${walk.visitors} on counted days`}</small></article>
+          <article class="connected-metric"><span>Conversion rate</span><strong>${walk.conversion === null ? "n/a" : `${(walk.conversion * 100).toFixed(1)}%`}</strong><small>${walk.conversion === null ? "Needs recorded walk-in counts" : `${walk.transactions} sale${walk.transactions === 1 ? "" : "s"} Ã· ${walk.visitors} on counted days`}</small></article>
         </div>`;
 
         const sum = (from, to) => A.sumDaily(daily, from, to);
         const weekFrom = A.weekStart(through);
         const comparisons = [
           ["Day", `${through}${isCurrent ? " (today, still in progress)" : ""}`, sum(through, through), sum(A.addDays(through, -1), A.addDays(through, -1)), "vs previous day"],
-          ["Week to date", `${weekFrom} – ${through}`, sum(weekFrom, through), sum(A.addDays(weekFrom, -7), A.addDays(through, -7)), "vs same days last week"],
-          ["Month to date", `${monthStart} – ${through}`, sum(monthStart, through), sum(A.monthStart(A.shiftMonth(month, -1)), A.sameDayPriorMonth(through)), "vs same days last month"],
-          ["Year to date", `${month.slice(0, 4)}-01-01 – ${through}`, sum(`${month.slice(0, 4)}-01-01`, through), sum(`${Number(month.slice(0, 4)) - 1}-01-01`, A.sameDayPriorYear(through)), "vs same period last year"],
+          ["Week to date", `${weekFrom} â€“ ${through}`, sum(weekFrom, through), sum(A.addDays(weekFrom, -7), A.addDays(through, -7)), "vs same days last week"],
+          ["Month to date", `${monthStart} â€“ ${through}`, sum(monthStart, through), sum(A.monthStart(A.shiftMonth(month, -1)), A.sameDayPriorMonth(through)), "vs same days last month"],
+          ["Year to date", `${month.slice(0, 4)}-01-01 â€“ ${through}`, sum(`${month.slice(0, 4)}-01-01`, through), sum(`${Number(month.slice(0, 4)) - 1}-01-01`, A.sameDayPriorYear(through)), "vs same period last year"],
         ];
         const comparisonTable = `<div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Period</th><th>Dates</th><th>Actual</th><th>Prior</th><th>Growth</th></tr></thead><tbody>${comparisons.map(([name, dates, current, prior, note]) =>
           `<tr><td>${escapeHTML(name)}<br><small class="an-muted">${escapeHTML(note)}</small></td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${growthCell(A.growth(current, prior))}</td></tr>`).join("")}</tbody></table></div>`;
@@ -1097,7 +1098,7 @@
               const meta = metaOf.get(row.key) || {};
               const link = dim === "ps" && meta.psId ? ` class="rank-row" data-ps-detail="${escapeHTML(meta.psId)}" tabindex="0"`
                 : dim === "brand" ? ` class="rank-row" data-brand-detail="${escapeHTML(row.key)}" tabindex="0"` : "";
-              const lead = withProduct ? `<td>${escapeHTML(meta.brand || "—")}</td><td>${escapeHTML(meta.category || "—")}</td><td>${escapeHTML(meta.subCategory || "—")}</td>` : "";
+              const lead = withProduct ? `<td>${escapeHTML(meta.brand || "â€”")}</td><td>${escapeHTML(meta.category || "â€”")}</td><td>${escapeHTML(meta.subCategory || "â€”")}</td>` : "";
               return `<tr${link}>${lead}<td>${escapeHTML(row.key)}</td><td>${formatMoney(row.current)}</td><td>${formatMoney(row.previous)}</td><td>${growthCell(row.growth)}</td><td>${row.share === null ? "n/a" : (row.share * 100).toFixed(1) + "%"}</td></tr>`;
             },
             "No sales in this period."),
@@ -1131,7 +1132,7 @@
             const behind = expected !== null && entry.achievement < expected;
             return `<tr><td>${escapeHTML(entry.name)}</td><td>${escapeHTML(entry.branch)}</td><td>${formatMoney(entry.actual)}</td><td>${formatMoney(entry.target)}</td><td>${(entry.achievement * 100).toFixed(1)}%</td><td>${behind ? "Behind pace" : "On pace"}</td></tr>`;
           };
-          psPanel = `${panel("Top performers", `Individual target = branch target ÷ active PSs in the branch.${paceNote}${skipNote}`, table(result.top), manualExport("an-top", "Top performers", exportHead, result.top, exportRow))}
+          psPanel = `${panel("Top performers", `Individual target = branch target Ã· active PSs in the branch.${paceNote}${skipNote}`, table(result.top), manualExport("an-top", "Top performers", exportHead, result.top, exportRow))}
             ${panel("Needs attention", "Lowest target achievement.", table(result.bottom), manualExport("an-bottom", "Needs attention", exportHead, result.bottom, exportRow))}`;
         }
 
@@ -1171,9 +1172,9 @@
         charts.push(brandPie("Sales by brand", label, brands.map(row => ({ label: row.brand, value: row.actual }))));
         return `<div class="connected-metrics">
             <article class="connected-metric"><span>Branches in view</span><strong>${rows.length}</strong></article>
-            <article class="connected-metric"><span>Sales · ${escapeHTML(label)}</span><strong>${formatMoney(totalSales)}</strong></article>
+            <article class="connected-metric"><span>Sales Â· ${escapeHTML(label)}</span><strong>${formatMoney(totalSales)}</strong></article>
             <article class="connected-metric"><span>${periodTargetLabel}</span><strong>${formatMoney(totalTarget)}</strong></article>
-            <article class="connected-metric"><span>Year-to-date sales</span><strong>${formatMoney(totalYtd)}</strong><small>YTD target ${formatMoney(totalYtdTarget)} · ${percent(totalYtd, totalYtdTarget)}</small></article>
+            <article class="connected-metric"><span>Year-to-date sales</span><strong>${formatMoney(totalYtd)}</strong><small>YTD target ${formatMoney(totalYtdTarget)} Â· ${percent(totalYtd, totalYtdTarget)}</small></article>
           </div>
           <div class="connected-charts">${charts.join("")}</div>
           ${currentProfile.role === "ps" ? "" : panel("Accessible branch performance", "Ordered by district, then branch.", tableBlock(
@@ -1234,34 +1235,33 @@
         if (rows.length > 1) {
           charts.push(pieChart("Sales by branch", scope, rows.map(row => ({ label: row.branch.name, value: row.actual }))));
         }
-        charts.push(brandPie("Sales by brand", isPs ? `${scope} · my sales` : scope, brandRows().map(row => ({ label: row.brand, value: row.actual }))));
+        charts.push(brandPie("Sales by brand", isPs ? `${scope} Â· my sales` : scope, brandRows().map(row => ({ label: row.brand, value: row.actual }))));
         salesLogExport = new Set(sales.map(row => row.sale.id));
         const logBranches = liveData.branches.filter(branch => ids.has(branch.id)).sort((a, b) => natural(a.name, b.name));
         const logFilters = isPs ? "" : `${logBranches.length > 1 ? `<label class="field log-filter"><span>Branch</span><select data-filter="logBranch"><option value="">All branches</option>${logBranches.map(branch =>
           `<option value="${escapeHTML(branch.id)}" ${branch.id === ui.logBranch ? "selected" : ""}>${escapeHTML(branch.name)}</option>`).join("")}</select></label>` : ""}<label class="field log-filter"><span>From</span><input type="date" data-filter="logFrom" value="${escapeHTML(ui.logFrom)}"></label><label class="field log-filter"><span>To</span><input type="date" data-filter="logTo" value="${escapeHTML(ui.logTo)}"></label>${ui.logBranch || logRange ? '<button class="button button-outline" type="button" data-log-clear>Clear</button>' : ""}`;
         const tools = `<div class="table-tools">${logFilters}<label class="table-search"><span class="visually-hidden">Search sales log</span><input type="search" data-filter="search" placeholder="Search invoice, customer, product, staff" value="${escapeHTML(ui.search)}" autocomplete="off"></label><button class="button button-outline" type="button" data-export="sales">Export</button></div>`;
-        const rangeNote = logRange ? `${ui.logFrom || "start"} to ${ui.logTo || "today"} · ` : ui.period === "day" ? "this day only · " : "";
+        const rangeNote = logRange ? `${ui.logFrom || "start"} to ${ui.logTo || "today"} Â· ` : ui.period === "day" ? "this day only Â· " : "";
         return `<div class="connected-charts">${charts.join("")}</div>
-          ${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} ·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a column heading to sort.`, tableBlock(
+          ${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} Â· ${formatMoney(total)} Â·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) Â· ` : ""}ordered by sale date, newest first. Click a column heading to sort.`, tableBlock(
             "sales",
                       ["Invoice", "Customer", "Products", "Qty", "Payment", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(isPs || isAdmin ? [""] : [])],
             sales,
-                      row => `<tr${row.isTest ? ' class="test-row"' : ""}><td><strong>${escapeHTML(row.sale.invoice_number)}</strong>${row.isTest ? ' <span class="test-badge">TEST – not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}</td><td>${row.lines.length ? row.lines.map(productLineHTML).join("") : "—"}</td><td>${row.qty}</td><td>${escapeHTML(row.sale.payment_mode || "—")}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td data-sort="${escapeHTML(row.sale.created_at)}">${escapeHTML(new Date(row.sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</td><td><strong>${formatMoney(row.total)}</strong></td>${isPs ? `<td><button class="button button-outline button-small" type="button" data-edit-sale="${escapeHTML(row.sale.id)}">Edit</button></td>` : isAdmin ? `<td><button class="button button-outline button-small button-danger" type="button" data-delete-sale="${escapeHTML(row.sale.id)}">Delete</button></td>` : ""}</tr>`,
+                      row => `<tr${row.isTest ? ' class="test-row"' : ""}><td><strong>${escapeHTML(row.sale.invoice_number)}</strong>${row.isTest ? ' <span class="test-badge">TEST â€“ not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}</td><td>${row.lines.length ? row.lines.map(productLineHTML).join("") : "â€”"}</td><td>${row.qty}</td><td>${escapeHTML(row.sale.payment_mode || "â€”")}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td data-sort="${escapeHTML(row.sale.created_at)}">${escapeHTML(new Date(row.sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</td><td><strong>${formatMoney(row.total)}</strong></td>${isPs ? `<td><button class="button button-outline button-small" type="button" data-edit-sale="${escapeHTML(row.sale.id)}">Edit</button></td>` : isAdmin ? `<td><button class="button button-outline button-small button-danger" type="button" data-delete-sale="${escapeHTML(row.sale.id)}">Delete</button></td>` : ""}</tr>`,
             "No sales match these filters.",
           ), tools)}${isPs ? brandLogPanel() : ""}`;
       },
     );
   }
 
-  // One product line: brand · category · sub-category, then the description and quantity.
+  // One product line: brand Â· category Â· sub-category, then the description and quantity.
   function productLineHTML(line) {
-    const meta = [line.brand, line.category, line.sub_category].filter(Boolean).map(escapeHTML).join(" · ");
-    return `<div class="product-line"><span class="pl-meta">${meta}</span>${escapeHTML(line.model_description)} × ${escapeHTML(line.quantity)}</div>`;
+    const meta = [line.brand, line.category, line.sub_category].filter(Boolean).map(escapeHTML).join(" Â· ");
+    return `<div class="product-line"><span class="pl-meta">${meta}</span>${escapeHTML(line.model_description)} Ã— ${escapeHTML(line.quantity)}</div>`;
   }
 
   function brandProgressChart(scope) {
     const brand = String(currentProfile.assigned_brand || "").trim();
-    const { base } = psBrandParts(brand);
     const targetFor = name => liveData.brandTargets
       .filter(row => row.branch_id === currentProfile.branch_id
         && row.brand.trim().toLowerCase() === name.toLowerCase()
@@ -1270,12 +1270,12 @@
     const actual = liveData.brandSales
       .filter(row => inStatus(row.sold_on))
       .reduce((sum, row) => sum + Number(row.amount), 0);
-    const target = targetFor(brand) || (base !== brand ? targetFor(base) : 0);
+    const target = psBrandParts(brand).reduce((sum, part) => sum + (targetFor(part.full) || (part.base !== part.full ? targetFor(part.base) : 0)), 0);
     return progressChart(actual, target, scope, {
-      title: `${brand || "Brand"} progress · whole branch`,
+      title: `${brand || "Brand"} progress Â· whole branch`,
       currentLabel: "Brand sales",
       amounts: false,
-      emptyText: `No ${brand || "brand"} target is set for this branch and period yet. Your BM or DM can set one under Targets → + Set target. It compares the whole branch's ${brand || "brand"} sales with that target.`,
+      emptyText: `No ${brand || "brand"} target is set for this branch and period yet. Your BM or DM can set one under Targets â†’ + Set target. It compares the whole branch's ${brand || "brand"} sales with that target.`,
     });
   }
 
@@ -1284,11 +1284,11 @@
     const rows = liveData.brandSales
       .filter(row => inPeriod(row.sold_on))
       .sort((a, b) => String(b.sold_on).localeCompare(String(a.sold_on)) || natural(a.ps_name, b.ps_name));
-    return panel(`${brand} sales log · branch-wide`, `${rows.length} line${rows.length === 1 ? "" : "s"} sold by everyone in your branch for your brand, newest first.`, tableBlock(
+    return panel(`${brand} sales log Â· branch-wide`, `${rows.length} line${rows.length === 1 ? "" : "s"} sold by everyone in your branch for your brand, newest first.`, tableBlock(
       "brandlog",
       ["Sale date", "Invoice", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Qty"],
       rows,
-      row => `<tr><td>${escapeHTML(row.sold_on)}</td><td><strong>${escapeHTML(row.invoice_number)}</strong></td><td>${escapeHTML(row.ps_name)}</td><td>${escapeHTML(row.brand)}</td><td>${escapeHTML(row.category || "—")}</td><td>${escapeHTML(row.sub_category || "—")}</td><td>${escapeHTML(row.model_description)}</td><td>${escapeHTML(row.quantity)}</td></tr>`,
+      row => `<tr><td>${escapeHTML(row.sold_on)}</td><td><strong>${escapeHTML(row.invoice_number)}</strong></td><td>${escapeHTML(row.ps_name)}</td><td>${escapeHTML(row.brand)}</td><td>${escapeHTML(row.category || "â€”")}</td><td>${escapeHTML(row.sub_category || "â€”")}</td><td>${escapeHTML(row.model_description)}</td><td>${escapeHTML(row.quantity)}</td></tr>`,
       "No sales of your brand match this period.",
     ));
   }
@@ -1321,7 +1321,7 @@
     }
     return out;
   }
-  const productLabel = product => `${product.brand} · ${product.model_description} · ${product.barcode}`;
+  const productLabel = product => `${product.brand} Â· ${product.model_description} Â· ${product.barcode}`;
 
   const isIndoorSplit = product => /split/i.test(`${product.sub_category || ""} ${product.model_description || ""}`)
     && !/outdoor/i.test(product.model_description || "");
@@ -1350,13 +1350,13 @@
       : null;
     const total = Number(line.selling_price || 0) * Number(line.quantity || 0);
     return `<div class="sale-row" data-srp-for="${escapeHTML(product?.barcode || "")}">
-      <label class="field sale-product"><span>Product (type a model, brand or barcode)</span><input name="product" list="sale-products" autocomplete="off" placeholder="Start typing…" required value="${product ? escapeHTML(productLabel(product)) : ""}"></label>
+      <label class="field sale-product"><span>Product (type a model, brand or barcode)</span><input name="product" list="sale-products" autocomplete="off" placeholder="Start typingâ€¦" required value="${product ? escapeHTML(productLabel(product)) : ""}"></label>
       <label class="field"><span>Barcode</span><input name="code" readonly tabindex="-1" value="${escapeHTML(product?.barcode || "")}"></label>
-      <label class="field"><span>SRP (₱)</span><input name="srp" type="number" min="0" step="0.01" value="${line.srp ?? ""}"></label>
-      <label class="field"><span>Price (₱)</span><input name="price" type="number" min="0" step="0.01" required value="${line.selling_price ?? ""}"></label>
+      <label class="field"><span>SRP (â‚±)</span><input name="srp" type="number" min="0" step="0.01" value="${line.srp ?? ""}"></label>
+      <label class="field"><span>Price (â‚±)</span><input name="price" type="number" min="0" step="0.01" required value="${line.selling_price ?? ""}"></label>
       <label class="field"><span>Qty</span><input name="quantity" type="number" min="1" step="1" required value="${line.quantity ?? 1}"></label>
       <label class="field"><span>Total</span><input name="linetotal" readonly tabindex="-1" value="${total ? formatMoney(total) : ""}"></label>
-      <button class="dlg-remove" type="button" data-remove-line aria-label="Remove product line">×</button>
+      <button class="dlg-remove" type="button" data-remove-line aria-label="Remove product line">Ã—</button>
     </div>`;
   }
 
@@ -1364,7 +1364,7 @@
     const names = liveData.paymentModes.map(mode => mode.name);
     if (current && !names.some(name => name.toLowerCase() === current.toLowerCase())) names.push(current);
     const match = names.find(name => name.toLowerCase() === String(current || "").toLowerCase()) || "";
-    return `<select name="payment" required><option value="">Select…</option>${names.map(name =>
+    return `<select name="payment" required><option value="">Selectâ€¦</option>${names.map(name =>
       `<option value="${escapeHTML(name)}" ${name === match ? "selected" : ""}>${escapeHTML(name)}</option>`).join("")}</select>`;
   }
 
@@ -1379,7 +1379,7 @@
         || null;
     };
     openModal({
-      title: sale ? `Edit sale · ${sale.invoice_number}` : "Record a sale",
+      title: sale ? `Edit sale Â· ${sale.invoice_number}` : "Record a sale",
       intro: sale ? "Corrections are saved with the previous values kept in the edit history." : "",
       submitLabel: sale ? "Save changes" : "Save sale",
       wide: true,
@@ -1544,7 +1544,7 @@
           "No targets match these filters.",
         ))}
         <div class="connected-charts">${progress}${pieChart("Sales by brand", scope, brands.map(row => ({ label: row.brand, value: row.actual })))}</div>
-        ${panel("Brand performance", `${scope} · ranked by the selected measure.`, brandTable(brands, "No brand sales or targets for this selection."), currentProfile.role === "ps" ? "" : `${brandSortControl()}`)}
+        ${panel("Brand performance", `${scope} Â· ranked by the selected measure.`, brandTable(brands, "No brand sales or targets for this selection."), currentProfile.role === "ps" ? "" : `${brandSortControl()}`)}
         ${psRankingPanel()}`;
       },
     );
@@ -1586,7 +1586,7 @@
           "products",
           [...(isAdminUser ? [SELECT_HEADER] : []), "Brand", "Category", "Sub-category", "Description", "Barcode", "SRP", ""],
           products,
-          product => `<tr>${isAdminUser ? `<td class="select-cell"><input type="checkbox" data-product-select="${escapeHTML(product.barcode.trim().toLowerCase())}" ${productSelection.has(product.barcode.trim().toLowerCase()) ? "checked" : ""} aria-label="Select ${escapeHTML(product.model_description)}"></td>` : ""}<td><strong>${escapeHTML(product.brand)}</strong></td><td>${escapeHTML(product.category || "—")}</td><td>${escapeHTML(product.sub_category || "—")}</td><td>${escapeHTML(product.model_description)}</td><td>${escapeHTML(product.barcode)}</td><td>${product.srp == null ? "—" : formatMoney(product.srp)}</td><td class="manage-cell"><button class="button button-outline button-small" type="button" data-edit-product="${escapeHTML(product.barcode)}">Edit</button></td></tr>`,
+          product => `<tr>${isAdminUser ? `<td class="select-cell"><input type="checkbox" data-product-select="${escapeHTML(product.barcode.trim().toLowerCase())}" ${productSelection.has(product.barcode.trim().toLowerCase()) ? "checked" : ""} aria-label="Select ${escapeHTML(product.model_description)}"></td>` : ""}<td><strong>${escapeHTML(product.brand)}</strong></td><td>${escapeHTML(product.category || "â€”")}</td><td>${escapeHTML(product.sub_category || "â€”")}</td><td>${escapeHTML(product.model_description)}</td><td>${escapeHTML(product.barcode)}</td><td>${product.srp == null ? "â€”" : formatMoney(product.srp)}</td><td class="manage-cell"><button class="button button-outline button-small" type="button" data-edit-product="${escapeHTML(product.barcode)}">Edit</button></td></tr>`,
           "No products match your search.",
         ), deleteButton);
       },
@@ -1617,9 +1617,9 @@
             branch: profile.branch_id
               ? branchName(profile.branch_id)
               : profile.role === "manager"
-                ? liveData.managerLinks.filter(link => link.manager_id === profile.id).map(link => branchName(link.branch_id)).join(", ") || "—"
-                : "—",
-            brand: profile.role === "ps" ? profile.assigned_brand || "—" : "—",
+                ? liveData.managerLinks.filter(link => link.manager_id === profile.id).map(link => branchName(link.branch_id)).join(", ") || "â€”"
+                : "â€”",
+            brand: profile.role === "ps" ? profile.assigned_brand || "â€”" : "â€”",
           }))
           .filter(row => matches(query, row.profile.full_name, row.role, row.brand, row.district, row.branch))
           .sort((a, b) => (roleRank[a.profile.role] ?? 9) - (roleRank[b.profile.role] ?? 9)
@@ -1688,15 +1688,15 @@
 
   const PLACEHOLDER_LEGEND = `<dl class="push-legend">
     <dt>{name}</dt><dd>The Product Specialist's first name. Example: <em>Maria</em></dd>
-    <dt>{sold}</dt><dd>Their own sales so far this month (before today). Example: <em>₱1,250,000.00</em></dd>
-    <dt>{expected}</dt><dd>How much they should have sold by now to stay on pace (their share × the share of selling days passed). Example: <em>₱1,800,000.00</em></dd>
-    <dt>{share}</dt><dd>Their individual monthly target: the branch target ÷ number of PS in the branch. Example: <em>₱4,000,000.00</em></dd>
+    <dt>{sold}</dt><dd>Their own sales so far this month (before today). Example: <em>â‚±1,250,000.00</em></dd>
+    <dt>{expected}</dt><dd>How much they should have sold by now to stay on pace (their share Ã— the share of selling days passed). Example: <em>â‚±1,800,000.00</em></dd>
+    <dt>{share}</dt><dd>Their individual monthly target: the branch target Ã· number of PS in the branch. Example: <em>â‚±4,000,000.00</em></dd>
   </dl>
   <p class="an-note">Each placeholder is replaced with that person's own figures when the alert is sent, so every PS sees their own name and numbers.</p>`;
 
   function openPushMessageModal(status) {
     openModal({
-      title: `Add message · ${PACE_STATUS_LABELS[status]}`,
+      title: `Add message Â· ${PACE_STATUS_LABELS[status]}`,
       intro: "Placeholders are filled in automatically for each Product Specialist.",
       submitLabel: "Add message",
       body: fieldHTML("Message", "message", '<textarea name="message" rows="3" maxlength="240" required></textarea>') + PLACEHOLDER_LEGEND,
@@ -1793,7 +1793,7 @@
     const priorTo = A.sameDayPriorYear(through);
     const priorTotal = summarize(priorFrom, priorTo);
     const rate = summary => (summary.conversion === null ? "n/a" : `${(summary.conversion * 100).toFixed(1)}%`);
-    const value = summary => (summary.coveredDays ? summary.visitors : "—");
+    const value = summary => (summary.coveredDays ? summary.visitors : "â€”");
     const change = (now, before) => {
       if (!now.coveredDays || !before.coveredDays) return '<span class="an-muted">n/a</span>';
       const diff = now.visitors - before.visitors;
@@ -1812,11 +1812,11 @@
     modalRoot.className = "dlg-backdrop";
     const root = modalRoot;
     root.innerHTML = `<div class="dlg dlg-xwide" role="dialog" aria-modal="true" aria-label="${escapeHTML(label)} by day">
-      <div class="dlg-head"><h2>${escapeHTML(label)} · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div>
+      <div class="dlg-head"><h2>${escapeHTML(label)} Â· ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>Ã—</button></div>
       <div class="dlg-form">
         <div class="connected-metrics wk-totals">
-          <article class="connected-metric"><span>This year (month to date)</span><strong>${value(total)}</strong><small>${total.coveredDays} day(s) counted · conversion ${rate(total)}</small></article>
-          <article class="connected-metric"><span>Same days last year</span><strong>${value(priorTotal)}</strong><small>${priorTotal.coveredDays} day(s) counted · conversion ${rate(priorTotal)}</small></article>
+          <article class="connected-metric"><span>This year (month to date)</span><strong>${value(total)}</strong><small>${total.coveredDays} day(s) counted Â· conversion ${rate(total)}</small></article>
+          <article class="connected-metric"><span>Same days last year</span><strong>${value(priorTotal)}</strong><small>${priorTotal.coveredDays} day(s) counted Â· conversion ${rate(priorTotal)}</small></article>
           <article class="connected-metric"><span>Change</span><strong>${change(total, priorTotal)}</strong><small>Only days with a recorded count are included</small></article>
         </div>
         <div class="ps-lines"><table class="connected-table"><thead><tr><th>Date</th><th>This year</th><th>Last year date</th><th>Last year</th><th>Change</th></tr></thead><tbody>${body}</tbody></table></div>
@@ -1863,7 +1863,7 @@
     modalRoot.className = "dlg-backdrop";
     const root = modalRoot;
     root.innerHTML = `<div class="dlg dlg-xwide" role="dialog" aria-modal="true" aria-label="Transactions by day">
-      <div class="dlg-head"><h2>Transactions · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div>
+      <div class="dlg-head"><h2>Transactions Â· ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>Ã—</button></div>
       <div class="dlg-form">
         <div class="connected-metrics wk-totals">
           <article class="connected-metric"><span>This year (month to date)</span><strong>${total}</strong><small>TEST transactions are not counted</small></article>
@@ -1916,7 +1916,7 @@
     modalRoot = document.createElement("div");
     modalRoot.className = "dlg-backdrop";
     modalRoot.innerHTML = `<div class="dlg${wide ? " dlg-wide" : ""}" role="dialog" aria-modal="true" aria-label="${escapeHTML(title)}">
-      <div class="dlg-head"><h2>${escapeHTML(title)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div>
+      <div class="dlg-head"><h2>${escapeHTML(title)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>Ã—</button></div>
       <form class="dlg-form" novalidate>
         ${intro ? `<p class="dlg-intro">${escapeHTML(intro)}</p>` : ""}
         <div class="dlg-body">${body}</div>
@@ -1942,7 +1942,7 @@
       try {
         const result = await onSubmit(form);
         if (result) {
-          root.querySelector(".dlg").innerHTML = `<div class="dlg-head"><h2>${escapeHTML(title)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div><div class="dlg-form">${result}<div class="dlg-actions"><button class="button button-primary" type="button" data-modal-close>Done</button></div></div>`;
+          root.querySelector(".dlg").innerHTML = `<div class="dlg-head"><h2>${escapeHTML(title)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>Ã—</button></div><div class="dlg-form">${result}<div class="dlg-actions"><button class="button button-primary" type="button" data-modal-close>Done</button></div></div>`;
         } else {
           closeModal();
         }
@@ -2012,7 +2012,7 @@
         <datalist id="sub-options">${subOptions(existing?.category)}</datalist>
         ${fieldHTML("Model description", "description", `<input name="description" required autocomplete="off" value="${escapeHTML(existing?.model_description || "")}">`)}
         ${fieldHTML("Barcode (numbers are padded to 8 digits)", "barcode", `<input name="barcode" required autocomplete="off" value="${escapeHTML(existing?.barcode || "")}">`)}
-        ${fieldHTML("SRP (₱, suggested retail price)", "srp", `<input name="srp" type="number" min="0" step="0.01" value="${existing?.srp ?? ""}">`)}`,
+        ${fieldHTML("SRP (â‚±, suggested retail price)", "srp", `<input name="srp" type="number" min="0" step="0.01" value="${existing?.srp ?? ""}">`)}`,
       onReady: form => {
         form.elements.category.addEventListener("input", () => {
           form.querySelector("#sub-options").innerHTML = subOptions(form.elements.category.value);
@@ -2170,7 +2170,7 @@
         ${fieldHTML("Branch", "branch", selectHTML("branch", [...(branches.length > 1 && !existing ? [["all", `All my branches (${branches.length})`]] : []), ...branches.map(branch => [branch.id, branch.name])], existing ? existing.branch_id : branches.length > 1 ? "all" : branches[0]?.id, existing ? "disabled" : ""))}
         <div id="brand-field" hidden>${fieldHTML("Brand", "brand", `<input name="brand" list="brand-options" autocomplete="off"><datalist id="brand-options">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>`)}</div>
         ${fieldHTML("Month", "month", `<input name="month" type="month" value="${month}" required>`)}
-        ${fieldHTML("Target amount (₱)", "amount", `<input name="amount" type="number" min="0" step="0.01" value="${existing ? Number(existing.amount) : ""}" required>`)}`,
+        ${fieldHTML("Target amount (â‚±)", "amount", `<input name="amount" type="number" min="0" step="0.01" value="${existing ? Number(existing.amount) : ""}" required>`)}`,
       onReady: form => {
         const sync = () => { form.querySelector("#brand-field").hidden = form.elements.type.value !== "brand"; };
         form.elements.type.addEventListener("change", sync);
@@ -2293,7 +2293,7 @@
         ${fieldHTML("Email (to send the invite, optional)", "contact", '<input name="contact" type="email" autocomplete="off" autocapitalize="none">')}
         ${fieldHTML("District", "district", selectHTML("district", liveData.districts.map(item => [item.id, item.name]), ui.district))}
         <div id="branch-field">${fieldHTML("Branch", "branch", '<select name="branch"></select>')}</div>
-        <div id="user-brand-field">${fieldHTML("Brand (for brand monitoring)", "brand", `<input name="brand" list="brand-options" autocomplete="off"><datalist id="brand-options">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>`)}</div>`,
+        <div id="user-brand-field">${fieldHTML("Brand (for brand monitoring)", "brand", `<input name="brand" list="brand-options" autocomplete="off" placeholder="e.g. Lg, Lg - Aircon, or Midea / Toshiba"><datalist id="brand-options">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>`)}</div>`,
       onReady: form => {
         const sync = () => {
           const role = form.elements.role.value;
@@ -2445,7 +2445,7 @@
       body: `${fieldHTML("Full name", "name", `<input name="name" required autocomplete="off" value="${escapeHTML(person.full_name)}">`)}
         ${`${fieldHTML("Login ID (username, mobile number or email)", "login", `<input name="login" autocomplete="off" value="${escapeHTML(person.login_id || "")}" placeholder="${person.login_id ? "" : "Email on file; enter a new login ID to change"}">`)}
         ${fieldHTML("Contact email (for invites)", "contact", `<input name="contact" type="email" autocomplete="off" value="${escapeHTML(person.email || "")}">`)}`}
-        ${isPs ? fieldHTML("Brand", "brand", `<input name="brand" required list="edit-brands" autocomplete="off" value="${escapeHTML(person.assigned_brand || "")}"><datalist id="edit-brands">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>`) : ""}
+        ${isPs ? fieldHTML("Brand", "brand", `<input name="brand" required list="edit-brands" autocomplete="off" placeholder="e.g. Lg, Lg - Aircon, or Midea / Toshiba" value="${escapeHTML(person.assigned_brand || "")}"><datalist id="edit-brands">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>`) : ""}
         ${role === "admin" ? "" : '<label class="check-row"><input type="checkbox" name="reset"> <span>Reset password (a new temporary password is shown once)</span></label>'}`,
       onSubmit: async form => {
         mustRpc(await client.rpc("admin_update_profile", {
@@ -2508,7 +2508,7 @@
   }
 
   function psNameOf(psId) {
-    return liveData.profiles.find(profile => profile.id === psId)?.full_name || (psId === currentProfile.id ? currentProfile.full_name : "—");
+    return liveData.profiles.find(profile => profile.id === psId)?.full_name || (psId === currentProfile.id ? currentProfile.full_name : "â€”");
   }
 
   function exportSales() {
@@ -2544,8 +2544,8 @@
     const person = liveData.profiles.find(item => item.id === psId);
     if (!person) return;
     openBreakdownModal({
-      title: `${person.full_name} · sales`,
-      intro: `${person.assigned_brand || "—"} · ${person.branch_id ? branchName(person.branch_id) : "—"} · ${periodLabel()}. Every brand this Product Specialist sold in the branch. Sort the columns to see which brand, category or sub-category sold most.`,
+      title: `${person.full_name} Â· sales`,
+      intro: `${person.assigned_brand || "â€”"} Â· ${person.branch_id ? branchName(person.branch_id) : "â€”"} Â· ${periodLabel()}. Every brand this Product Specialist sold in the branch. Sort the columns to see which brand, category or sub-category sold most.`,
       all: psSaleLines(psId),
       state: { brand: ui.rankBrand, category: ui.rankCategory, sub: ui.rankSub },
       fileBase: `branchline-${person.full_name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-sales`,
@@ -2565,8 +2565,8 @@
       });
     });
     openBreakdownModal({
-      title: `${brand} · sales`,
-      intro: `${periodLabel()} · current branch and district selection. Sort the columns to see which category or sub-category sold most.`,
+      title: `${brand} Â· sales`,
+      intro: `${periodLabel()} Â· current branch and district selection. Sort the columns to see which category or sub-category sold most.`,
       all,
       state: { brand: "", category: "", sub: "" },
       fileBase: `branchline-${brand.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-sales`,
@@ -2584,17 +2584,17 @@
     modalRoot.className = "dlg-backdrop";
     const root = modalRoot;
     root.innerHTML = `<div class="dlg dlg-xwide" role="dialog" aria-modal="true" aria-label="${escapeHTML(title)}">
-      <div class="dlg-head"><h2>${escapeHTML(title)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div>
+      <div class="dlg-head"><h2>${escapeHTML(title)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>Ã—</button></div>
       <div class="dlg-form"><div id="ps-detail"></div>
       <div class="dlg-actions"><button class="button button-outline" type="button" id="ps-detail-export">Export</button><button class="button button-primary" type="button" data-modal-close>Close</button></div></div></div>`;
     document.body.appendChild(root);
     const rows = () => all.filter(({ line }) => lineMatches(line, state));
-    const sortHead = (key, label) => `<th aria-sort="${state.sortKey === key ? (state.sortDir === "asc" ? "ascending" : "descending") : "none"}"><button class="sort-btn" type="button" data-sort="${key}">${label}<span class="sort-arrow">${state.sortKey === key ? (state.sortDir === "asc" ? "▲" : "▼") : ""}</span></button></th>`;
+    const sortHead = (key, label) => `<th aria-sort="${state.sortKey === key ? (state.sortDir === "asc" ? "ascending" : "descending") : "none"}"><button class="sort-btn" type="button" data-sort="${key}">${label}<span class="sort-arrow">${state.sortKey === key ? (state.sortDir === "asc" ? "â–²" : "â–¼") : ""}</span></button></th>`;
     const breakdown = list => {
       const keys = { brand: showBrand && ["all", "brand"].includes(state.group), category: ["all", "category"].includes(state.group), sub: ["all", "sub"].includes(state.group) };
       const totals = new Map();
       list.forEach(({ line }) => {
-        const parts = [keys.brand ? (line.brand || "").trim() || "—" : "", keys.category ? line.category || "—" : "", keys.sub ? line.sub_category || "—" : ""];
+        const parts = [keys.brand ? (line.brand || "").trim() || "â€”" : "", keys.category ? line.category || "â€”" : "", keys.sub ? line.sub_category || "â€”" : ""];
         const id = parts.join("\u0001");
         const entry = totals.get(id) || { brand: parts[0], category: parts[1], sub: parts[2], amount: 0, qty: 0 };
         entry.amount += Number(line.selling_price) * Number(line.quantity);
@@ -2620,7 +2620,7 @@
       const categories = uniqueSorted(all.map(({ line }) => line.category));
       const subs = uniqueSorted(all.filter(({ line }) => !state.category || line.category === state.category).map(({ line }) => line.sub_category));
       const lineRows = list.slice().sort((a, b) => String(b.sale.sold_on).localeCompare(String(a.sale.sold_on)))
-        .map(({ sale, line }) => `<tr><td>${escapeHTML(sale.sold_on)}</td><td><strong>${escapeHTML(sale.invoice_number)}</strong></td><td>${escapeHTML(line.brand)}</td><td>${escapeHTML(line.category || "—")}</td><td>${escapeHTML(line.sub_category || "—")}</td><td>${escapeHTML(line.model_description)}</td><td>${escapeHTML(line.quantity)}</td><td>${formatMoney(Number(line.selling_price) * Number(line.quantity))}</td></tr>`).join("");
+        .map(({ sale, line }) => `<tr><td>${escapeHTML(sale.sold_on)}</td><td><strong>${escapeHTML(sale.invoice_number)}</strong></td><td>${escapeHTML(line.brand)}</td><td>${escapeHTML(line.category || "â€”")}</td><td>${escapeHTML(line.sub_category || "â€”")}</td><td>${escapeHTML(line.model_description)}</td><td>${escapeHTML(line.quantity)}</td><td>${formatMoney(Number(line.selling_price) * Number(line.quantity))}</td></tr>`).join("");
       root.querySelector("#ps-detail").innerHTML = `<p class="dlg-intro">${escapeHTML(intro)}</p>
         <div class="rank-filters">${showBrand ? rankFilterSelect("brand", "Brand", brands, state.brand) : ""}${rankFilterSelect("category", "Category", categories, state.category)}${rankFilterSelect("sub", "Sub-category", subs, state.sub)}
         <label class="field"><span>Group by</span><select data-group>${groupOptions.map(([value, label]) => `<option value="${value}" ${state.group === value ? "selected" : ""}>${escapeHTML(label)}</option>`).join("")}</select></label></div>
@@ -2672,7 +2672,7 @@
       title: "Payment modes",
       intro: "These are the choices in the sale form's Mode of payment. Removing a mode does not change past sales.",
       submitLabel: "Add mode",
-      body: `<ul class="mode-list">${modes.map(mode => `<li><span>${escapeHTML(mode.name)}</span>${mode.id ? `<button class="dlg-remove" type="button" data-del-mode="${escapeHTML(mode.id)}" aria-label="Remove ${escapeHTML(mode.name)}">×</button>` : ""}</li>`).join("")}</ul>
+      body: `<ul class="mode-list">${modes.map(mode => `<li><span>${escapeHTML(mode.name)}</span>${mode.id ? `<button class="dlg-remove" type="button" data-del-mode="${escapeHTML(mode.id)}" aria-label="Remove ${escapeHTML(mode.name)}">Ã—</button>` : ""}</li>`).join("")}</ul>
         ${fieldHTML("New payment mode", "mode", '<input name="mode" autocomplete="off" required placeholder="e.g. GCash">')}`,
       onReady: form => {
         form.addEventListener("click", async event => {
@@ -2917,7 +2917,7 @@
     modalRoot.className = "dlg-backdrop";
     const root = modalRoot;
     root.innerHTML = `<div class="dlg pace-popup pace-${status.key}" style="--glow:${status.color}" role="dialog" aria-modal="true" aria-label="Pace update">
-      <div class="dlg-head"><h2>${escapeHTML(PACE_TITLES[status.key])}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div>
+      <div class="dlg-head"><h2>${escapeHTML(PACE_TITLES[status.key])}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>Ã—</button></div>
       <div class="dlg-form">
         <p class="pace-text">${escapeHTML(text)}</p>
         <div class="pace-numbers"><div><span>Sold (MTD)</span><strong>${escapeHTML(formatMoney(actual))}</strong></div><div><span>Expected by now</span><strong>${escapeHTML(formatMoney(expected))}</strong></div><div><span>Your target share</span><strong>${escapeHTML(formatMoney(target))}</strong></div></div>
@@ -2933,7 +2933,7 @@
       button.disabled = true;
       try {
         await enablePush();
-        button.textContent = "Alerts on ✓";
+        button.textContent = "Alerts on âœ“";
         refreshPushButton(true);
       } catch (error) {
         const box = root.querySelector(".dlg-error");
@@ -2973,7 +2973,7 @@
 
   function showPieTip(slice, x, y) {
     const [label, money, pct] = slice.dataset.tip.split("|");
-    pieTip.innerHTML = `<strong>${escapeHTML(label)}</strong><span>${money ? `${escapeHTML(money)} · ` : ""}${escapeHTML(pct)}</span>`;
+    pieTip.innerHTML = `<strong>${escapeHTML(label)}</strong><span>${money ? `${escapeHTML(money)} Â· ` : ""}${escapeHTML(pct)}</span>`;
     pieTip.hidden = false;
     const width = pieTip.offsetWidth;
     pieTip.style.left = `${Math.max(8, Math.min(x - width / 2, window.innerWidth - width - 8))}px`;
@@ -3093,7 +3093,7 @@
     event.preventDefault();
     const submit = loginForm.querySelector('[type="submit"]');
     submit.disabled = true;
-    setAuthMessage("Signing in…");
+    setAuthMessage("Signing inâ€¦");
     const remember = document.querySelector("#remember-me")?.checked !== false;
     localStorage.setItem(REMEMBER_KEY, remember ? "1" : "0");
     try {
