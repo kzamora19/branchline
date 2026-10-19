@@ -870,7 +870,7 @@
     return {
       kept,
       active: Object.values(state).some(Boolean),
-      html: `<div class="connected-table-wrap" data-filter-table="${key}"><table class="connected-table"><thead><tr>${head.map(item => `<th>${escapeHTML(item)}</th>`).join("")}</tr><tr class="filter-row">${controls}</tr></thead><tbody>${body}</tbody></table></div>`,
+      html: `<div class="connected-table-wrap" data-filter-table="${key}"><table class="connected-table"><thead><tr>${head.map(item => `<th>${escapeHTML(item)}</th>`).join("")}</tr><tr class="col-filter-row">${controls}</tr></thead><tbody>${body}</tbody></table></div>`,
     };
   }
 
@@ -2989,18 +2989,25 @@
       openModal({ title: "Add multiple users", body: "<p>Create a district and a branch before adding users.</p>", submitLabel: "OK", onSubmit: async () => {} });
       return;
     }
+    const rowHTML = index => ["Full name", "Login ID", "Email (optional)", "Brand"].map((label, col) =>
+      `<input name="u${index}_${col}" placeholder="${label}" aria-label="${label}, user ${index + 1}" autocomplete="off"${col === 3 ? ' list="brand-options"' : ""}${col === 1 || col === 2 ? ' autocapitalize="none"' : ""}>`).join("");
     openModal({
       title: "Add multiple users",
-      intro: "One person per line: Full name, Login ID, Brand, Email (Brand is for Product Specialists; Email is optional). You can paste rows straight from Excel. Everyone on the list gets the same role, district and branch.",
+      intro: "Fill one row per person. Everyone gets the same role, district and branch. Blank rows are ignored. Brand is for Product Specialists and is required for them.",
       submitLabel: "Create users",
       wide: true,
       body: `${fieldHTML("Role", "role", selectHTML("role", [["ps", "Product Specialist (PS)"], ["manager", "Branch Manager (BM)"], ["district_manager", "District Manager (DM)"]], "ps"))}
         ${fieldHTML("District", "district", selectHTML("district", liveData.districts.map(item => [item.id, item.name]), ui.district))}
         <div id="branch-field">${fieldHTML("Branch", "branch", '<select name="branch"></select>')}</div>
-        ${fieldHTML("Default brand (used when a line has no brand)", "brand", `<input name="brand" list="brand-options" autocomplete="off"><datalist id="brand-options">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>`)}
-        ${fieldHTML("Users", "lines", '<textarea name="lines" rows="9" required placeholder="Juan Dela Cruz, juan.delacruz, Tcl&#10;Maria Santos, maria.santos, Lg - Aircon"></textarea>')}
+        <div class="bulk-users-head"><strong>Users</strong><button class="button button-outline button-small" type="button" id="bulk-add-rows">+ Add more users</button></div>
+        <datalist id="brand-options">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>
+        <div class="bulk-grid" id="bulk-grid">
+          <span class="bulk-label">Full name</span><span class="bulk-label">Login ID</span><span class="bulk-label">Email (optional)</span><span class="bulk-label">Brand</span>
+          <span id="bulk-rows" style="display:contents">${[0, 1, 2, 3, 4].map(rowHTML).join("")}</span>
+        </div>
         <p class="dlg-preview" id="bulk-progress" hidden></p>`,
       onReady: form => {
+        let count = 5;
         const sync = () => {
           const role = form.elements.role.value;
           const branches = liveData.branches.filter(branch => branch.district_id === form.elements.district.value);
@@ -3008,15 +3015,30 @@
             ? branches.map(branch => `<option value="${escapeHTML(branch.id)}">${escapeHTML(branch.name)}</option>`).join("")
             : '<option value="">No branches in this district</option>';
           form.querySelector("#branch-field").hidden = role === "district_manager";
-          form.elements.brand.closest(".field").hidden = role !== "ps";
+          form.querySelectorAll('[name$="_3"]').forEach(input => { input.disabled = role !== "ps"; });
         };
         form.elements.role.addEventListener("change", sync);
         form.elements.district.addEventListener("change", sync);
+        form.querySelector("#bulk-add-rows").addEventListener("click", () => {
+          const holder = document.createElement("span");
+          holder.style.display = "contents";
+          holder.innerHTML = [0, 1, 2, 3, 4].map(offset => rowHTML(count + offset)).join("");
+          form.querySelector("#bulk-rows").appendChild(holder);
+          count += 5;
+          sync();
+          holder.querySelector("input")?.focus();
+        });
+        form.bulkCount = () => count;
         sync();
       },
       onSubmit: async form => {
         const role = form.elements.role.value;
-        const rows = form.elements.lines.value.split(/\r?\n/).map(line => line.split(/\t|,/).map(part => part.trim())).filter(parts => parts.some(Boolean));
+        const rows = [];
+        for (let index = 0; index < form.bulkCount(); index += 1) {
+          const value = col => (form.elements[`u${index}_${col}`]?.value || "").trim();
+          const entry = { name: value(0), login: value(1), email: value(2), brand: value(3), line: index + 1 };
+          if (entry.name || entry.login || entry.email || entry.brand) rows.push(entry);
+        }
         if (!rows.length) throw new Error("Enter at least one user.");
         if (rows.length > 40) throw new Error("Add up to 40 users at a time.");
         if (role !== "district_manager" && !form.elements.branch.value) throw new Error("Create a branch in this district first.");
@@ -3024,23 +3046,23 @@
         progress.hidden = false;
         const results = [];
         for (let index = 0; index < rows.length; index += 1) {
-          const [name, login, brandInput, email] = rows[index];
+          const entry = rows[index];
           progress.textContent = `Creating ${index + 1} of ${rows.length}…`;
           try {
-            const contactEmail = (email || "").toLowerCase();
-            const loginId = login || contactEmail;
-            if (!name) throw new Error("Missing full name.");
+            const contactEmail = entry.email.toLowerCase();
+            const loginId = entry.login || contactEmail;
+            if (!entry.name) throw new Error("Missing full name.");
             if (!loginId) throw new Error("Missing login ID or email.");
-            const body = { role, full_name: titleCase(name), login: loginId, email: contactEmail, app_url: location.origin + location.pathname, district_id: form.elements.district.value };
+            const body = { role, full_name: titleCase(entry.name), login: loginId, email: contactEmail, app_url: location.origin + location.pathname, district_id: form.elements.district.value };
             if (role !== "district_manager") body.branch_id = form.elements.branch.value;
             if (role === "ps") {
-              body.brand = titleCase(brandInput || form.elements.brand.value);
+              body.brand = titleCase(entry.brand);
               if (!body.brand) throw new Error("Missing brand.");
             }
             const data = await invokeAdminFunction(body);
             results.push({ name: body.full_name, login: loginId, password: data.temporary_password, error: "" });
           } catch (error) {
-            results.push({ name: name || `Line ${index + 1}`, login: login || "", password: "", error: error.message });
+            results.push({ name: entry.name || `Row ${entry.line}`, login: entry.login, password: "", error: error.message });
           }
         }
         await refreshData();
