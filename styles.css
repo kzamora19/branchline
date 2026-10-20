@@ -238,6 +238,7 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .an-note { margin: 14px 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
 .an-warn { color: var(--red); }
 .an-inline { min-width: 150px; }
+.an-inline.an-narrow { min-width: 110px; }
 .col-filter-row th { padding: 4px 8px 8px; font-weight: 400; text-transform: none; }
 .col-filter-row input, .col-filter-row select { width: 100%; min-width: 80px; min-height: 0; padding: 4px 6px; font: inherit; font-size: 10px; border: 1px solid #d5dbe6; border-radius: 6px; background: #fff; }
 .bulk-users-head { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }

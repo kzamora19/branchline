@@ -1050,23 +1050,47 @@
   function resolvePeriod(key, month, through) {
     const A = window.BranchlineAnalytics;
     const mode = ["mtd", "ytd", "day"].includes(ui[key]) ? ui[key] : "mtd";
+    const throughMonth = through.slice(0, 7);
+    const throughYear = through.slice(0, 4);
     if (mode === "ytd") {
-      const year = Number(through.slice(0, 4));
-      return { mode, from: `${year}-01-01`, to: through, prevFrom: `${year - 1}-01-01`, prevTo: A.sameDayPriorYear(through), name: "Year to date", note: "same period last year", label: `Year to date ${year}` };
+      const picked = /^\d{4}$/.test(ui[`${key}Y`]) ? ui[`${key}Y`] : throughYear;
+      const year = Number(picked);
+      const custom = picked !== throughYear;
+      const to = custom ? `${year}-12-31` : through;
+      return { mode, custom, from: `${year}-01-01`, to, prevFrom: `${year - 1}-01-01`, prevTo: custom ? `${year - 1}-12-31` : A.sameDayPriorYear(through), name: "Year to date", note: "same period last year", label: custom ? `Full year ${year}` : `Year to date ${year}` };
     }
     if (mode === "day") {
       const day = ui[`${key}Date`] || through;
       return { mode, from: day, to: day, prevFrom: A.addDays(day, -1), prevTo: A.addDays(day, -1), name: "Day", note: "the previous day", label: new Date(`${day}T00:00:00`).toLocaleDateString("en-PH", { dateStyle: "long" }) };
     }
-    return { mode, from: A.monthStart(month), to: through, prevFrom: A.monthStart(A.shiftMonth(month, -1)), prevTo: A.sameDayPriorMonth(through), name: "Month to date", note: "the same days last month", label: `${monthLabel(month)} to date` };
+    const pickedYear = /^\d{4}$/.test(ui[`${key}Y`]) ? ui[`${key}Y`] : throughYear;
+    const pickedMonth = /^(0[1-9]|1[0-2])$/.test(ui[`${key}M`]) ? ui[`${key}M`] : throughMonth.slice(5, 7);
+    const ym = `${pickedYear}-${pickedMonth}`;
+    if (ym !== throughMonth) {
+      const before = A.shiftMonth(ym, -1);
+      return { mode, custom: true, from: A.monthStart(ym), to: A.monthEnd(ym), prevFrom: A.monthStart(before), prevTo: A.monthEnd(before), name: "Month", note: "the previous month", label: monthLabel(ym) };
+    }
+    return { mode, custom: false, from: A.monthStart(month), to: through, prevFrom: A.monthStart(A.shiftMonth(month, -1)), prevTo: A.sameDayPriorMonth(through), name: "Month to date", note: "the same days last month", label: `${monthLabel(month)} to date` };
   }
 
   function periodControl(key, through) {
     const mode = ["mtd", "ytd", "day"].includes(ui[key]) ? ui[key] : "mtd";
     const options = [["mtd", "Month to date"], ["ytd", "Year to date"], ["day", "Daily (calendar)"]];
+    const years = new Set([through.slice(0, 4), String(Number(through.slice(0, 4)) - 1)]);
+    [...liveData.sales.map(sale => sale.sold_on), ...liveData.targets.map(row => row.month), ...(liveData.dailyHistory || []).map(row => row.day)]
+      .forEach(date => date && years.add(String(date).slice(0, 4)));
+    const year = /^\d{4}$/.test(ui[`${key}Y`]) ? ui[`${key}Y`] : through.slice(0, 4);
+    const monthValue = /^(0[1-9]|1[0-2])$/.test(ui[`${key}M`]) ? ui[`${key}M`] : through.slice(5, 7);
+    const monthSelect = `<label class="field an-inline an-narrow"><span class="visually-hidden">Month</span><select data-filter="${key}M">${Array.from({ length: 12 }, (_, index) => {
+      const value = String(index + 1).padStart(2, "0");
+      return `<option value="${value}" ${value === monthValue ? "selected" : ""}>${new Date(2000, index, 1).toLocaleString("en-PH", { month: "long" })}</option>`;
+    }).join("")}</select></label>`;
+    const yearSelect = `<label class="field an-inline an-narrow"><span class="visually-hidden">Year</span><select data-filter="${key}Y">${[...years].filter(value => value >= "2000").sort().reverse().map(value =>
+      `<option value="${value}" ${value === year ? "selected" : ""}>${value}</option>`).join("")}</select></label>`;
     return `<label class="field an-inline"><span class="visually-hidden">Period</span><select data-filter="${key}">${options.map(([value, text]) =>
       `<option value="${value}" ${mode === value ? "selected" : ""}>${text}</option>`).join("")}</select></label>${mode === "day"
-      ? `<label class="field an-inline"><span class="visually-hidden">Date</span><input type="date" data-filter="${key}Date" value="${escapeHTML(ui[`${key}Date`] || through)}"></label>` : ""}`;
+      ? `<label class="field an-inline"><span class="visually-hidden">Date</span><input type="date" data-filter="${key}Date" value="${escapeHTML(ui[`${key}Date`] || through)}"></label>`
+      : mode === "ytd" ? yearSelect : `${monthSelect}${yearSelect}`}`;
   }
 
   // Branch target for a period: whole-month targets for every month it touches; a single day gets its share of the month.
@@ -1486,7 +1510,7 @@
           });
           psEntries = entries.map(entry => ({ ...entry, achievement: A.achievement(entry.actual, entry.target) }));
           const expectedMtd = A.expectedFraction({ month, refDate, rules, partialDay: isCurrent });
-          const entriesFor = p => (p.mode === "mtd" ? entries : psProfiles.map(profile => {
+          const entriesFor = p => (p.mode === "mtd" && !p.custom ? entries : psProfiles.map(profile => {
             const count = psCountByBranch.get(profile.branch_id) || 0;
             const own = facts.filter(f => f.psId === profile.id && f.branchId === profile.branch_id && f.date >= p.from && f.date <= p.to)
               .reduce((total, f) => total + f.amount, 0);
@@ -1511,7 +1535,7 @@
           const rankPanel = (title, p, key, pick, detail) => {
             const list = entriesFor(p);
             const result = A.topAndBottom(list, 3);
-            const expected = p.mode === "mtd" ? expectedMtd : null;
+            const expected = p.mode === "mtd" && !p.custom ? expectedMtd : null;
             const skipped = list.length - result.ranked;
             const notes = `${expected === null ? "" : ` Expected progress by now: ${(expected * 100).toFixed(1)}% of the month's selling days.`}${skipped ? ` ${skipped} PS${skipped === 1 ? "" : "s"} without a branch target are not ranked.` : ""}`;
             const shown = pick(result);
@@ -1529,9 +1553,9 @@
         const mix = computePaymentMix(month, ids, through);
         const mixP = resolvePeriod("pdMix", month, through);
         const mixIds = panelIds("bpMix", ids);
-        const mixView = mixP.mode === "mtd" && mixIds === ids ? mix : computePaymentMix(month, mixIds, through, mixP);
+        const mixView = mixP.mode === "mtd" && !mixP.custom && mixIds === ids ? mix : computePaymentMix(month, mixIds, through, mixP);
         const mixBranch = mixIds === ids ? "" : ` · ${branchName([...mixIds][0])}`;
-        const mixLabel = `${mixP.mode === "mtd" ? `${monthLabel(month)}${isCurrent ? " (to date)" : ""}` : mixP.label}${mixBranch}`;
+        const mixLabel = `${mixP.mode === "mtd" && !mixP.custom ? `${monthLabel(month)}${isCurrent ? " (to date)" : ""}` : mixP.label}${mixBranch}`;
         const brandTrend = A.groupTrend(facts, f => f.brand, current, previous);
         const priceFacts = facts.filter(f => f.date >= monthStart && f.date <= through);
         const insights = A.buildInsights({
