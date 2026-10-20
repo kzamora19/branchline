@@ -1896,51 +1896,200 @@
     return names;
   }
 
-  // Reads barcodes with the browser's built-in detector (Chrome, Edge, Android). It reads the barcode only, not printed text.
-  const canScanBarcodes = () => "BarcodeDetector" in window;
+  // Barcode reading: the browser's built-in detector when it has one (Android, Mac), otherwise the ZXing library
+  // (loaded on first use) so it also works on Windows desktop. Label text is read with Tesseract OCR as a last resort.
+  const ZXING_URL = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
+  const TESSERACT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+  const scriptLoads = new Map();
 
-  async function barcodesInImage(file) {
+  function loadScript(src) {
+    if (!scriptLoads.has(src)) {
+      scriptLoads.set(src, new Promise((resolve, reject) => {
+        const el = document.createElement("script");
+        el.src = src;
+        el.onload = resolve;
+        el.onerror = () => {
+          scriptLoads.delete(src);
+          reject(new Error("The reader could not be downloaded. Check the internet connection."));
+        };
+        document.head.appendChild(el);
+      }));
+    }
+    return scriptLoads.get(src);
+  }
+
+  let nativeDetector = null;
+
+  function decodeWithZXing(canvas) {
+    const Z = window.ZXing;
+    const hints = new Map([[Z.DecodeHintType.TRY_HARDER, true]]);
+    const reader = new Z.MultiFormatReader();
+    reader.setHints(hints);
+    const source = new Z.HTMLCanvasElementLuminanceSource(canvas);
+    for (const binarizer of [Z.HybridBinarizer, Z.GlobalHistogramBinarizer]) {
+      try {
+        return reader.decode(new Z.BinaryBitmap(new binarizer(source))).getText().trim();
+      } catch { /* not found with this method */ }
+    }
+    return "";
+  }
+
+  async function decodeCanvas(canvas) {
+    if ("BarcodeDetector" in window) {
+      try {
+        nativeDetector = nativeDetector || new BarcodeDetector();
+        const found = await nativeDetector.detect(canvas);
+        const value = found.map(item => String(item.rawValue || "").trim()).find(Boolean);
+        if (value) return value;
+      } catch { /* fall through to ZXing */ }
+    }
+    await loadScript(ZXING_URL);
+    return decodeWithZXing(canvas);
+  }
+
+  // Possible serial numbers in OCR text: anything after "S/N" or "Serial", then other long letter-and-digit tokens.
+  function serialCandidates(text) {
+    const upper = String(text || "").toUpperCase();
+    const out = [];
+    const add = value => {
+      const clean = String(value).replace(/^[^A-Z0-9]+|[^A-Z0-9]+$/g, "");
+      if (clean.length >= 6 && /\d/.test(clean) && /^[A-Z0-9-]+$/.test(clean) && !out.includes(clean)) out.push(clean);
+    };
+    for (const match of upper.matchAll(/(?:S\s*\/?\s*N|SERIAL(?:\s*(?:NO\.?|NUMBER|#))?)\s*[:.#-]?\s*([A-Z0-9][A-Z0-9-]{4,})/g)) add(match[1]);
+    upper.split(/[\s,;|]+/).forEach(add);
+    return out.slice(0, 5);
+  }
+
+  async function readLabelText(canvas) {
+    await loadScript(TESSERACT_URL);
+    const { data } = await Tesseract.recognize(canvas, "eng");
+    return serialCandidates(data.text);
+  }
+
+  async function canvasFromFile(file, longest = 2000) {
     const bitmap = await createImageBitmap(file);
     try {
-      const found = await new BarcodeDetector().detect(bitmap);
-      return found.map(item => String(item.rawValue || "").trim()).filter(Boolean);
+      const scale = Math.min(1, longest / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      return canvas;
     } finally {
       bitmap.close?.();
     }
   }
 
+  // Opens the camera with an aiming frame. Resolves { value, fromText } or null when cancelled.
+  // Only the area inside the frame is analysed, at the camera's full resolution.
   function scanWithCamera(host) {
     return new Promise((resolve, reject) => {
+      const GUIDE = { x: 0.08, y: 0.33, w: 0.84, h: 0.34 };
       const box = document.createElement("div");
       box.className = "serial-pop serial-scan";
-      box.innerHTML = `<div class="serial-card"><p class="dlg-intro">Point the camera at the serial number barcode.</p><video playsinline muted></video><div class="dlg-actions"><button class="button button-outline" type="button">Cancel</button></div></div>`;
+      box.innerHTML = `<div class="serial-card">
+        <p class="dlg-intro">Fit the barcode inside the frame. Hold the phone 10–20 cm away and keep it steady.</p>
+        <div class="scan-view"><video playsinline muted></video>
+          <div class="scan-guide"><i></i><i></i><i></i><i></i><span></span></div></div>
+        <p class="scan-status" role="status">Starting the camera…</p>
+        <div class="scan-tools" hidden><label>Zoom <input type="range" data-scan-zoom></label><button class="button button-outline button-small" type="button" data-scan-torch hidden>Light</button></div>
+        <div class="dlg-actions"><button class="button button-outline" type="button" data-scan-text>Can’t scan? Read label text</button><button class="button button-outline" type="button" data-scan-cancel>Cancel</button></div>
+      </div>`;
       host.appendChild(box);
+      const video = box.querySelector("video");
+      const view = box.querySelector(".scan-view");
+      const status = box.querySelector(".scan-status");
       let stream = null;
       let timer = null;
+      let closed = false;
       const finish = value => {
+        closed = true;
         clearInterval(timer);
         stream?.getTracks().forEach(track => track.stop());
         box.remove();
         resolve(value);
       };
-      box.querySelector("button").addEventListener("click", () => finish(null));
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then(media => {
+      // Cuts the part of the video frame that sits under the on-screen frame (the video is cropped to fill the view).
+      const grab = pad => {
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        const cw = view.clientWidth;
+        const ch = view.clientHeight;
+        if (!vw || !cw) return null;
+        const scale = Math.max(cw / vw, ch / vh);
+        const ox = (vw * scale - cw) / 2;
+        const oy = (vh * scale - ch) / 2;
+        const sx = Math.max(0, ((GUIDE.x - pad) * cw + ox) / scale);
+        const sy = Math.max(0, ((GUIDE.y - pad) * ch + oy) / scale);
+        const sw = Math.min(vw - sx, ((GUIDE.w + 2 * pad) * cw) / scale);
+        const sh = Math.min(vh - sy, ((GUIDE.h + 2 * pad) * ch) / scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(sw);
+        canvas.height = Math.round(sh);
+        canvas.getContext("2d").drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+        return canvas;
+      };
+      box.querySelector("[data-scan-cancel]").addEventListener("click", () => finish(null));
+      box.querySelector("[data-scan-text]").addEventListener("click", async event => {
+        const button = event.currentTarget;
+        const canvas = grab(0.08);
+        if (!canvas) return;
+        button.disabled = true;
+        status.textContent = "Reading the label… this can take a few seconds the first time.";
+        try {
+          const barcode = await decodeCanvas(canvas).catch(() => "");
+          if (barcode) return finish({ value: barcode });
+          const found = await readLabelText(canvas);
+          if (found.length) return finish({ value: found[0], fromText: true, others: found.slice(1) });
+          status.textContent = "No serial number could be read. Move closer, add light, and try again.";
+        } catch (caught) {
+          status.textContent = caught.message;
+        }
+        button.disabled = false;
+      });
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } } }).then(async media => {
+        if (closed) return media.getTracks().forEach(track => track.stop());
         stream = media;
-        const video = box.querySelector("video");
         video.srcObject = media;
-        video.play();
-        const detector = new BarcodeDetector();
+        await video.play();
+        status.textContent = "Looking for a barcode…";
+        const track = media.getVideoTracks()[0];
+        const caps = track.getCapabilities?.() || {};
+        if (caps.focusMode?.includes("continuous")) track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
+        const tools = box.querySelector(".scan-tools");
+        const zoom = box.querySelector("[data-scan-zoom]");
+        if (caps.zoom) {
+          tools.hidden = false;
+          zoom.min = caps.zoom.min;
+          zoom.max = caps.zoom.max;
+          zoom.step = caps.zoom.step || 0.1;
+          zoom.value = caps.zoom.min;
+          zoom.addEventListener("input", () => track.applyConstraints({ advanced: [{ zoom: Number(zoom.value) }] }).catch(() => {}));
+        } else {
+          zoom.closest("label").hidden = true;
+        }
+        if (caps.torch) {
+          tools.hidden = false;
+          const torch = box.querySelector("[data-scan-torch]");
+          torch.hidden = false;
+          let on = false;
+          torch.addEventListener("click", () => {
+            on = !on;
+            track.applyConstraints({ advanced: [{ torch: on }] }).catch(() => {});
+          });
+        }
+        loadScript(ZXING_URL).catch(() => {});
         let busy = false;
         timer = setInterval(async () => {
-          if (busy || video.readyState < 2) return;
+          if (busy || closed || video.readyState < 2) return;
           busy = true;
           try {
-            const found = await detector.detect(video);
-            const value = found.map(item => String(item.rawValue || "").trim()).find(Boolean);
-            if (value) finish(value);
+            const canvas = grab(0);
+            const value = canvas && ("BarcodeDetector" in window || window.ZXing) ? await decodeCanvas(canvas) : "";
+            if (value && !closed) finish({ value });
           } catch { /* keep trying */ }
           busy = false;
-        }, 300);
+        }, 250);
       }).catch(caught => {
         box.remove();
         reject(new Error(caught?.name === "NotAllowedError" ? "Camera permission was denied." : "The camera could not be opened."));
@@ -1983,17 +2132,18 @@
       const input = event.target.closest(".serial-item")?.querySelector("[data-serial]");
       if (event.target.closest("[data-serial-scan]")) {
         say("");
-        if (!canScanBarcodes()) return say("This browser cannot scan barcodes. Type the serial number instead (Chrome or Edge on Android and desktop can scan).");
         try {
-          const value = await scanWithCamera(pop);
-          if (value) input.value = value;
+          const result = await scanWithCamera(pop);
+          if (result) {
+            input.value = result.value;
+            say(result.fromText ? `Read from the label text: ${result.value}. Please check it against the label.${result.others.length ? ` Other possibilities: ${result.others.join(", ")}.` : ""}` : "");
+          }
         } catch (caught) {
           say(caught.message);
         }
       }
       if (event.target.closest("[data-serial-photo]")) {
         say("");
-        if (!canScanBarcodes()) return say("This browser cannot read barcodes from a photo. Type the serial number instead.");
         target = input;
         fileInput.value = "";
         fileInput.click();
@@ -2019,20 +2169,20 @@
       if (!file || !target) return;
       say("Reading the photo…");
       try {
-        const values = await barcodesInImage(file);
-        if (!values.length) return say("No barcode was found in that photo. Retake it closer and in focus, or type the serial number.");
-        const boxes = [...target.closest(".serial-grid").querySelectorAll("[data-serial]")];
-        let at = boxes.indexOf(target);
-        values.forEach((value, index) => {
-          if (index === 0) boxes[at].value = value;
-          else {
-            while (at + 1 < boxes.length && boxes[at + 1].value) at++;
-            if (at + 1 < boxes.length) boxes[++at].value = value;
-          }
-        });
-        say(values.length > 1 ? `Read ${values.length} barcodes from the photo.` : "");
-      } catch {
-        say("That photo could not be read. Type the serial number instead.");
+        const canvas = await canvasFromFile(file);
+        let value = await decodeCanvas(canvas).catch(() => "");
+        if (!value) value = await decodeCanvas(await canvasFromFile(file, 1100)).catch(() => "");
+        if (value) {
+          target.value = value;
+          return say("");
+        }
+        say("No barcode found. Reading the label text… this can take a few seconds the first time.");
+        const found = await readLabelText(canvas);
+        if (!found.length) return say("Nothing readable was found in that photo. Retake it closer and in focus, or type the serial number.");
+        target.value = found[0];
+        say(`Read from the label text: ${found[0]}. Please check it against the label.${found.length > 1 ? ` Other possibilities: ${found.slice(1).join(", ")}.` : ""}`);
+      } catch (caught) {
+        say(caught?.message || "That photo could not be read. Type the serial number instead.");
       }
     });
   }
