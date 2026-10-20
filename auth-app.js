@@ -262,11 +262,11 @@
         const probe = await client.from("products").select("branch_id").eq("active", true).limit(1);
         catalogBranch = probe.data?.[0]?.branch_id || null;
       }
-      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, paymentTargets, importBatches, dailyHistory] = await Promise.all([
+      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, paymentTargets, importBatches, dailyHistory, saleSerials] = await Promise.all([
         fetchAll("branches", "id,name,district_id", [["name", true], ["id", true]]),
         fetchAll("districts", "id,name", [["name", true], ["id", true]]),
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
-        fetchAll("sales",         "id,branch_id,ps_id,ps_name,customer_name,invoice_number,sold_on,payment_mode,created_at,updated_at", [["sold_on", false], ["id", true]]),
+        fetchAll("sales",         "id,branch_id,ps_id,ps_name,customer_name,invoice_number,sold_on,payment_mode,city,barangay,created_at,updated_at", [["sold_on", false], ["id", true]]),
                 fetchAll("products", "id,branch_id,barcode,model_description,brand,category,sub_category,active,srp", [["model_description", true], ["id", true]], query => (catalogBranch ? query.eq("branch_id", catalogBranch) : query).eq("active", true)),
         fetchAll("profiles", "id,full_name,role,branch_id,district_id,assigned_brand,active,login_id,email", [["id", true]]),
         fetchAll("brand_targets", "id,branch_id,month,brand,amount", [["month", false], ["id", true]]),
@@ -284,7 +284,8 @@
         fetchAll("payment_mode_targets", "id,branch_id,month,mode,share_pct,amount", [["month", false], ["id", true]]),
         isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("sales_import_batches", "id,label,source_file,created_at,sales_count,lines_count,amount,date_from,date_to,kind", [["created_at", false], ["id", true]]),
         isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("branch_daily_history", "branch_id,day,sales,transactions,walkins,remarks", [["day", false], ["branch_id", true]]),
-              ]);
+                fetchAll("sale_serials", "sale_id,barcode,position,serial", [["sale_id", true], ["position", true]]),
+                      ]);
 
       const visibleBranches = checkResult(branches, "Unable to load accessible branches").map(item => ({ ...item, name: titleCase(item.name) }));
       const visibleDistricts = checkResult(districts, "Unable to load accessible districts").map(item => ({ ...item, name: titleCase(item.name) }));
@@ -322,6 +323,11 @@
         testPsIds,
         saleLines: lines.filter(line => !testSaleIds.has(line.sale_id)),
         linesBySale,
+        serialsBySale: (saleSerials.error ? [] : saleSerials.data).reduce((map, row) => {
+          if (!map.has(row.sale_id)) map.set(row.sale_id, []);
+          map.get(row.sale_id).push(row);
+          return map;
+        }, new Map()),
         products: visibleProducts,
         profiles: visibleProfiles,
         managerLinks: managerLinks.error ? [] : managerLinks.data,
@@ -1631,8 +1637,17 @@
     );
   }
 
+  function serialsFor(saleId, barcode) {
+    return (liveData.serialsBySale.get(saleId) || []).filter(row => !barcode || row.barcode === barcode).map(row => row.serial);
+  }
+
+  function addressOf(sale) {
+    return [sale.barangay, sale.city].filter(Boolean).join(", ");
+  }
+
   function renderSalesPage() {
     const isPs = currentProfile.role === "ps";
+    const canEditSales = isPs || currentProfile.role === "manager";
     mountPage(
       pageHeading("Sales", isPs ? "Your sales for branches you are assigned to." : "Sales visible to your role and assigned branches."),
       "",
@@ -1659,9 +1674,10 @@
             lines: linesForSale(sale.id),
             products: linesForSale(sale.id).map(line => `${line.brand} ${line.category} ${line.sub_category} ${line.model_description}`).join(", "),
             qty: linesForSale(sale.id).reduce((sum, line) => sum + Number(line.quantity || 0), 0),
+            serials: serialsFor(sale.id),
             total: saleTotal(sale),
           }))
-          .filter(row => matches(query, row.sale.invoice_number, row.sale.customer_name, row.products, row.person, row.branch))
+          .filter(row => matches(query, row.sale.invoice_number, row.sale.customer_name, row.products, row.person, row.branch, addressOf(row.sale), row.serials.join(" ")))
           .sort((a, b) => String(b.sale.sold_on).localeCompare(String(a.sale.sold_on)) || String(b.sale.created_at).localeCompare(String(a.sale.created_at)));
         const total = sales.filter(row => !row.isTest).reduce((sum, row) => sum + row.total, 0);
         const testCount = sales.filter(row => row.isTest).length;
@@ -1732,9 +1748,9 @@
         return `<div class="connected-charts">${charts.join("")}</div>
           ${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} ·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a column heading to sort.`, totalsCards + tableBlock(
             "sales",
-                      ["Invoice", "Customer", "Products", "Qty", "Payment", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(isPs || isAdmin ? [""] : [])],
+                      ["Invoice", "Customer", "Products", "Serial numbers", "Qty", "Payment", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(canEditSales || isAdmin ? [""] : [])],
             sales,
-                      row => `<tr${row.isTest ? ' class="test-row"' : ""}><td><strong>${escapeHTML(row.sale.invoice_number)}</strong>${row.isTest ? ' <span class="test-badge">TEST – not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}</td><td>${row.lines.length ? row.lines.map(productLineHTML).join("") : "—"}</td><td>${row.qty}</td><td>${escapeHTML(row.sale.payment_mode || "—")}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td data-sort="${escapeHTML(row.sale.created_at)}">${escapeHTML(new Date(row.sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</td><td><strong>${formatMoney(row.total)}</strong></td>${isPs ? `<td><button class="button button-outline button-small" type="button" data-edit-sale="${escapeHTML(row.sale.id)}">Edit</button></td>` : isAdmin ? `<td><button class="button button-outline button-small button-danger" type="button" data-delete-sale="${escapeHTML(row.sale.id)}">Delete</button></td>` : ""}</tr>`,
+                      row => `<tr${row.isTest ? ' class="test-row"' : ""}><td><strong>${escapeHTML(row.sale.invoice_number)}</strong>${row.isTest ? ' <span class="test-badge">TEST – not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}${row.sale.city || row.sale.barangay ? `<br><small>${escapeHTML([row.sale.barangay, row.sale.city].filter(Boolean).join(", "))}</small>` : ""}</td><td>${row.lines.length ? row.lines.map(productLineHTML).join("") : "—"}</td><td>${row.serials.length ? row.serials.map(serial => `<div>${escapeHTML(serial)}</div>`).join("") : "—"}</td><td>${row.qty}</td><td>${escapeHTML(row.sale.payment_mode || "—")}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td data-sort="${escapeHTML(row.sale.created_at)}">${escapeHTML(new Date(row.sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</td><td><strong>${formatMoney(row.total)}</strong></td>${canEditSales ? `<td><button class="button button-outline button-small" type="button" data-edit-sale="${escapeHTML(row.sale.id)}">Edit</button></td>` : isAdmin ? `<td><button class="button button-outline button-small button-danger" type="button" data-delete-sale="${escapeHTML(row.sale.id)}">Delete</button></td>` : ""}</tr>`,
             "No sales match these filters.",
           ), tools)}${dailySummary}${isPs ? brandLogPanel() : ""}`;
       },
@@ -1847,6 +1863,180 @@
     </div>`;
   }
 
+  // Philippine cities/towns and barangays come from the free public PSGC API (loaded on demand, cached on this device).
+  const PSGC_URL = "https://psgc.gitlab.io/api/";
+  let psgcPlaces = null;
+  const psgcBarangays = new Map();
+
+  async function loadPlaces() {
+    if (psgcPlaces) return psgcPlaces;
+    try {
+      const cached = JSON.parse(localStorage.getItem("branchline-psgc-v1") || "null");
+      if (Array.isArray(cached) && cached.length) return (psgcPlaces = cached);
+    } catch { /* ignore a bad cache */ }
+    const [cities, provinces] = await Promise.all([
+      fetch(`${PSGC_URL}cities-municipalities/`).then(response => response.json()),
+      fetch(`${PSGC_URL}provinces/`).then(response => response.json()),
+    ]);
+    const provinceName = new Map(provinces.map(item => [item.code, item.name]));
+    psgcPlaces = cities.map(item => {
+      const name = String(item.name).replace(/^City of (.+)$/i, "$1 City");
+      const province = provinceName.get(item.provinceCode) || (item.regionCode === "130000000" ? "Metro Manila" : "");
+      return [item.code, province ? `${name}, ${province}` : name];
+    });
+    try { localStorage.setItem("branchline-psgc-v1", JSON.stringify(psgcPlaces)); } catch { /* storage full */ }
+    return psgcPlaces;
+  }
+
+  async function loadBarangays(code) {
+    if (psgcBarangays.has(code)) return psgcBarangays.get(code);
+    const list = await fetch(`${PSGC_URL}cities-municipalities/${code}/barangays/`).then(response => response.json());
+    const names = list.map(item => item.name).sort(natural);
+    psgcBarangays.set(code, names);
+    return names;
+  }
+
+  // Reads barcodes with the browser's built-in detector (Chrome, Edge, Android). It reads the barcode only, not printed text.
+  const canScanBarcodes = () => "BarcodeDetector" in window;
+
+  async function barcodesInImage(file) {
+    const bitmap = await createImageBitmap(file);
+    try {
+      const found = await new BarcodeDetector().detect(bitmap);
+      return found.map(item => String(item.rawValue || "").trim()).filter(Boolean);
+    } finally {
+      bitmap.close?.();
+    }
+  }
+
+  function scanWithCamera(host) {
+    return new Promise((resolve, reject) => {
+      const box = document.createElement("div");
+      box.className = "serial-pop serial-scan";
+      box.innerHTML = `<div class="serial-card"><p class="dlg-intro">Point the camera at the serial number barcode.</p><video playsinline muted></video><div class="dlg-actions"><button class="button button-outline" type="button">Cancel</button></div></div>`;
+      host.appendChild(box);
+      let stream = null;
+      let timer = null;
+      const finish = value => {
+        clearInterval(timer);
+        stream?.getTracks().forEach(track => track.stop());
+        box.remove();
+        resolve(value);
+      };
+      box.querySelector("button").addEventListener("click", () => finish(null));
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then(media => {
+        stream = media;
+        const video = box.querySelector("video");
+        video.srcObject = media;
+        video.play();
+        const detector = new BarcodeDetector();
+        let busy = false;
+        timer = setInterval(async () => {
+          if (busy || video.readyState < 2) return;
+          busy = true;
+          try {
+            const found = await detector.detect(video);
+            const value = found.map(item => String(item.rawValue || "").trim()).find(Boolean);
+            if (value) finish(value);
+          } catch { /* keep trying */ }
+          busy = false;
+        }, 300);
+      }).catch(caught => {
+        box.remove();
+        reject(new Error(caught?.name === "NotAllowedError" ? "Camera permission was denied." : "The camera could not be opened."));
+      });
+    });
+  }
+
+  // Pop-up listing one entry box per unit of every product in the sale. `groups` = [{ barcode, label, qty }].
+  function openSerialPopup(host, groups, serials, onDone) {
+    const pop = document.createElement("div");
+    pop.className = "serial-pop";
+    pop.innerHTML = `<div class="serial-card" role="dialog" aria-modal="true" aria-label="Serial numbers">
+      <div class="dlg-head"><h2>Serial numbers</h2><button class="dlg-close" type="button" data-serial-cancel aria-label="Close">×</button></div>
+      <div class="serial-body">
+        <p class="dlg-intro">Optional. Type each serial number, scan its barcode with the camera, or upload a photo of the label. Leave blank any unit without one.</p>
+        ${groups.map(group => `<section class="serial-group" data-barcode="${escapeHTML(group.barcode)}">
+          <h3>${escapeHTML(group.label)} <small>${escapeHTML(group.barcode)} · qty ${group.qty}</small></h3>
+          <div class="serial-grid">${Array.from({ length: group.qty }, (_, index) => `<div class="serial-item">
+            <input data-serial placeholder="Unit ${index + 1}" autocomplete="off" value="${escapeHTML((serials.get(group.barcode) || [])[index] || "")}">
+            <button class="button button-outline button-small" type="button" data-serial-scan>Scan</button>
+            <button class="button button-outline button-small" type="button" data-serial-photo>Photo</button>
+          </div>`).join("")}</div>
+        </section>`).join("")}
+        <input type="file" accept="image/*" hidden data-serial-file>
+      </div>
+      <p class="dlg-error" role="alert" hidden></p>
+      <div class="dlg-actions"><button class="button button-outline" type="button" data-serial-cancel>Cancel</button><button class="button button-primary" type="button" data-serial-save>Save serial numbers</button></div>
+    </div>`;
+    host.appendChild(pop);
+    const error = pop.querySelector(".dlg-error");
+    const fileInput = pop.querySelector("[data-serial-file]");
+    let target = null;
+    const say = text => { error.textContent = text; error.hidden = !text; };
+    const close = () => pop.remove();
+    pop.addEventListener("keydown", event => {
+      if (event.key === "Escape") { event.stopPropagation(); close(); }
+    });
+    pop.addEventListener("click", async event => {
+      if (event.target === pop || event.target.closest("[data-serial-cancel]")) return close();
+      const input = event.target.closest(".serial-item")?.querySelector("[data-serial]");
+      if (event.target.closest("[data-serial-scan]")) {
+        say("");
+        if (!canScanBarcodes()) return say("This browser cannot scan barcodes. Type the serial number instead (Chrome or Edge on Android and desktop can scan).");
+        try {
+          const value = await scanWithCamera(pop);
+          if (value) input.value = value;
+        } catch (caught) {
+          say(caught.message);
+        }
+      }
+      if (event.target.closest("[data-serial-photo]")) {
+        say("");
+        if (!canScanBarcodes()) return say("This browser cannot read barcodes from a photo. Type the serial number instead.");
+        target = input;
+        fileInput.value = "";
+        fileInput.click();
+      }
+      if (event.target.closest("[data-serial-save]")) {
+        const result = new Map();
+        const seen = new Set();
+        for (const section of pop.querySelectorAll(".serial-group")) {
+          const values = [...section.querySelectorAll("[data-serial]")].map(box => box.value.trim());
+          for (const value of values.filter(Boolean)) {
+            const key = value.toLowerCase();
+            if (seen.has(key)) return say(`The serial number "${value}" is entered more than once.`);
+            seen.add(key);
+          }
+          result.set(section.dataset.barcode, values);
+        }
+        onDone(result);
+        close();
+      }
+    });
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files?.[0];
+      if (!file || !target) return;
+      say("Reading the photo…");
+      try {
+        const values = await barcodesInImage(file);
+        if (!values.length) return say("No barcode was found in that photo. Retake it closer and in focus, or type the serial number.");
+        const boxes = [...target.closest(".serial-grid").querySelectorAll("[data-serial]")];
+        let at = boxes.indexOf(target);
+        values.forEach((value, index) => {
+          if (index === 0) boxes[at].value = value;
+          else {
+            while (at + 1 < boxes.length && boxes[at + 1].value) at++;
+            if (at + 1 < boxes.length) boxes[++at].value = value;
+          }
+        });
+        say(values.length > 1 ? `Read ${values.length} barcodes from the photo.` : "");
+      } catch {
+        say("That photo could not be read. Type the serial number instead.");
+      }
+    });
+  }
+
   function paymentSelectHTML(current) {
     const names = liveData.paymentModes.map(mode => mode.name);
     if (current && !names.some(name => name.toLowerCase() === current.toLowerCase())) names.push(current);
@@ -1876,10 +2066,80 @@
           ${fieldHTML("Date", "date", `<input name="date" type="date" required value="${escapeHTML(sale?.sold_on || localISODate())}">`)}
           ${fieldHTML("Mode of payment", "payment", paymentSelectHTML(sale?.payment_mode))}
         </div>
+        <div class="dlg-grid">
+          ${fieldHTML("City / town (optional)", "city", `<input name="city" list="sale-cities" autocomplete="off" placeholder="e.g. Santiago City" value="${escapeHTML(sale?.city || "")}">`)}
+          ${fieldHTML("Barangay (optional)", "barangay", `<input name="barangay" list="sale-barangays" autocomplete="off" placeholder="Pick a city first" value="${escapeHTML(sale?.barangay || "")}">`)}
+        </div>
+        <datalist id="sale-cities"></datalist>
+        <datalist id="sale-barangays"></datalist>
         <datalist id="sale-products"></datalist>
         <div id="sale-rows">${lines.map(saleLineRow).join("")}</div>
-        <div class="sale-footer"><button class="button button-outline button-small" type="button" data-add-line>+ Add product line</button><strong>Sale total: <span id="sale-total">${formatMoney(lines.reduce((sum, line) => sum + Number(line.selling_price || 0) * Number(line.quantity || 0), 0))}</span></strong></div>`,
+        <div class="sale-footer"><span class="sale-footer-actions"><button class="button button-outline button-small" type="button" data-add-line>+ Add product line</button> <button class="button button-outline button-small" type="button" data-add-serials>+ Add serial number <span id="serial-count"></span></button></span><strong>Sale total: <span id="sale-total">${formatMoney(lines.reduce((sum, line) => sum + Number(line.selling_price || 0) * Number(line.quantity || 0), 0))}</span></strong></div>`,
       onReady: form => {
+        const serials = new Map();
+        (sale ? liveData.serialsBySale.get(sale.id) || [] : []).forEach(row => {
+          if (!serials.has(row.barcode)) serials.set(row.barcode, []);
+          serials.get(row.barcode).push(row.serial);
+        });
+        const saleGroups = () => {
+          const groups = new Map();
+          form.querySelectorAll(".sale-row").forEach(row => {
+            const product = resolve(row.querySelector('[name="product"]').value);
+            const qty = Number(row.querySelector('[name="quantity"]').value);
+            if (!product || !Number.isInteger(qty) || qty < 1) return;
+            const group = groups.get(product.barcode) || { barcode: product.barcode, label: `${product.brand} · ${product.model_description}`, qty: 0 };
+            group.qty += qty;
+            groups.set(product.barcode, group);
+          });
+          return [...groups.values()];
+        };
+        const showSerialCount = () => {
+          const known = new Set(saleGroups().map(group => group.barcode));
+          const count = [...serials].filter(([code]) => known.has(code)).reduce((sum, [, list]) => sum + list.filter(Boolean).length, 0);
+          form.querySelector("#serial-count").textContent = count ? `(${count})` : "";
+        };
+        showSerialCount();
+        let places = [];
+        let placeCode = "";
+        const cityBox = form.elements.city;
+        const brgyBox = form.elements.barangay;
+        const fillBarangays = async () => {
+          const match = places.find(([, label]) => label.toLowerCase() === cityBox.value.trim().toLowerCase());
+          if (!match || match[0] === placeCode) return;
+          placeCode = match[0];
+          try {
+            const names = await loadBarangays(match[0]);
+            form.querySelector("#sale-barangays").innerHTML = names.map(name => `<option value="${escapeHTML(name)}"></option>`).join("");
+            brgyBox.placeholder = "Start typing a barangay";
+          } catch { /* barangay can still be typed */ }
+        };
+        loadPlaces().then(list => { places = list; return fillBarangays(); }).catch(() => {
+          cityBox.placeholder = "Type the city or town";
+        });
+        cityBox.addEventListener("input", () => {
+          const query = cityBox.value.trim().toLowerCase();
+          form.querySelector("#sale-cities").innerHTML = query.length < 2 ? "" : places
+            .filter(([, label]) => label.toLowerCase().includes(query)).slice(0, 30)
+            .map(([, label]) => `<option value="${escapeHTML(label)}"></option>`).join("");
+          fillBarangays();
+        });
+        cityBox.addEventListener("change", fillBarangays);
+        form.querySelector("[data-add-serials]").addEventListener("click", () => {
+          const groups = saleGroups();
+          const error = form.closest(".dlg-backdrop").querySelector(".dlg-error");
+          if (!groups.length) {
+            error.textContent = "Add the products and quantities first, then add their serial numbers.";
+            error.hidden = false;
+            return;
+          }
+          error.hidden = true;
+          openSerialPopup(form.closest(".dlg-backdrop"), groups, serials, result => {
+            result.forEach((list, code) => serials.set(code, list));
+            showSerialCount();
+          });
+        });
+        form.serialPayload = () => saleGroups().flatMap(group =>
+          (serials.get(group.barcode) || []).slice(0, group.qty).filter(Boolean).map(serial => ({ barcode: group.barcode, serial })));
         const enableCurrencyInput = row => {
           ["price", "srp"].forEach(name => {
             const input = row.querySelector(`[name="${name}"]`);
@@ -1977,7 +2237,7 @@
         if (rows.some(line => line.selling_price === null || line.selling_price < 0 || !Number.isInteger(line.quantity) || line.quantity < 1)) {
           throw new Error("Enter a valid non-negative price and a whole-number quantity for each product.");
         }
-        mustRpc(await client.rpc("save_ps_sale", {
+        const saleId = mustRpc(await client.rpc("save_ps_sale", {
           p_customer_name: titleCase(form.elements.customer.value),
           p_invoice_number: form.elements.invoice.value.trim(),
           p_sold_on: form.elements.date.value,
@@ -1985,8 +2245,20 @@
           p_sale_id: sale ? sale.id : null,
           p_payment_mode: form.elements.payment.value,
         }));
+        const city = form.elements.city.value.trim();
+        const barangay = form.elements.barangay.value.trim();
+        const serialList = form.serialPayload();
+        let extrasProblem = "";
+        // The sale itself is already saved; the optional address/serial numbers are stored separately.
+        if (city || barangay || serialList.length || sale?.city || sale?.barangay || liveData.serialsBySale.has(sale?.id)) {
+          const extras = await client.rpc("save_sale_extras", { p_sale_id: saleId || sale?.id, p_city: city, p_barangay: barangay, p_serials: serialList });
+          if (extras.error) extrasProblem = friendlyError(extras.error);
+        }
         activePage = "sales";
         await refreshData();
+        if (extrasProblem) {
+          return `<p class="dlg-error">The sale was saved, but the address / serial numbers were not: ${escapeHTML(extrasProblem)}</p><p>Open the sale with Edit to add them again.</p>`;
+        }
       },
     });
   }
@@ -3410,13 +3682,13 @@
   function exportSales() {
     const stamp = localISODate();
     const sales = visibleSales().filter(sale => !salesLogExport || salesLogExport.has(sale.id));
-    const detail = [["Sale date", "Invoice", "Customer", "District", "Branch", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment"]];
+    const detail = [["Sale date", "Invoice", "Customer", "District", "Branch", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment", "City / town", "Barangay", "Serial numbers"]];
     const byBranch = new Map();
     const byBrand = new Map();
     sales.forEach(sale => {
       linesForSale(sale.id).forEach(line => {
         const amount = Number(line.selling_price) * Number(line.quantity);
-        detail.push([sale.sold_on, sale.invoice_number, sale.customer_name, branchDistrictName(sale.branch_id), branchName(sale.branch_id), psNameOf(sale.ps_id, sale.ps_name), line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), amount, sale.payment_mode || ""]);
+        detail.push([sale.sold_on, sale.invoice_number, sale.customer_name, branchDistrictName(sale.branch_id), branchName(sale.branch_id), psNameOf(sale.ps_id, sale.ps_name), line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), amount, sale.payment_mode || "", sale.city || "", sale.barangay || "", serialsFor(sale.id, line.barcode).join(", ")]);
         addTo(byBranch, branchName(sale.branch_id), amount);
         addTo(byBrand, (line.brand || "Unbranded").trim(), amount);
       });
@@ -3554,8 +3826,8 @@
       render();
     });
     root.querySelector("#ps-detail-export").addEventListener("click", () => {
-      const header = ["Sale date", "Invoice", "Customer", "Brand", "Category", "Sub-category", "Product",       "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment"];
-            const data = rows().map(({ sale, line }) => [sale.sold_on, sale.invoice_number, sale.customer_name, line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), Number(line.selling_price) * Number(line.quantity), sale.payment_mode || ""]);
+      const header = ["Sale date", "Invoice", "Customer", "Brand", "Category", "Sub-category", "Product",             "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment", "City / town", "Barangay", "Serial numbers"];
+                  const data = rows().map(({ sale, line }) => [sale.sold_on, sale.invoice_number, sale.customer_name, line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), Number(line.selling_price) * Number(line.quantity), sale.payment_mode || "", sale.city || "", sale.barangay || "", serialsFor(sale.id, line.barcode).join(", ")]);
       exportWorkbook([{ name: sheet, rows: [header, ...data] }], `${fileBase}-${localISODate()}`);
     });
     render();

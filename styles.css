@@ -307,7 +307,19 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .sale-row { display: grid; grid-template-columns: 1.3fr 1fr 90px 70px 1fr auto; gap: 8px; align-items: end; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 .sale-row .sale-product { grid-column: 1 / -1; }
 .sale-row input[readonly] { background: #f6f8fb; color: var(--muted); }
-.sale-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sale-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.sale-footer-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.serial-pop { position: absolute; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(20, 30, 45, .55); }
+.serial-card { width: min(720px, 100%); max-height: 92vh; overflow: auto; border-radius: 12px; background: #fff; box-shadow: var(--shadow); padding-bottom: 12px; }
+.serial-card > .dlg-intro, .serial-card > .dlg-error, .serial-card > .dlg-actions { margin-left: 16px; margin-right: 16px; }
+.serial-body { display: grid; gap: 14px; padding: 0 16px; }
+.serial-group h3 { margin: 0 0 8px; font-size: 14px; }
+.serial-group h3 small { color: var(--muted); font-weight: 400; }
+.serial-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.serial-item { display: flex; gap: 4px; }
+.serial-item input { flex: 1; min-width: 0; }
+.serial-scan video { width: 100%; max-height: 50vh; background: #000; border-radius: 8px; }
+.serial-scan .serial-card { padding: 12px; width: min(480px, 100%); }
 .dlg-remove { border: 0; background: none; font-size: 22px; line-height: 1; color: var(--muted); cursor: pointer; padding: 6px; }
 .manage-cell { white-space: nowrap; }
 .table-tools { flex-wrap: nowrap; }
