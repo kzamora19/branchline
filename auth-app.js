@@ -37,6 +37,9 @@
   const PIE_COLORS = ["#355ee8", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#0ea5e9", "#64748b"];
 
   let client = null;
+  let liveClient = null;
+  let demoStore = null;
+  let workspaceWrites = 0;
   let currentSession = null;
   let currentProfile = null;
   let liveData = null;
@@ -196,8 +199,18 @@
     return result.data;
   }
 
+  function contributionLoadMessage(error) {
+    if (["PGRST202", "42883"].includes(error.code)) {
+      return "Brand contribution needs a server database update. Ask your administrator to apply the brand contribution migration, then reload.";
+    }
+    if (error.code === "42501") {
+      return "Access to brand contribution was denied. Ask your administrator to check the function permissions.";
+    }
+    return "Brand contribution could not load. Check your connection and reload. If it continues, ask your administrator to check the chart request.";
+  }
+
   // PostgREST caps each response at 1000 rows, so read larger tables page by page.
-  async function fetchAll(table, columns, orders, refine) {
+  async function fetchAllFrom(client, table, columns, orders, refine) {
     const rows = [];
     for (let from = 0; ; from += 1000) {
       let query = client.from(table).select(columns);
@@ -231,6 +244,9 @@
   const CATEGORY_SEEDS = { Aircon: ["Commercial", "Floor Mounted", "Split Type", "Window Type", "Portable"] };
 
   async function loadLiveWorkspace(session) {
+    const client = demoStore ? demoStore.client : liveClient;
+    const fetchAll = (...args) => fetchAllFrom(client, ...args);
+    const isDemoLoad = Boolean(demoStore);
     const sequence = ++loadSequence;
     currentSession = session;
     setWorkspaceMode("connected");
@@ -242,6 +258,7 @@
         .select("id,dealer_id,district_id,branch_id,role,assigned_brand,full_name,active")
         .eq("id", session.user.id)
         .maybeSingle(), "Unable to load your account");
+      if (sequence !== loadSequence) return;
 
       if (!profile) {
         throw new Error("Your login has no Branchline profile yet. Ask an administrator to assign your role and district.");
@@ -320,6 +337,17 @@
       if (brandSales.error) console.warn("Brand sales are unavailable.", brandSales.error);
 
       if (sequence !== loadSequence || !currentSession) return;
+      if (!isDemoLoad && visibleProducts.length) {
+        try {
+          const catalog = window.BranchlineDemo.catalogOnly(visibleProducts);
+          const text = JSON.stringify(catalog);
+          let hash = 2166136261;
+          for (let index = 0; index < text.length; index++) hash = Math.imul(hash ^ text.charCodeAt(index), 16777619) >>> 0;
+          localStorage.setItem(window.BranchlineDemo.CATALOG_KEY, JSON.stringify({ products: catalog, stamp: String(hash), capturedAt: new Date().toISOString() }));
+        } catch (error) {
+          console.warn("Could not save the product-only catalog for the demo.", error);
+        }
+      }
 
       const testPsIds = new Set(visibleProfiles.filter(isTestProfile).map(item => item.id));
       const testSaleIds = new Set(visibleSales.filter(item => isTestSale(item, testPsIds)).map(item => item.id));
@@ -360,7 +388,7 @@
         })),
         psDashboard: isPsUser && !psDashboard.error ? psDashboard.data?.[0] || null : null,
         brandContribution: brandContribution.data || [],
-        brandContributionError: brandContribution.error ? "Brand contribution could not load. Apply the brand contribution migration, then refresh." : "",
+        brandContributionError: brandContribution.error ? contributionLoadMessage(brandContribution.error) : "",
         holidays: holidays.error ? [] : holidays.data.map(item => ({ date: String(item.holiday_date).slice(0, 10), label: item.label || "" })),
         psWalkins: psWalkins.error ? [] : psWalkins.data,
         branchWalkins: branchWalkins.error ? [] : branchWalkins.data,
@@ -385,15 +413,19 @@
       if (!ui.month) ui.month = currentMonth();
       activePage = rolePageAllowed(activePage) ? activePage : "overview";
       renderConnected();
-      if (passwordRecoveryPending) {
+      if (passwordRecoveryPending && !demoStore) {
         openPasswordModal(true);
-      } else if (profile.role === "ps") {
+      } else if (profile.role === "ps" && !demoStore) {
         showPacePopup();
         autoRegisterPush();
       }
     } catch (error) {
       if (sequence !== loadSequence) return;
       console.error("Unable to load the authenticated Branchline workspace.", error);
+      if (isDemoLoad) {
+        exitDemo(true);
+        document.querySelector("#reset-saved-demo").hidden = false;
+      }
       showProfileError(error.message || "Unable to load your workspace. Try again or contact your administrator.");
     }
   }
@@ -999,6 +1031,96 @@
     else if (activePage === "products") renderProductsPage();
     else if (activePage === "users") renderPeoplePage();
     else renderOverview();
+    renderDemoControls();
+  }
+
+  function renderDemoControls() {
+    let bar = document.querySelector("#demo-workspace-controls");
+    if (!demoStore) {
+      bar?.remove();
+      return;
+    }
+    if (!bar) {
+      bar = document.createElement("section");
+      bar.id = "demo-workspace-controls";
+      bar.className = "demo-workspace-controls";
+      bar.setAttribute("aria-label", "Demo workspace controls");
+      document.querySelector(".connected-main").prepend(bar);
+    }
+    bar.innerHTML = `<div><strong>DEMO · local data only</strong><p>${escapeHTML(demoStore.catalogLabel)}. Starts with fictional sales, customers and accounts. Edits stay in this browser; no live data is changed.</p></div>
+      <label class="field"><span>Preview role</span><select id="demo-role">${Object.entries(roleLabels).map(([role, label]) =>
+        `<option value="${role}" ${currentProfile.role === role ? "selected" : ""}>${escapeHTML(label)}</option>`).join("")}</select></label>
+      <button class="button button-outline button-small" type="button" id="demo-reset">Reset demo</button>
+      <button class="button button-outline button-small" type="button" id="demo-exit">Exit demo</button>`;
+    bar.querySelector("#demo-role").addEventListener("change", async event => {
+      try {
+        if (workspaceWrites) throw new Error("Wait for the current save to finish before switching roles.");
+        demoStore.setRole(event.target.value);
+        closeModal();
+        resetUi();
+        activePage = "overview";
+        await loadLiveWorkspace(demoStore.session);
+      } catch (error) {
+        alert(error.message);
+        event.target.value = currentProfile.role;
+      }
+    });
+    bar.querySelector("#demo-reset").addEventListener("click", async () => {
+      if (workspaceWrites) return alert("Wait for the current save to finish before resetting the demo.");
+      if (!confirm("Reset only the sample workspace and discard demo edits on this device? Real data and the saved product catalog are not changed.")) return;
+      try {
+        demoStore.reset();
+        await startDemo();
+      } catch (error) { alert(error.message); }
+    });
+    bar.querySelector("#demo-exit").addEventListener("click", exitDemo);
+    document.querySelector("#change-password").hidden = true;
+    document.querySelector("#push-toggle").hidden = true;
+    connectedSidebar.querySelector(".workspace-label").textContent = "DEMO WORKSPACE";
+    connectedNav.setAttribute("aria-label", "Demo workspace navigation");
+    document.querySelector("#sign-out").textContent = "Exit demo";
+    document.querySelector(".connected-topbar > span").textContent = "BRANCHLINE · DEMO DATA";
+  }
+
+  async function startDemo() {
+    if (workspaceWrites) return alert("Wait for the current save to finish before entering demo mode.");
+    try {
+      let catalog = window.BranchlineDemo.sampleCatalog();
+      let catalogLabel = "Illustrative sample products (sign in to the real app on this device to copy its catalog)";
+      let catalogStamp = "samples";
+      const cached = localStorage.getItem(window.BranchlineDemo.CATALOG_KEY);
+      if (cached) {
+        const snapshot = JSON.parse(cached);
+        catalog = window.BranchlineDemo.catalogOnly(snapshot.products);
+        catalogStamp = snapshot.stamp;
+        catalogLabel = `Real product catalog saved on ${new Date(snapshot.capturedAt).toLocaleString("en-PH")}`;
+      }
+      demoStore = window.BranchlineDemo.create({ storage: localStorage, catalog, catalogLabel, catalogStamp });
+      client = demoStore.client;
+      closeModal();
+      resetUi();
+      activePage = "overview";
+      await loadLiveWorkspace(demoStore.session);
+    } catch (error) {
+      console.error("Unable to open demo workspace.", error);
+      exitDemo();
+      setAuthMessage(`${error.message} If the local demo is damaged, use Reset saved demo.`, true);
+      document.querySelector("#reset-saved-demo").hidden = false;
+    }
+  }
+
+  function exitDemo(force = false) {
+    if (force !== true && workspaceWrites) return alert("Wait for the current save to finish before leaving demo mode.");
+    closeModal();
+    demoStore = null;
+    client = liveClient;
+    document.querySelector("#demo-workspace-controls")?.remove();
+    document.querySelector("#change-password").hidden = false;
+    connectedSidebar.querySelector(".workspace-label").textContent = "LIVE WORKSPACE";
+    connectedNav.setAttribute("aria-label", "Live workspace navigation");
+    document.querySelector("#sign-out").textContent = "Sign out";
+    document.querySelector(".connected-topbar > span").innerHTML = 'BRANCHLINE <span class="live-indicator">● LIVE DATA</span>';
+    clearWorkspace();
   }
 
   // Imported daily totals only fill days with no live sales. Managers and above only.
@@ -1618,7 +1740,7 @@
 
   function renderOverview() {
     mountPage(
-      pageHeading("Overview", `Live data for ${monthLabel(ui.month)}. Access is enforced by Supabase.`),
+      pageHeading("Overview", demoStore ? `Local demo data for ${monthLabel(ui.month)}. Role preview only—not a real account.` : `Live data for ${monthLabel(ui.month)}. Access is enforced by Supabase.`),
       "",
       filterBar({ district: true, branch: true, period: true }),
       () => {
@@ -2937,7 +3059,7 @@
         Object.keys(parsed.stats.byDivision).forEach(division => { branchFor[division] = form.elements[`div-${division}`]?.value || ""; });
         const sales = parsed.sales.filter(sale => branchFor[sale.division]).map(sale => ({ ...sale, branch_id: branchFor[sale.division] }));
         if (!sales.length) throw new Error("Match at least one branch code to a branch.");
-        if (!window.confirm(`Import ${sales.length} sales into the live data? You can remove the whole import afterwards.`)) throw new Error("Import cancelled.");
+        if (!window.confirm(`Import ${sales.length} sales into ${demoStore ? "this local demo" : "the live data"}? You can remove the whole import afterwards.`)) throw new Error("Import cancelled.");
         batchId ||= crypto.randomUUID();
         const label = form.elements.label.value.trim() || fileName || "Sales history";
         const progress = form.querySelector("#history-progress");
@@ -3048,7 +3170,7 @@
         if (!parsed || !parsed.rows.length) throw new Error("Choose a valid monitoring workbook first.");
         const branch = form.elements.branch.value;
         if (!branch) throw new Error("Choose a branch.");
-        if (!window.confirm(`Import ${parsed.rows.length} day(s) into the live data? Days with live sales or counts are left alone. You can remove the import afterwards.`)) throw new Error("Import cancelled.");
+        if (!window.confirm(`Import ${parsed.rows.length} day(s) into ${demoStore ? "this local demo" : "the live data"}? Days with existing sales or counts are left alone. You can remove the import afterwards.`)) throw new Error("Import cancelled.");
         batchId ||= crypto.randomUUID();
         const label = `${fileName.replace(/\.[^.]+$/, "").slice(0, 70) || "Daily monitoring"}`;
         const progress = form.querySelector("#history-progress");
@@ -3303,6 +3425,7 @@
         return;
       }
       submit.disabled = true;
+      workspaceWrites++;
       try {
         const result = await onSubmit(form);
         if (result) {
@@ -3315,6 +3438,8 @@
         error.textContent = friendlyError(caught);
         error.hidden = false;
         submit.disabled = false;
+      } finally {
+        workspaceWrites--;
       }
     });
     onReady?.(form);
@@ -3771,6 +3896,7 @@
         }
         if (data?.error) throw new Error(data.error);
         await refreshData();
+        if (demoStore) return `<p><strong>${escapeHTML(body.full_name)}</strong> was added to this local demo only. No real account, login or email was created.</p>`;
         const mailNote = !contactEmail ? "No email was entered, so no invite was sent."
           : data.email_status === "sent" ? `An invite email was sent to ${contactEmail}.`
           : data.email_status === "not_configured" ? `No invite email was sent because the email service is not connected yet. Share the details below with the user yourself.`
@@ -3867,7 +3993,7 @@
         const made = results.filter(item => !item.error);
         const csv = ["Name,Login ID,Temporary password", ...made.map(item => [item.name, item.login, item.password].map(value => `"${String(value).replace(/"/g, '""')}"`).join(","))].join("\r\n");
         const link = made.length ? `<p><a class="button button-outline button-small" download="new-users.csv" href="data:text/csv;charset=utf-8,${encodeURIComponent(csv)}">Download list (CSV)</a></p>` : "";
-        return `<p><strong>${made.length}</strong> of ${results.length} user(s) created. Copy or download the passwords now; they will not be shown again.</p>${link}
+        return `<p><strong>${made.length}</strong> of ${results.length} user(s) created. ${demoStore ? "Demo accounts only. The displayed credentials are placeholders; no real logins or emails were created." : "Copy or download the passwords now; they will not be shown again."}</p>${link}
           <div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Name</th><th>Login ID</th><th>Temporary password</th><th>Result</th></tr></thead><tbody>${results.map(item => `<tr><td>${escapeHTML(item.name)}</td><td>${escapeHTML(item.login)}</td><td>${item.error ? "—" : `<code class="temp-password">${escapeHTML(item.password)}</code>`}</td><td>${item.error ? `<span class="an-down">${escapeHTML(item.error)}</span>` : "Created"}</td></tr>`).join("")}</tbody></table></div>`;
       },
     });
@@ -3991,7 +4117,7 @@
         let result = "";
         if (form.elements.reset?.checked) {
           const data = await invokeAdminFunction({ action: "reset_password", user_id: person.id });
-          result = `<p>New temporary password for <strong>${escapeHTML(form.elements.name.value.trim())}</strong>:<br><code class="temp-password">${escapeHTML(data.temporary_password)}</code></p><p class="dlg-intro">Copy it now; it will not be shown again.</p>`;
+          result = demoStore ? "<p>Demo-only simulation. No real password was changed.</p>" : `<p>New temporary password for <strong>${escapeHTML(form.elements.name.value.trim())}</strong>:<br><code class="temp-password">${escapeHTML(data.temporary_password)}</code></p><p class="dlg-intro">Copy it now; it will not be shown again.</p>`;
         }
         await refreshData();
         return result;
@@ -4365,7 +4491,7 @@
   async function refreshPushButton(isPs) {
     const button = pushButton();
     if (!button) return;
-    if (!isPs || !config.vapidPublicKey) { button.hidden = true; return; }
+    if (demoStore || !isPs || !config.vapidPublicKey) { button.hidden = true; return; }
     button.hidden = false;
     if (!pushSupported) {
       button.disabled = true;
@@ -4386,20 +4512,28 @@
   const pushOptOutKey = () => `branchline-push-off-${currentProfile?.id || ""}`;
 
   async function saveCurrentPushSubscription(registration) {
+    if (demoStore) throw new Error("Push subscriptions are disabled in demo mode.");
+    const pushClient = liveClient;
+    const profileId = currentProfile?.id;
+    const assertLiveAccount = () => {
+      if (demoStore || currentProfile?.id !== profileId) throw new Error("The account changed before push registration finished. Try again after signing in.");
+    };
     let subscription = await registration.pushManager.getSubscription();
+    assertLiveAccount();
     if (!subscription) {
       subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: vapidKeyBytes(config.vapidPublicKey),
       });
     }
+    assertLiveAccount();
     const json = subscription.toJSON();
-    mustRpc(await client.rpc("save_push_subscription", { p_endpoint: json.endpoint, p_p256dh: json.keys.p256dh, p_auth: json.keys.auth }));
+    mustRpc(await pushClient.rpc("save_push_subscription", { p_endpoint: json.endpoint, p_p256dh: json.keys.p256dh, p_auth: json.keys.auth }));
   }
 
   // Once the phone/browser has granted permission, every app open silently (re)registers this device for the signed-in PS.
   async function autoRegisterPush() {
-    if (!pushSupported || !config.vapidPublicKey || currentProfile?.role !== "ps") return;
+    if (demoStore || !pushSupported || !config.vapidPublicKey || currentProfile?.role !== "ps") return;
     if (Notification.permission !== "granted" || localStorage.getItem(pushOptOutKey())) return;
     try {
       await saveCurrentPushSubscription(await navigator.serviceWorker.ready);
@@ -4410,12 +4544,16 @@
   }
 
   async function enablePush() {
+    if (demoStore) throw new Error("Real push notifications are disabled in demo mode.");
+    const profileId = currentProfile?.id;
     if ((await Notification.requestPermission()) !== "granted") throw new Error("Notifications were not allowed. You can allow them in your browser or phone settings for this site.");
+    if (demoStore || currentProfile?.id !== profileId) throw new Error("The account changed. Enable notifications again after signing in.");
     localStorage.removeItem(pushOptOutKey());
     await saveCurrentPushSubscription(await navigator.serviceWorker.ready);
   }
 
   async function togglePush() {
+    if (demoStore) return alert("Real push notifications are disabled in demo mode.");
     const button = pushButton();
     button.disabled = true;
     try {
@@ -4699,6 +4837,7 @@
   });
 
   document.querySelector("#sign-out").addEventListener("click", async () => {
+    if (demoStore) return exitDemo();
     const { error } = await client.auth.signOut();
     if (error) {
       console.error("Branchline sign-out failed.", error);
@@ -4708,10 +4847,15 @@
     clearWorkspace();
   });
 
-  document.querySelector("#enter-demo").addEventListener("click", () => {
-    authScreen.hidden = true;
-    connectedShell.hidden = true;
-    demoApp.hidden = false;
+  document.querySelector("#enter-demo").addEventListener("click", startDemo);
+  document.querySelector("#reset-saved-demo").addEventListener("click", async () => {
+    if (!confirm("Discard saved demo edits and its device-only product catalog? Sign in again to copy the current catalog. Your real data is not affected.")) return;
+    try {
+      localStorage.removeItem(window.BranchlineDemo.STATE_KEY);
+      localStorage.removeItem(window.BranchlineDemo.CATALOG_KEY);
+      document.querySelector("#reset-saved-demo").hidden = true;
+      await startDemo();
+    } catch (error) { setAuthMessage(error.message, true); }
   });
 
   document.querySelector("#connected-menu").addEventListener("click", () => {
@@ -4725,23 +4869,29 @@
   });
 
   if (window.supabase?.createClient && config?.url && config?.publishableKey) {
-    client = window.supabase.createClient(config.url, config.publishableKey, { auth: { storage: authStorage } });
+    client = liveClient = window.supabase.createClient(config.url, config.publishableKey, { auth: { storage: authStorage } });
     applyRememberedLogin();
     configWarning.hidden = true;
     client.auth.onAuthStateChange((event, session) => {
+      if (demoStore) return;
       if (event === "PASSWORD_RECOVERY" && session) {
         passwordRecoveryPending = true;
+        const sequence = loadSequence;
         window.setTimeout(() => {
+          if (demoStore || sequence !== loadSequence) return;
           if (liveData && currentSession?.user?.id === session.user.id) openPasswordModal(true);
           else loadLiveWorkspace(session);
         }, 0);
       } else if (event === "SIGNED_OUT") {
         clearWorkspace();
       } else if (session && session.user.id !== currentSession?.user?.id) {
-        window.setTimeout(() => loadLiveWorkspace(session), 0);
+        const sequence = loadSequence;
+        window.setTimeout(() => { if (!demoStore && sequence === loadSequence) loadLiveWorkspace(session); }, 0);
       }
     });
+    const restoreSequence = loadSequence;
     client.auth.getSession().then(({ data, error }) => {
+      if (demoStore || restoreSequence !== loadSequence) return;
       if (error) {
         console.error("Unable to restore the Branchline session.", error);
         setAuthMessage("Unable to restore your sign-in. Try signing in again.", true);
@@ -4750,6 +4900,7 @@
       if (data.session) loadLiveWorkspace(data.session);
       else if (recoveryLinkFailed) setAuthMessage("This reset link is invalid or expired. Use Forgot password? to request a new link.", true);
     }).catch(error => {
+      if (demoStore || restoreSequence !== loadSequence) return;
       console.error("Unable to check the Branchline session.", error);
       setAuthMessage("Unable to connect to Supabase. Check your connection and try again.", true);
     });

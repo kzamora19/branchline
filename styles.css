@@ -275,6 +275,11 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .dlg-head:has([data-walkin-from]) { flex-wrap: wrap; gap: 12px; }
 .dlg-head:has([data-walkin-from]) .dlg-head-actions { flex-wrap: wrap; }
 .dlg-head-actions .field { margin: 0; }
+.demo-workspace-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 24px; background: #fff7df; border-bottom: 1px solid #e7c66c; font-size: 12px; }
+.demo-workspace-controls > div { flex: 1 1 260px; }
+.demo-workspace-controls strong { color: #684b00; }
+.demo-workspace-controls p { margin: 4px 0 0; line-height: 1.4; }
+.demo-workspace-controls .field { margin: 0; min-width: 170px; }
 .contribution-legend { padding: 0 18px 12px; }
 .dlg-close { border: 0; background: none; font-size: 24px; line-height: 1; color: var(--muted); cursor: pointer; }
 .dlg-form { display: grid; gap: 12px; padding: 14px 18px 18px; }
