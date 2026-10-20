@@ -1969,14 +1969,14 @@
 
   function renderTargetsPage() {
     mountPage(
-      pageHeading("Targets", "Branch and brand targets for your scope. Use Set target to add or change them."),
+      pageHeading("Targets", "Branch and brand targets for your scope. Use Set target to add or change them. Payment mix results are under Analytics."),
       "",
       filterBar({
         district: true,
         branch: true,
         period: true,
         search: "Search branch",
-        actions: '<button class="button button-outline" type="button" data-open="targets-bulk">+ Add multiple targets</button><button class="button button-primary" type="button" data-open="target">+ Set target</button>',
+        actions: `${canSetPaymentTargets() ? '<button class="button button-outline" type="button" data-open="payment-targets">Set mix targets</button>' : ""}<button class="button button-outline" type="button" data-open="targets-bulk">+ Add multiple targets</button><button class="button button-primary" type="button" data-open="target">+ Set target</button>`,
       }),
       () => {
         const ids = scopeBranchIds();
@@ -2007,7 +2007,6 @@
           "No targets match these filters.",
         ))}
         <div class="connected-charts">${progress}${pieChart("Sales by brand", scope, brands.map(row => ({ label: row.brand, value: row.actual })))}</div>
-        ${paymentMixPanels(anchorMonth(), computePaymentMix(anchorMonth(), ids, ui.period === "day" ? periodDay() : null), monthLabel(anchorMonth()))}
         ${panel("Brand performance", `${scope} · click a heading to sort.`, brandTable(brandRows(panelIds("brandBranch", scopeBranchIds())), "No brand sales or targets for this selection."), brandPanelControl())}
         ${psRankingPanel()}`;
       },
