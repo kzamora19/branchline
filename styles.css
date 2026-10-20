@@ -272,6 +272,10 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .dlg-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 0; }
 .dlg-head h2 { margin: 0; font-size: 17px; }
 .dlg-head-actions { display: inline-flex; align-items: center; gap: 8px; }
+.dlg-head:has([data-walkin-from]) { flex-wrap: wrap; gap: 12px; }
+.dlg-head:has([data-walkin-from]) .dlg-head-actions { flex-wrap: wrap; }
+.dlg-head-actions .field { margin: 0; }
+.contribution-legend { padding: 0 18px 12px; }
 .dlg-close { border: 0; background: none; font-size: 24px; line-height: 1; color: var(--muted); cursor: pointer; }
 .dlg-form { display: grid; gap: 12px; padding: 14px 18px 18px; }
 .dlg-body { display: grid; gap: 12px; }

@@ -49,6 +49,8 @@
   let salesLogExport = null;
   let walkInDailyCtx = null;
   let pacePopupShown = false;
+  let passwordRecoveryPending = location.hash.includes("type=recovery");
+  const recoveryLinkFailed = /(?:^#|&)(?:error_code|error_description)=/.test(location.hash);
 
   // A test account (name or login starting with "Test", e.g. Test_ps) is never counted as a Product Specialist and its sales never count.
   const isTestProfile = profile => /^\s*test([^a-z]|$)/i.test(profile?.full_name || "") || /^\s*test([^a-z]|$)/i.test(profile?.login_id || "");
@@ -288,6 +290,19 @@
                 fetchAll("sale_serials", "sale_id,barcode,position,serial", [["sale_id", true], ["position", true]]),
                       ]);
 
+      const brandContribution = { data: [], error: null };
+      if (isPsUser) {
+        for (let offset = 0; ; offset += 1000) {
+          const result = await client.rpc("brand_sales_contribution").order("sold_on").range(offset, offset + 999);
+          if (result.error) {
+            brandContribution.error = result.error;
+            break;
+          }
+          brandContribution.data.push(...result.data);
+          if (result.data.length < 1000) break;
+        }
+      }
+      if (brandContribution.error) console.error("Unable to load brand contribution.", brandContribution.error);
       const visibleBranches = checkResult(branches, "Unable to load accessible branches").map(item => ({ ...item, name: titleCase(item.name) }));
       const visibleDistricts = checkResult(districts, "Unable to load accessible districts").map(item => ({ ...item, name: titleCase(item.name) }));
       const visibleTargets = checkResult(targets, "Unable to load accessible targets");
@@ -344,6 +359,8 @@
           ps_name: titleCase(item.ps_name),
         })),
         psDashboard: isPsUser && !psDashboard.error ? psDashboard.data?.[0] || null : null,
+        brandContribution: brandContribution.data || [],
+        brandContributionError: brandContribution.error ? "Brand contribution could not load. Apply the brand contribution migration, then refresh." : "",
         holidays: holidays.error ? [] : holidays.data.map(item => ({ date: String(item.holiday_date).slice(0, 10), label: item.label || "" })),
         psWalkins: psWalkins.error ? [] : psWalkins.data,
         branchWalkins: branchWalkins.error ? [] : branchWalkins.data,
@@ -368,7 +385,9 @@
       if (!ui.month) ui.month = currentMonth();
       activePage = rolePageAllowed(activePage) ? activePage : "overview";
       renderConnected();
-      if (profile.role === "ps") {
+      if (passwordRecoveryPending) {
+        openPasswordModal(true);
+      } else if (profile.role === "ps") {
         showPacePopup();
         autoRegisterPush();
       }
@@ -712,9 +731,9 @@
     const rest = data.slice(6).reduce((total, entry) => total + entry.value, 0);
     if (rest > 0) shown.push({ label: "Others", value: rest });
     const total = shown.reduce((sum, entry) => sum + entry.value, 0);
-    const heading = `<div class="connected-panel-heading"><h2>${escapeHTML(title)}</h2><p>${escapeHTML(subtitle)}</p></div>`;
+    const heading = `<div class="connected-panel-heading"><h2>${escapeHTML(title)}</h2><p>${escapeHTML(subtitle)}</p>${options.controls || ""}</div>`;
     if (!total) {
-      return `<section class="connected-panel pie-card">${heading}<div class="empty-state">No sales recorded for this selection.</div></section>`;
+      return `<section class="connected-panel pie-card">${heading}<div class="empty-state">No sales recorded for this selection.</div>${options.footer || ""}</section>`;
     }
 
     shown.forEach(entry => {
@@ -751,7 +770,7 @@
     const description = shown.filter(entry => !entry.muted).map(entry => showAmounts ? `${entry.label} ${formatMoney(entry.value)}` : `${entry.label} ${entry.percentText}`).join("; ");
     return `<section class="connected-panel pie-card">${heading}
       <div class="pie-body${showLegend ? "" : " pie-body-solo"}"><svg viewBox="-1.03 -1.03 2.06 2.06" role="img" aria-label="${escapeHTML(`${title}: ${description}`)}">${slices.map(slice => slice.shape).join("")}${slices.map(slice => slice.label).join("")}</svg>
-      ${legend}</div></section>`;
+      ${legend}</div>${options.footer || ""}</section>`;
   }
 
   // Share of the target that should be reached by today: 1 for finished months, 0 for future ones,
@@ -1767,20 +1786,26 @@
 
   function brandProgressChart(scope) {
     const brand = String(currentProfile.assigned_brand || "").trim();
-    const targetFor = name => liveData.brandTargets
-      .filter(row => row.branch_id === currentProfile.branch_id
-        && row.brand.trim().toLowerCase() === name.toLowerCase()
-        && targetInPeriod(row.month))
-      .reduce((sum, row) => sum + Number(row.amount), 0);
-    const actual = liveData.brandSales
-      .filter(row => inStatus(row.sold_on))
-      .reduce((sum, row) => sum + Number(row.amount), 0);
-    const target = psBrandParts(brand).reduce((sum, part) => sum + (targetFor(part.full) || (part.base !== part.full ? targetFor(part.base) : 0)), 0);
-    return progressChart(actual, target, scope, {
-      title: `${brand || "Brand"} progress · whole branch`,
-      currentLabel: "Brand sales",
-      amounts: false,
-      emptyText: `No ${brand || "brand"} target is set for this branch and period yet. Your BM or DM can set one under Targets → + Set target. It compares the whole branch's ${brand || "brand"} sales with that target.`,
+    const title = `${brand || "Brand"} sales · your branch contribution`;
+    if (liveData.brandContributionError) return panel(title, scope,
+      `<p class="connected-error">${escapeHTML(liveData.brandContributionError)}</p>`);
+    const srp = ui.brandBasis === "srp";
+    const rows = liveData.brandContribution.filter(row => inStatus(row.sold_on));
+    const sum = key => rows.reduce((total, row) => total + Number(row[key] || 0), 0);
+    const own = sum(srp ? "own_srp" : "own_price");
+    const total = sum(srp ? "branch_srp" : "branch_price");
+    const other = Math.max(0, total - own);
+    const controls = `<label class="field an-inline"><span>Sales basis</span><select data-filter="brandBasis"><option value="price" ${!srp ? "selected" : ""}>Price (actual selling price)</option><option value="srp" ${srp ? "selected" : ""}>SRP</option></select></label>`;
+    const missing = srp ? sum("missing_srp") : 0;
+    const footer = `<ul class="pie-legend contribution-legend">
+      <li><i style="background:#355ee8"></i><span>Sold by you</span><strong>${formatMoney(own)} · ${percent(own, total, 2)}</strong></li>
+      <li><i style="background:#16a34a"></i><span>Sold by other PS</span><strong>${percent(other, total, 2)} · amount hidden</strong></li>
+      </ul><p class="an-note">Your assigned-brand sales divided by all sales of that brand in your branch. Branch-wide amounts are hidden.${missing ? ` ${missing} unit(s) have no recorded SRP and are excluded from both SRP figures.` : ""}</p>`;
+    return pieChart(title, `${scope} · ${srp ? "SRP" : "Price"} × quantity`, [
+      { label: "Sold by you", value: own, color: "#355ee8" },
+      { label: "Sold by other PS", value: other, color: "#16a34a" },
+    ], {
+      controls, footer, amounts: false, legend: false, names: true,
     });
   }
 
@@ -3095,11 +3120,13 @@
     });
   }
 
-  function openWalkInDailyModal() {
+  function openWalkInDailyModal(range) {
     const A = window.BranchlineAnalytics;
     const ctx = walkInDailyCtx;
     if (!ctx) return;
-    const { ids, isPs, monthStart, through } = ctx;
+    const { ids, isPs } = ctx;
+    const monthStart = range?.from || ctx.monthStart;
+    const through = range?.to || ctx.through;
     const storeCounts = storeCountsFor(ids, isPs);
     const psCounts = liveData.psWalkins.filter(row => ids.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id));
     const transactions = [...new Map(withHistoryFacts(analyticsFacts(ids), ids, isPs).map(f => [f.saleId, { id: f.saleId, branchId: f.branchId, date: f.date }])).values()];
@@ -3129,10 +3156,13 @@
     modalRoot.className = "dlg-backdrop";
     const root = modalRoot;
     root.innerHTML = `<div class="dlg dlg-xwide" role="dialog" aria-modal="true" aria-label="${escapeHTML(label)} by day">
-      <div class="dlg-head"><h2>${escapeHTML(label)} · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><div class="dlg-head-actions">${isPs ? "" : '<button class="button button-outline button-small" type="button" data-walkin-entry>Record store visitors</button>'}<button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div></div>
+      <div class="dlg-head"><h2>${escapeHTML(label)} · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><div class="dlg-head-actions">
+        <label class="field"><span>From</span><input type="date" data-walkin-from value="${escapeHTML(monthStart)}" required></label>
+        <label class="field"><span>To</span><input type="date" data-walkin-to value="${escapeHTML(through)}" required></label>
+        ${isPs ? "" : '<button class="button button-outline button-small" type="button" data-walkin-entry>Record store visitors</button>'}<button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div></div>
       <div class="dlg-form">
         <div class="connected-metrics wk-totals">
-          <article class="connected-metric"><span>This year (month to date)</span><strong>${value(total)}</strong><small>${total.coveredDays} day(s) counted · conversion ${rate(total)}</small></article>
+          <article class="connected-metric"><span>Selected period</span><strong>${value(total)}</strong><small>${total.coveredDays} day(s) counted · conversion ${rate(total)}</small></article>
           <article class="connected-metric"><span>Same days last year</span><strong>${value(priorTotal)}</strong><small>${priorTotal.coveredDays} day(s) counted · conversion ${rate(priorTotal)}</small></article>
           <article class="connected-metric"><span>Change</span><strong>${change(total, priorTotal)}</strong><small>Only days with a recorded count are included</small></article>
         </div>
@@ -3146,6 +3176,19 @@
     root.querySelector("[data-walkin-entry]")?.addEventListener("click", () => {
       closeModal();
       openWalkInModal("store");
+    });
+    const fromInput = root.querySelector("[data-walkin-from]");
+    const toInput = root.querySelector("[data-walkin-to]");
+    root.addEventListener("change", event => {
+      if (event.target !== fromInput && event.target !== toInput) return;
+      toInput.setCustomValidity("");
+      if (!fromInput.reportValidity() || !toInput.reportValidity()) return;
+      if (fromInput.value > toInput.value) {
+        toInput.setCustomValidity("To must be on or after From.");
+        toInput.reportValidity();
+        return;
+      }
+      openWalkInDailyModal({ from: fromInput.value, to: toInput.value });
     });
   }
 
@@ -3956,9 +3999,26 @@
     });
   }
 
-  function openPasswordModal() {
+  function openForgotPasswordModal() {
     openModal({
-      title: "Change password",
+      title: "Reset your password",
+      intro: "Enter your login ID and the contact email registered by your administrator. We will email a one-time reset link; your current password stays unchanged until you choose a new one.",
+      submitLabel: "Send reset link",
+      body: fieldHTML("Login ID (email, username or mobile)", "login", `<input name="login" required autocomplete="username" value="${escapeHTML(loginForm.elements.email.value)}">`)
+        + fieldHTML("Registered contact email", "email", '<input name="email" type="email" required autocomplete="email">'),
+      onSubmit: async form => {
+        const { error } = await client.functions.invoke("password-recovery", {
+          body: { login: form.elements.login.value.trim(), email: form.elements.email.value.trim() },
+        });
+        if (error) throw new Error("Could not request a reset link. Please try again later or contact your administrator.");
+        return "<p>If those details match an active account, a reset link will arrive at the registered email. Check your spam folder too. If no email arrives, ask your administrator to verify your contact email.</p>";
+      },
+    });
+  }
+
+  function openPasswordModal(recovery = false) {
+    openModal({
+      title: recovery ? "Choose your new password" : "Change password",
       submitLabel: "Update password",
       body: `${fieldHTML("New password", "password", '<input name="password" type="password" minlength="8" required autocomplete="new-password">')}
         ${fieldHTML("Confirm password", "confirm", '<input name="confirm" type="password" minlength="8" required autocomplete="new-password">')}`,
@@ -3966,6 +4026,7 @@
         if (form.elements.password.value !== form.elements.confirm.value) throw new Error("The passwords do not match.");
         const { error } = await client.auth.updateUser({ password: form.elements.password.value });
         if (error) throw error;
+        passwordRecoveryPending = false;
         return "<p>Your password was updated.</p>";
       },
     });
@@ -4445,7 +4506,8 @@
   }
 
   document.querySelector("#push-toggle")?.addEventListener("click", togglePush);
-  document.querySelector("#change-password").addEventListener("click", openPasswordModal);
+  document.querySelector("#change-password").addEventListener("click", () => openPasswordModal());
+  document.querySelector("#forgot-password").addEventListener("click", openForgotPasswordModal);
   document.querySelector("#show-password").addEventListener("change", event => {
     loginForm.elements.password.type = event.target.checked ? "text" : "password";
   });
@@ -4667,7 +4729,13 @@
     applyRememberedLogin();
     configWarning.hidden = true;
     client.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_OUT") {
+      if (event === "PASSWORD_RECOVERY" && session) {
+        passwordRecoveryPending = true;
+        window.setTimeout(() => {
+          if (liveData && currentSession?.user?.id === session.user.id) openPasswordModal(true);
+          else loadLiveWorkspace(session);
+        }, 0);
+      } else if (event === "SIGNED_OUT") {
         clearWorkspace();
       } else if (session && session.user.id !== currentSession?.user?.id) {
         window.setTimeout(() => loadLiveWorkspace(session), 0);
@@ -4680,6 +4748,7 @@
         return;
       }
       if (data.session) loadLiveWorkspace(data.session);
+      else if (recoveryLinkFailed) setAuthMessage("This reset link is invalid or expired. Use Forgot password? to request a new link.", true);
     }).catch(error => {
       console.error("Unable to check the Branchline session.", error);
       setAuthMessage("Unable to connect to Supabase. Check your connection and try again.", true);

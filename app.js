@@ -1562,7 +1562,10 @@
         : ["overview", "sales", "targets", "products", "users"];
   }
 
+  const hasAuthFragment = () => /(?:^#|&)(?:access_token|refresh_token|error_description|error_code)=/.test(window.location.hash);
+
   window.addEventListener("hashchange", () => {
+    if (hasAuthFragment()) return;
     const requested = window.location.hash.slice(1);
     const allowed = allowedPagesForRole(state.role);
     const page = allowed.includes(requested) ? requested : "overview";
@@ -1576,7 +1579,7 @@
 
   const requestedPage = window.location.hash.slice(1);
   const initialPage = allowedPagesForRole(state.role).includes(requestedPage) ? requestedPage : "overview";
-  if (requestedPage !== initialPage) window.history.replaceState(null, "", `#${initialPage}`);
+  if (requestedPage !== initialPage && !hasAuthFragment()) window.history.replaceState(null, "", `#${initialPage}`);
   $("#breadcrumb-current").dataset.page = initialPage;
   render();
 
