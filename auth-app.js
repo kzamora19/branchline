@@ -43,7 +43,7 @@
   let activePage = "overview";
   let loadSequence = 0;
   let resultsView = null;
-  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", pages: {}, sort: {}, colf: {} };
+  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", rankBranch: "", brandBranch: "", bpMix: "", bpYear: "", dsMonth: "", dsYear: "", pages: {}, sort: {}, colf: {} };
   const productSelection = new Set();
   let productsFiltered = [];
   let salesLogExport = null;
@@ -463,6 +463,20 @@
       .map(branch => branch.id));
   }
 
+  // District managers and above can narrow individual tables to one branch.
+  const canPickBranch = () => ["admin", "district_manager"].includes(currentProfile.role);
+
+  function panelBranchSelect(key, ids, className = "field an-inline") {
+    const branches = liveData.branches.filter(branch => ids.has(branch.id)).sort((a, b) => natural(a.name, b.name));
+    if (!canPickBranch() || branches.length < 2) return "";
+    return `<label class="${className}"><span class="${className.includes("an-inline") ? "visually-hidden" : ""}">Branch</span><select data-filter="${key}"><option value="">All branches</option>${branches.map(branch =>
+      `<option value="${escapeHTML(branch.id)}" ${ui[key] === branch.id ? "selected" : ""}>${escapeHTML(branch.name)}</option>`).join("")}</select></label>`;
+  }
+
+  function panelIds(key, ids) {
+    return canPickBranch() && ui[key] && ids.has(ui[key]) ? new Set([ui[key]]) : ids;
+  }
+
   function availableMonths() {
     const months = new Set([currentMonth(), ui.month].filter(Boolean));
     liveData.sales.forEach(sale => sale.sold_on && months.add(sale.sold_on.slice(0, 7)));
@@ -533,8 +547,8 @@
     ];
   }
 
-  function brandRows() {
-    const ids = scopeBranchIds();
+  function brandRows(scope) {
+    const ids = scope || scopeBranchIds();
     const actual = new Map();
     const target = new Map();
     const categories = new Map();
@@ -569,10 +583,9 @@
       });
   }
 
-  const BRAND_SORTS = [["sales", "Sales"], ["target", "Target"], ["progress", "Progress"], ["brand", "Brand (A–Z)"]];
-
-  function brandSortControl() {
-    return `<label class="field log-filter"><span>Rank by</span>${selectHTML("brandSort", BRAND_SORTS, ui.brandSort, 'data-filter="brandSort"')}</label>`;
+  // Header sorting drives the order; the branch dropdown (district managers and above) replaces the old "Rank by" box.
+  function brandPanelControl() {
+    return currentProfile.role === "ps" ? "" : panelBranchSelect("brandBranch", scopeBranchIds());
   }
 
   function brandTable(brands, emptyText) {
@@ -614,8 +627,8 @@
     && (!filters.category || line.category === filters.category)
     && (!filters.sub || line.sub_category === filters.sub);
 
-  function psRankingRows() {
-    const ids = scopeBranchIds();
+  function psRankingRows(scope) {
+    const ids = scope || scopeBranchIds();
     const filters = { brand: ui.rankBrand, category: ui.rankCategory, sub: ui.rankSub };
     const filtered = Boolean(filters.brand || filters.category || filters.sub);
     const totals = new Map();
@@ -658,7 +671,8 @@
     const brands = uniqueSorted(lines.map(line => (line.brand || "").trim()));
     const categories = uniqueSorted(lines.map(line => line.category));
     const subs = uniqueSorted(lines.filter(line => !ui.rankCategory || line.category === ui.rankCategory).map(line => line.sub_category));
-    const filters = `<div class="rank-filters">${rankFilterSelect("rankBrand", "Brand", brands, ui.rankBrand)}${rankFilterSelect("rankCategory", "Category", categories, ui.rankCategory)}${rankFilterSelect("rankSub", "Sub-category", subs, ui.rankSub)}</div>`;
+    const branchPick = panelBranchSelect("rankBranch", scopeBranchIds(), "field");
+    const filters = `<div class="rank-filters">${rankFilterSelect("rankBrand", "Brand", brands, ui.rankBrand)}${rankFilterSelect("rankCategory", "Category", categories, ui.rankCategory)}${rankFilterSelect("rankSub", "Sub-category", subs, ui.rankSub)}${branchPick}</div>`;
     const active = [ui.rankBrand, ui.rankCategory, ui.rankSub].filter(Boolean).join(" › ");
     return panel(
       "Product Specialist ranking",
@@ -666,7 +680,7 @@
       filters + tableBlock(
         "psrank",
         ["Rank", "Product Specialist", "Brand", "Branch", "Total sales"],
-        psRankingRows(),
+        psRankingRows(panelIds("rankBranch", scopeBranchIds())),
         row => `<tr class="rank-row" data-ps-detail="${escapeHTML(row.id)}" tabindex="0"><td><strong>#${row.rank}</strong></td><td><strong>${escapeHTML(row.name)}</strong></td><td>${escapeHTML(row.brand)}</td><td>${escapeHTML(row.branch)}</td><td>${formatMoney(row.total)}</td></tr>`,
         "No Product Specialists match this selection.",
       ),
@@ -840,6 +854,17 @@
     return `<div class="connected-table-wrap" data-table-key="${key}"><table class="connected-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
       <div class="connected-pager"><span>${from}–${to} of ${items.length}</span>
         <div><button class="button button-outline" type="button" data-pager="${key}" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>Previous</button><span>Page ${page} of ${pages}</span><button class="button button-outline" type="button" data-pager="${key}" data-page="${page + 1}" ${page >= pages ? "disabled" : ""}>Next</button></div></div>`;
+  }
+
+  // Like tableBlock, but without paging or auto-export: for small tables that have their own Export button or total row.
+  function sortableTable(key, headers, items, rowHtml, footerHtml = "") {
+    const sort = ui.sort[key];
+    const shown = sort ? sortedItems(items, rowHtml, sort) : items;
+    const head = headers.map((header, col) => {
+      const active = sort?.col === col ? sort.dir : "";
+      return `<th aria-sort="${active === "asc" ? "ascending" : active === "desc" ? "descending" : "none"}"><button class="sort-btn" type="button" data-sort-table="${key}" data-sort-col="${col}">${escapeHTML(header)}<span class="sort-arrow">${active === "asc" ? "▲" : active === "desc" ? "▼" : ""}</span></button></th>`;
+    }).join("");
+    return `<div class="connected-table-wrap"><table class="connected-table"><thead><tr>${head}</tr></thead><tbody>${shown.map(rowHtml).join("")}${footerHtml}</tbody></table></div>`;
   }
 
   // Exports a table that is not built with tableBlock; returns the Export button for the panel header.
@@ -1096,7 +1121,7 @@
     const rowHtml = row => `<tr><td><strong>${escapeHTML(row.mode)}</strong></td><td>${row.transactions}</td><td>${formatMoney(row.sales)}</td><td>${pct(row.share)}</td><td>${formatMoney(row.lySales || 0)}</td><td>${pct(row.lyShare)}</td><td>${row.targetPct === null ? "—" : row.targetPct.toFixed(1) + "%"}</td><td>${row.targetAmount === null ? "—" : formatMoney(row.targetAmount)}</td><td>${row.achievement === null ? "—" : (row.achievement * 100).toFixed(1) + "%"}</td><td><span class="${row.status === "none" ? "an-muted" : "mix-" + row.status}">${MIX_STATUS[row.status]}</span></td></tr>`;
     const totalRow = `<tr class="total-row"><td><strong>Total</strong></td><td>${mix.totalTransactions}</td><td>${formatMoney(mix.total)}</td><td>${mix.total ? "100%" : "n/a"}</td><td>${formatMoney(mix.lyTotal || 0)}</td><td>${mix.lyTotal ? "100%" : "n/a"}</td><td colspan="4"></td></tr>`;
     const table = mix.rows.length
-      ? `<div class="connected-table-wrap"><table class="connected-table"><thead><tr>${head.map(item => `<th>${item}</th>`).join("")}</tr></thead><tbody>${mix.rows.map(rowHtml).join("")}${totalRow}</tbody></table></div>`
+      ? sortableTable("mix", head, mix.rows, rowHtml, totalRow)
       : '<div class="empty-state">No sales or targets for this period.</div>';
     const exportButton = manualExport("mix-table", `Payment mix ${label}`, head, mix.rows, rowHtml);
     const editButton = canSetPaymentTargets() ? `<button class="button button-primary button-small" type="button" data-open="payment-targets">Set mix targets</button>` : "";
@@ -1109,7 +1134,7 @@
       const targetEntries = mix.rows.filter(row => row.targetPct !== null).map(row => ({ label: row.mode, value: row.targetPct }));
       pies.push(pieChart("Target payment mix", `${label} · share of sales`, targetEntries, { amounts: false }));
     }
-    return `<div class="connected-charts">${pies.join("")}</div>${panel("Payment mix: this year vs last year vs target", `${label}. Status compares each mode's share of sales with its target share (±2 points counts as on target). Last year only has data for sales that were recorded with a payment mode.`, table, `${controls}${editButton}${exportButton}`)}`;
+    return `<div class="connected-charts">${pies.join("")}</div>${panel("Payment mix: this year vs last year vs target", `${label}. Status compares each mode's share of sales with its target share (±2 points counts as on target). Last year only has data for sales that were recorded with a payment mode.`, table, `<div class="mix-tools"><div class="mix-tools-left">${editButton}</div><div class="mix-tools-right">${controls}${exportButton}</div></div>`)}`;
   }
 
   function openPaymentTargetsModal() {
@@ -1211,7 +1236,7 @@
     };
   }
 
-  function trafficPanels(A, ctx, month, through) {
+  function trafficPanels(A, ctx, month, through, yearCtx = ctx, yearBranchControl = "") {
     const monthStart = A.monthStart(month);
     const weekFrom = A.weekStart(through);
     const yearStart = `${month.slice(0, 4)}-01-01`;
@@ -1265,14 +1290,14 @@
         const partial = year === throughYear && ym === through.slice(0, 7);
         trendRows.push({
           month: ym,
-          stat: trafficStats(A, ctx, A.monthStart(ym), partial ? through : A.monthEnd(ym)),
-          ly: trafficStats(A, ctx, A.monthStart(lyYm), partial ? A.sameDayPriorYear(through) : A.monthEnd(lyYm)),
+          stat: trafficStats(A, yearCtx, A.monthStart(ym), partial ? through : A.monthEnd(ym)),
+          ly: trafficStats(A, yearCtx, A.monthStart(lyYm), partial ? A.sameDayPriorYear(through) : A.monthEnd(lyYm)),
         });
       }
     }
     const yearTotal = trendRows.length ? {
-      stat: trafficStats(A, ctx, `${year}-01-01`, year === throughYear ? through : `${year}-12-31`),
-      ly: trafficStats(A, ctx, `${year - 1}-01-01`, year === throughYear ? A.sameDayPriorYear(through) : `${year - 1}-12-31`),
+      stat: trafficStats(A, yearCtx, `${year}-01-01`, year === throughYear ? through : `${year}-12-31`),
+      ly: trafficStats(A, yearCtx, `${year - 1}-01-01`, year === throughYear ? A.sameDayPriorYear(through) : `${year - 1}-12-31`),
     } : null;
     const trendHead = ["Month", "Sales", "Last year sales", "Sales change", "Transactions", "Last year transactions", "Average sale", "Last year average", "Walk-ins", "Last year walk-ins", "Conversion", "Last year conversion"];
     const money = value => (value === null ? "n/a" : formatMoney(value));
@@ -1284,7 +1309,7 @@
       : '<div class="empty-state">No data for this year yet.</div>';
     const yearSelect = `<label class="field an-inline"><span class="visually-hidden">Year</span><select data-filter="yrYear">${yearList.map(value =>
       `<option value="${value}" ${value === year ? "selected" : ""}>${value}</option>`).join("")}</select></label>`;
-    const trend = panel(`Yearly comparison: ${year} vs ${year - 1}`, "Month by month against the same month last year. Walk-ins show only for months that have counts.", trendTable, `${yearSelect}${manualExport("traffic-monthly", `Yearly comparison ${year}`, trendHead, trendRows, trendRowHtml)}`);
+    const trend = panel(`Yearly comparison: ${year} vs ${year - 1}`, "Month by month against the same month last year. Walk-ins show only for months that have counts.", trendTable, `${yearSelect}${yearBranchControl}${manualExport("traffic-monthly", `Yearly comparison ${year}`, trendHead, trendRows, trendRowHtml)}`);
     return { compare, trend, periods };
   }
 
@@ -1474,9 +1499,9 @@
             const pace = expected === null ? '<span class="an-muted">—</span>' : behind ? '<span class="an-down">Behind pace</span>' : '<span class="an-up">On pace</span>';
             return `<tr class="rank-row" data-ps-detail="${escapeHTML(entry.id)}" tabindex="0"><td>${escapeHTML(entry.name)}<br><small class="an-muted">${escapeHTML(entry.branch)}</small></td><td>${formatMoney(entry.actual)}</td><td>${formatMoney(entry.target)}</td><td>${(entry.achievement * 100).toFixed(1)}%</td><td>${pace}</td></tr>`;
           };
-          const head = "<thead><tr><th>Product Specialist</th><th>Actual</th><th>Individual target</th><th>Achievement</th><th>Pace</th></tr></thead>";
-          const table = (list, expected) => list.length
-            ? `<div class="connected-table-wrap"><table class="connected-table">${head}<tbody>${list.map(row(expected)).join("")}</tbody></table></div>`
+          const headNames = ["Product Specialist", "Actual", "Individual target", "Achievement", "Pace"];
+          const table = (list, expected, key) => list.length
+            ? sortableTable(`sort-${key}`, headNames, list, row(expected))
             : '<div class="empty-state">Not enough Product Specialists with a target to rank.</div>';
           const exportHead = ["Product Specialist", "Branch", "Actual", "Individual target", "Achievement", "Pace"];
           const exportRow = expected => entry => {
@@ -1490,19 +1515,23 @@
             const skipped = list.length - result.ranked;
             const notes = `${expected === null ? "" : ` Expected progress by now: ${(expected * 100).toFixed(1)}% of the month's selling days.`}${skipped ? ` ${skipped} PS${skipped === 1 ? "" : "s"} without a branch target are not ranked.` : ""}`;
             const shown = pick(result);
-            return panel(title, `${p.label}. ${detail}${notes}${p.mode === "day" ? " Daily target = monthly target ÷ days in the month." : ""}`, table(shown, expected), `${periodControl(key, through)}${manualExport(`an-${title.toLowerCase().replace(/\W+/g, "-")}`, title, exportHead, shown, exportRow(expected))}`);
+            return panel(title, `${p.label}. ${detail}${notes}${p.mode === "day" ? " Daily target = monthly target ÷ days in the month." : ""}`, table(shown, expected, key), `${periodControl(key, through)}${manualExport(`an-${title.toLowerCase().replace(/\W+/g, "-")}`, title, exportHead, shown, exportRow(expected))}`);
           };
           psPanel = `${rankPanel("Top performers", topP, "pdTop", result => result.top, "Individual target = branch target ÷ active PSs in the branch.")}
             ${rankPanel("Needs attention", attnP, "pdAttn", result => result.bottom, "Lowest target achievement.")}`;
         }
 
         const trafficCtx = trafficContext(allFacts, ids, isPs);
-        const traffic = trafficPanels(A, trafficCtx, month, through);
+        const yearIds = panelIds("bpYear", ids);
+        const yearCtx = yearIds === ids ? trafficCtx : trafficContext(allFacts.filter(f => yearIds.has(f.branchId)), yearIds, isPs);
+        const traffic = trafficPanels(A, trafficCtx, month, through, yearCtx, panelBranchSelect("bpYear", ids));
         const mtdPeriod = traffic.periods.find(item => item.name === "Month to date");
         const mix = computePaymentMix(month, ids, through);
         const mixP = resolvePeriod("pdMix", month, through);
-        const mixView = mixP.mode === "mtd" ? mix : computePaymentMix(month, ids, through, mixP);
-        const mixLabel = mixP.mode === "mtd" ? `${monthLabel(month)}${isCurrent ? " (to date)" : ""}` : mixP.label;
+        const mixIds = panelIds("bpMix", ids);
+        const mixView = mixP.mode === "mtd" && mixIds === ids ? mix : computePaymentMix(month, mixIds, through, mixP);
+        const mixBranch = mixIds === ids ? "" : ` · ${branchName([...mixIds][0])}`;
+        const mixLabel = `${mixP.mode === "mtd" ? `${monthLabel(month)}${isCurrent ? " (to date)" : ""}` : mixP.label}${mixBranch}`;
         const brandTrend = A.groupTrend(facts, f => f.brand, current, previous);
         const priceFacts = facts.filter(f => f.date >= monthStart && f.date <= through);
         const insights = A.buildInsights({
@@ -1531,7 +1560,7 @@
         const holidayPanel = panel("Store-closed dates", canEditHolidays ? "Company-wide. These dates are skipped in forecasts." : "Company-wide. Managed by district managers and admins.",
           `${canEditHolidays ? '<p><button class="button" type="button" data-open="holiday">Add date</button></p>' : ""}${holidayTable}`);
         return `${warning}${cards}${insightsPanel(insights)}${chartPanel}${panel("Period comparison", "Growth compares like-for-like elapsed days.", comparisonTable, manualExport("an-compare", "Period comparison", ["Period", "Comparison", "Dates", "Actual", "Prior", "Growth"], comparisons,
-          ([name, dates, current, prior, note]) => { const g = A.growth(current, prior); return `<tr><td>${escapeHTML(name)}</td><td>${escapeHTML(note)}</td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${g === null ? "n/a" : (g * 100).toFixed(1) + "%"}</td></tr>`; }))}${traffic.compare}${traffic.trend}${paymentMixPanels(month, mixView, mixLabel, periodControl("pdMix", through))}${trendPanel}${psPanel}${holidayPanel}${missing}`;
+          ([name, dates, current, prior, note]) => { const g = A.growth(current, prior); return `<tr><td>${escapeHTML(name)}</td><td>${escapeHTML(note)}</td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${g === null ? "n/a" : (g * 100).toFixed(1) + "%"}</td></tr>`; }))}${traffic.compare}${traffic.trend}${paymentMixPanels(month, mixView, mixLabel, `${panelBranchSelect("bpMix", ids)}${periodControl("pdMix", through)}`)}${trendPanel}${psPanel}${holidayPanel}${missing}`;
       },
     );
   }
@@ -1572,7 +1601,7 @@
             "No branches match this selection.",
             5,
           ))}
-          ${panel("Brand performance", "Ranked by the selected measure.", brandTable(brands, "No brand sales for this selection."), currentProfile.role === "ps" ? "" : `${brandSortControl()}`)}
+          ${panel("Brand performance", "Click a heading to sort. Click a row to see its products.", brandTable(brandRows(panelIds("brandBranch", scopeBranchIds())), "No brand sales for this selection."), brandPanelControl())}
           ${psRankingPanel()}`;
       },
     );
@@ -1627,16 +1656,63 @@
         const logBranches = liveData.branches.filter(branch => ids.has(branch.id)).sort((a, b) => natural(a.name, b.name));
         const logFilters = isPs ? "" : `${logBranches.length > 1 ? `<label class="field log-filter"><span>Branch</span><select data-filter="logBranch"><option value="">All branches</option>${logBranches.map(branch =>
           `<option value="${escapeHTML(branch.id)}" ${branch.id === ui.logBranch ? "selected" : ""}>${escapeHTML(branch.name)}</option>`).join("")}</select></label>` : ""}<label class="field log-filter"><span>From</span><input type="date" data-filter="logFrom" value="${escapeHTML(ui.logFrom)}"></label><label class="field log-filter"><span>To</span><input type="date" data-filter="logTo" value="${escapeHTML(ui.logTo)}"></label>${ui.logBranch || logRange ? '<button class="button button-outline" type="button" data-log-clear>Clear</button>' : ""}`;
-        const tools = `<div class="table-tools">${logFilters}<label class="table-search"><span class="visually-hidden">Search sales log</span><input type="search" data-filter="search" placeholder="Search invoice, customer, product, staff" value="${escapeHTML(ui.search)}" autocomplete="off"></label><button class="button button-outline" type="button" data-export="sales">Export</button></div>`;
+        const tools = `<div class="table-tools log-tools">${logFilters}<label class="field log-filter log-search"><span>Search</span><input type="search" data-filter="search" placeholder="Invoice, customer, product, staff" value="${escapeHTML(ui.search)}" autocomplete="off"></label><button class="button button-outline" type="button" data-export="sales">Export</button></div>`;
         const rangeNote = logRange ? `${ui.logFrom || "start"} to ${ui.logTo || "today"} · ` : ui.period === "day" ? "this day only · " : "";
+
+        // Totals above the log: one card per branch for district managers and above, one card otherwise.
+        const todayISO = localISODate();
+        const dayFocus = ui.period === "day" ? periodDay() : todayISO;
+        const cardFrom = logRange ? ui.logFrom || "0000-01-01" : dayFocus;
+        const cardTo = logRange ? ui.logTo || "9999-12-31" : dayFocus;
+        const cardWhen = logRange ? `${ui.logFrom || "start"} to ${ui.logTo || "today"}` : dayFocus === todayISO ? `today, ${dayFocus}` : dayFocus;
+        const cardIds = !isPs && ui.logBranch && ids.has(ui.logBranch) ? new Set([ui.logBranch]) : ids;
+        const allSaleFacts = withHistoryFacts(analyticsFacts(ids), ids, isPs);
+        const totalOf = (facts) => ({ total: facts.reduce((sum, f) => sum + f.amount, 0), count: new Set(facts.map(f => f.saleId)).size });
+        const cardFacts = allSaleFacts.filter(f => f.date >= cardFrom && f.date <= cardTo && cardIds.has(f.branchId));
+        const cardList = canPickBranch()
+          ? [...cardIds].map(id => ({ name: branchName(id), ...totalOf(cardFacts.filter(f => f.branchId === id)) })).sort((a, b) => natural(a.name, b.name))
+          : [{ name: isPs ? "My total sales" : "Total sales", ...totalOf(cardFacts) }];
+        const totalsCards = `<div class="connected-metrics log-totals">${cardList.map(card =>
+          `<article class="connected-metric"><span>${escapeHTML(card.name)} · ${escapeHTML(cardWhen)}</span><strong>${formatMoney(card.total)}</strong><small>${card.count} sale${card.count === 1 ? "" : "s"}${logRange ? "" : " · pick From and To to total a date range"}</small></article>`).join("")}</div>`;
+
+        // Daily summary: totals only, for any month and year.
+        const years = new Set([todayISO.slice(0, 4), (ui.month || currentMonth()).slice(0, 4)]);
+        allSaleFacts.forEach(f => years.add(f.date.slice(0, 4)));
+        const yearList = [...years].sort().reverse();
+        const dsYear = yearList.includes(ui.dsYear) ? ui.dsYear : (ui.month || currentMonth()).slice(0, 4);
+        const dsMonth = /^(0[1-9]|1[0-2])$/.test(ui.dsMonth) ? ui.dsMonth : (ui.month || currentMonth()).slice(5, 7);
+        const dsPrefix = `${dsYear}-${dsMonth}`;
+        const monthFacts = allSaleFacts.filter(f => f.date.startsWith(dsPrefix));
+        const dayRows = [];
+        for (let day = new Date(Number(dsYear), Number(dsMonth), 0).getDate(); day >= 1; day -= 1) {
+          const date = `${dsPrefix}-${String(day).padStart(2, "0")}`;
+          if (date > todayISO) continue;
+          dayRows.push({ date, weekday: new Date(`${date}T00:00:00`).getDay(), ...totalOf(monthFacts.filter(f => f.date === date)) });
+        }
+        const monthTotal = totalOf(monthFacts);
+        const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const monthOptions = Array.from({ length: 12 }, (_, index) => {
+          const value = String(index + 1).padStart(2, "0");
+          return `<option value="${value}" ${value === dsMonth ? "selected" : ""}>${new Date(2000, index, 1).toLocaleString("en-PH", { month: "long" })}</option>`;
+        }).join("");
+        const dailyControls = `<label class="field an-inline"><span class="visually-hidden">Month</span><select data-filter="dsMonth">${monthOptions}</select></label><label class="field an-inline"><span class="visually-hidden">Year</span><select data-filter="dsYear">${yearList.map(value =>
+          `<option value="${value}" ${value === dsYear ? "selected" : ""}>${value}</option>`).join("")}</select></label>`;
+        const dailySummary = panel("Daily sales summary", `${monthLabel(dsPrefix)} · ${formatMoney(monthTotal.total)} · ${monthTotal.count} sale${monthTotal.count === 1 ? "" : "s"} · totals only, newest day first. Click a heading to sort.`, tableBlock(
+          "dailysum",
+          ["Date", "Day", "No. of sales", "Total sales"],
+          dayRows,
+          row => `<tr><td><strong>${escapeHTML(row.date)}</strong></td><td data-sort="${row.weekday}">${WEEKDAYS[row.weekday]}</td><td>${row.count}</td><td>${formatMoney(row.total)}</td></tr>`,
+          "No days to show for this month yet.",
+          31,
+        ), dailyControls);
         return `<div class="connected-charts">${charts.join("")}</div>
-          ${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} ·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a column heading to sort.`, tableBlock(
+          ${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} ·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a column heading to sort.`, totalsCards + tableBlock(
             "sales",
                       ["Invoice", "Customer", "Products", "Qty", "Payment", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(isPs || isAdmin ? [""] : [])],
             sales,
                       row => `<tr${row.isTest ? ' class="test-row"' : ""}><td><strong>${escapeHTML(row.sale.invoice_number)}</strong>${row.isTest ? ' <span class="test-badge">TEST – not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}</td><td>${row.lines.length ? row.lines.map(productLineHTML).join("") : "—"}</td><td>${row.qty}</td><td>${escapeHTML(row.sale.payment_mode || "—")}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td data-sort="${escapeHTML(row.sale.created_at)}">${escapeHTML(new Date(row.sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</td><td><strong>${formatMoney(row.total)}</strong></td>${isPs ? `<td><button class="button button-outline button-small" type="button" data-edit-sale="${escapeHTML(row.sale.id)}">Edit</button></td>` : isAdmin ? `<td><button class="button button-outline button-small button-danger" type="button" data-delete-sale="${escapeHTML(row.sale.id)}">Delete</button></td>` : ""}</tr>`,
             "No sales match these filters.",
-          ), tools)}${isPs ? brandLogPanel() : ""}`;
+          ), tools)}${dailySummary}${isPs ? brandLogPanel() : ""}`;
       },
     );
   }
@@ -1900,7 +1976,7 @@
         branch: true,
         period: true,
         search: "Search branch",
-        actions: '<button class="button button-primary" type="button" data-open="target">+ Set target</button>',
+        actions: '<button class="button button-outline" type="button" data-open="targets-bulk">+ Add multiple targets</button><button class="button button-primary" type="button" data-open="target">+ Set target</button>',
       }),
       () => {
         const ids = scopeBranchIds();
@@ -1932,7 +2008,7 @@
         ))}
         <div class="connected-charts">${progress}${pieChart("Sales by brand", scope, brands.map(row => ({ label: row.brand, value: row.actual })))}</div>
         ${paymentMixPanels(anchorMonth(), computePaymentMix(anchorMonth(), ids, ui.period === "day" ? periodDay() : null), monthLabel(anchorMonth()))}
-        ${panel("Brand performance", `${scope} · ranked by the selected measure.`, brandTable(brands, "No brand sales or targets for this selection."), currentProfile.role === "ps" ? "" : `${brandSortControl()}`)}
+        ${panel("Brand performance", `${scope} · click a heading to sort.`, brandTable(brandRows(panelIds("brandBranch", scopeBranchIds())), "No brand sales or targets for this selection."), brandPanelControl())}
         ${psRankingPanel()}`;
       },
     );
@@ -2838,6 +2914,76 @@
     });
   }
 
+  function openBulkTargetsModal() {
+    const branches = [...liveData.branches].sort((a, b) => natural(a.name, b.name));
+    if (!branches.length) {
+      openModal({ title: "Add multiple targets", body: "<p>There are no branches in your scope yet.</p>", submitLabel: "OK", onSubmit: async () => {} });
+      return;
+    }
+    const month = ui.month || currentMonth();
+    const options = [["", "Select branch"], ...(branches.length > 1 ? [["all", `All my branches (${branches.length})`]] : []), ...branches.map(branch => [branch.id, branch.name])];
+    const rowHTML = index => `${selectHTML(`t${index}_branch`, options, "", `aria-label="Branch, row ${index + 1}"`)}<input name="t${index}_brand" list="brand-options" placeholder="Brand" aria-label="Brand, row ${index + 1}" autocomplete="off"><input name="t${index}_amount" type="number" min="0" step="0.01" placeholder="Target amount (₱)" aria-label="Target amount, row ${index + 1}">`;
+    openModal({
+      title: "Add multiple targets",
+      intro: "Fill one row per target. Blank rows are ignored. A target that already exists for the same branch, month and brand is replaced.",
+      submitLabel: "Save targets",
+      wide: true,
+      body: `${fieldHTML("Type", "type", selectHTML("type", [["branch", "Branch targets (all brands)"], ["brand", "Brand targets"]], "branch"))}
+        ${fieldHTML("Month", "month", `<input name="month" type="month" value="${month}" required>`)}
+        <div class="bulk-users-head"><strong>Targets</strong><button class="button button-outline button-small" type="button" id="bulk-add-rows">+ Add more rows</button></div>
+        <datalist id="brand-options">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>
+        <div class="bulk-grid bulk-grid-3">
+          <span class="bulk-label">Branch</span><span class="bulk-label">Brand (brand targets only)</span><span class="bulk-label">Target amount (₱)</span>
+          <span id="bulk-rows" style="display:contents">${[0, 1, 2, 3, 4].map(rowHTML).join("")}</span>
+        </div>`,
+      onReady: form => {
+        let count = 5;
+        const sync = () => {
+          const isBrand = form.elements.type.value === "brand";
+          form.querySelectorAll('[name$="_brand"]').forEach(input => { input.disabled = !isBrand; });
+        };
+        form.elements.type.addEventListener("change", sync);
+        form.querySelector("#bulk-add-rows").addEventListener("click", () => {
+          const holder = document.createElement("span");
+          holder.style.display = "contents";
+          holder.innerHTML = [0, 1, 2, 3, 4].map(offset => rowHTML(count + offset)).join("");
+          form.querySelector("#bulk-rows").appendChild(holder);
+          count += 5;
+          sync();
+          holder.querySelector("select")?.focus();
+        });
+        form.bulkCount = () => count;
+        sync();
+      },
+      onSubmit: async form => {
+        const isBrand = form.elements.type.value === "brand";
+        const monthDate = `${form.elements.month.value}-01`;
+        const records = new Map();
+        for (let index = 0; index < form.bulkCount(); index += 1) {
+          const branchValue = form.elements[`t${index}_branch`]?.value || "";
+          const brand = isBrand ? titleCase((form.elements[`t${index}_brand`]?.value || "").trim()) : "";
+          const amountText = (form.elements[`t${index}_amount`]?.value || "").trim();
+          if (!branchValue && !brand && !amountText) continue;
+          if (!branchValue) throw new Error(`Row ${index + 1}: choose a branch.`);
+          if (isBrand && !brand) throw new Error(`Row ${index + 1}: enter the brand.`);
+          const amount = Number(amountText);
+          if (!amountText || !Number.isFinite(amount) || amount < 0) throw new Error(`Row ${index + 1}: enter a valid target amount.`);
+          (branchValue === "all" ? branches.map(branch => branch.id) : [branchValue]).forEach(id => {
+            records.set(isBrand ? `${id}|${brand.toLowerCase()}` : id, {
+              dealer_id: currentProfile.dealer_id, branch_id: id, month: monthDate, amount, created_by: currentProfile.id, ...(isBrand ? { brand } : {}),
+            });
+          });
+        }
+        if (!records.size) throw new Error("Enter at least one target.");
+        const result = await client
+          .from(isBrand ? "brand_targets" : "monthly_targets")
+          .upsert([...records.values()], { onConflict: isBrand ? "branch_id,month,brand" : "branch_id,month" });
+        if (result.error) throw result.error;
+        await refreshData();
+      },
+    });
+  }
+
   // ---------- People: districts, branches, users ----------
   function openDistrictModal() {
     openModal({
@@ -3434,6 +3580,7 @@
     else if (open === "sales-history") openSalesHistoryModal();
     else if (open === "daily-history") openDailyHistoryModal();
     else if (open === "target") openTargetModal();
+    else if (open === "targets-bulk") openBulkTargetsModal();
     else if (open === "district") openDistrictModal();
     else if (open === "branch") openBranchModal();
     else if (open === "user") openUserModal();
