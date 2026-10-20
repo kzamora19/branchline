@@ -1960,10 +1960,59 @@
     return out.slice(0, 5);
   }
 
+  // Makes label text easier for OCR: enlarge small images, grey-scale, stretch the contrast.
+  function enhanceForText(canvas) {
+    const scale = canvas.width < 1600 ? Math.min(2.5, 1600 / canvas.width) : 1;
+    const out = document.createElement("canvas");
+    out.width = Math.round(canvas.width * scale);
+    out.height = Math.round(canvas.height * scale);
+    const ctx = out.getContext("2d");
+    ctx.drawImage(canvas, 0, 0, out.width, out.height);
+    const image = ctx.getImageData(0, 0, out.width, out.height);
+    const px = image.data;
+    let lo = 255;
+    let hi = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      const grey = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+      px[i] = grey;
+      if (grey < lo) lo = grey;
+      if (grey > hi) hi = grey;
+    }
+    const range = Math.max(hi - lo, 1);
+    for (let i = 0; i < px.length; i += 4) {
+      const value = Math.min(255, Math.max(0, ((px[i] - lo) * 255) / range));
+      px[i] = px[i + 1] = px[i + 2] = value;
+    }
+    ctx.putImageData(image, 0, 0);
+    return out;
+  }
+
+  let ocrWorker = null;
+
+  // Returns the likely serial numbers first, then the other readable lines, so the user can tap the right one.
   async function readLabelText(canvas) {
     await loadScript(TESSERACT_URL);
-    const { data } = await Tesseract.recognize(canvas, "eng");
-    return serialCandidates(data.text);
+    if (!ocrWorker) {
+      ocrWorker = await Tesseract.createWorker("eng");
+      await ocrWorker.setParameters({ tessedit_pageseg_mode: "6" });
+    }
+    const { data } = await ocrWorker.recognize(enhanceForText(canvas));
+    const picks = serialCandidates(data.text);
+    String(data.text || "").split(/\r?\n/).map(line => line.trim()).filter(line => line.replace(/\s/g, "").length >= 6).forEach(line => {
+      if (picks.length < 10 && !picks.includes(line)) picks.push(line);
+    });
+    return picks;
+  }
+
+  // Tries to read one photo: barcode first (a few sizes), then the label text.
+  async function readPhoto(file, onStage) {
+    for (const size of [2400, 1400, 900]) {
+      const value = await decodeCanvas(await canvasFromFile(file, size)).catch(() => "");
+      if (value) return { value, picks: [] };
+    }
+    onStage?.("No barcode found. Reading the label text… this can take a few seconds the first time.");
+    const picks = await readLabelText(await canvasFromFile(file, 2400));
+    return picks.length ? { value: picks[0], picks: picks.slice(1), fromText: true } : null;
   }
 
   async function canvasFromFile(file, longest = 2000) {
@@ -1984,24 +2033,28 @@
   // Only the area inside the frame is analysed, at the camera's full resolution.
   function scanWithCamera(host) {
     return new Promise((resolve, reject) => {
-      const GUIDE = { x: 0.08, y: 0.33, w: 0.84, h: 0.34 };
+      const GUIDE = { x: 0.1, y: 0.22, w: 0.8, h: 0.5 };
       const box = document.createElement("div");
       box.className = "serial-pop serial-scan";
       box.innerHTML = `<div class="serial-card">
-        <p class="dlg-intro">Fit the barcode inside the frame. Hold the phone 10–20 cm away and keep it steady.</p>
+        <p class="dlg-intro">Show the whole barcode (or QR code) in the view. Hold the phone 10–20 cm away and keep it steady. The sharpest option is <strong>Take photo</strong>, which uses your phone’s own camera.</p>
         <div class="scan-view"><video playsinline muted></video>
-          <div class="scan-guide"><i></i><i></i><i></i><i></i><span></span></div></div>
+          <div class="scan-guide"><i></i><i></i><i></i><i></i></div></div>
         <p class="scan-status" role="status">Starting the camera…</p>
         <div class="scan-tools" hidden><label>Zoom <input type="range" data-scan-zoom></label><button class="button button-outline button-small" type="button" data-scan-torch hidden>Light</button></div>
-        <div class="dlg-actions"><button class="button button-outline" type="button" data-scan-text>Can’t scan? Read label text</button><button class="button button-outline" type="button" data-scan-cancel>Cancel</button></div>
+        <div class="scan-picks" hidden></div>
+        <input type="file" accept="image/*" capture="environment" hidden data-scan-photo>
+        <div class="dlg-actions"><button class="button button-primary" type="button" data-scan-take>Take photo</button><button class="button button-outline" type="button" data-scan-text>Read label text</button><button class="button button-outline" type="button" data-scan-cancel>Cancel</button></div>
       </div>`;
       host.appendChild(box);
       const video = box.querySelector("video");
       const view = box.querySelector(".scan-view");
       const status = box.querySelector(".scan-status");
+      const picksBox = box.querySelector(".scan-picks");
       let stream = null;
       let timer = null;
       let closed = false;
+      let tick = 0;
       const finish = value => {
         closed = true;
         clearInterval(timer);
@@ -2009,20 +2062,36 @@
         box.remove();
         resolve(value);
       };
-      // Cuts the part of the video frame that sits under the on-screen frame (the video is cropped to fill the view).
-      const grab = pad => {
+      // Several possible readings: let the user tap the right one.
+      const offerPicks = (picks, label) => {
+        status.textContent = label;
+        picksBox.hidden = false;
+        picksBox.innerHTML = picks.map(text => `<button class="button button-outline button-small" type="button" data-pick="${escapeHTML(text)}">${escapeHTML(text)}</button>`).join("");
+      };
+      picksBox.addEventListener("click", event => {
+        const pick = event.target.closest("[data-pick]");
+        if (pick) finish({ value: pick.dataset.pick, fromText: true, picks: [] });
+      });
+      // Cuts the frame area out of the video, or the whole frame when `whole` is set.
+      const grab = whole => {
         const vw = video.videoWidth;
         const vh = video.videoHeight;
         const cw = view.clientWidth;
         const ch = view.clientHeight;
         if (!vw || !cw) return null;
-        const scale = Math.max(cw / vw, ch / vh);
-        const ox = (vw * scale - cw) / 2;
-        const oy = (vh * scale - ch) / 2;
-        const sx = Math.max(0, ((GUIDE.x - pad) * cw + ox) / scale);
-        const sy = Math.max(0, ((GUIDE.y - pad) * ch + oy) / scale);
-        const sw = Math.min(vw - sx, ((GUIDE.w + 2 * pad) * cw) / scale);
-        const sh = Math.min(vh - sy, ((GUIDE.h + 2 * pad) * ch) / scale);
+        let sx = 0;
+        let sy = 0;
+        let sw = vw;
+        let sh = vh;
+        if (!whole) {
+          const scale = Math.max(cw / vw, ch / vh);
+          const ox = (vw * scale - cw) / 2;
+          const oy = (vh * scale - ch) / 2;
+          sx = Math.max(0, (GUIDE.x * cw + ox) / scale);
+          sy = Math.max(0, (GUIDE.y * ch + oy) / scale);
+          sw = Math.min(vw - sx, (GUIDE.w * cw) / scale);
+          sh = Math.min(vh - sy, (GUIDE.h * ch) / scale);
+        }
         const canvas = document.createElement("canvas");
         canvas.width = Math.round(sw);
         canvas.height = Math.round(sh);
@@ -2030,18 +2099,40 @@
         return canvas;
       };
       box.querySelector("[data-scan-cancel]").addEventListener("click", () => finish(null));
+      box.querySelector("[data-scan-take]").addEventListener("click", () => box.querySelector("[data-scan-photo]").click());
+      box.querySelector("[data-scan-photo]").addEventListener("change", async event => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        clearInterval(timer);
+        picksBox.hidden = true;
+        status.textContent = "Reading the photo…";
+        try {
+          const result = await readPhoto(file, text => { status.textContent = text; });
+          if (!result) {
+            status.textContent = "Nothing readable in that photo. Try again closer, with more light.";
+          } else if (result.fromText && result.picks.length) {
+            offerPicks([result.value, ...result.picks], "No barcode found. Tap the serial number from the label text:");
+          } else {
+            finish(result);
+          }
+        } catch (caught) {
+          status.textContent = caught.message;
+        }
+        event.target.value = "";
+      });
       box.querySelector("[data-scan-text]").addEventListener("click", async event => {
         const button = event.currentTarget;
-        const canvas = grab(0.08);
+        const canvas = grab(true);
         if (!canvas) return;
         button.disabled = true;
+        picksBox.hidden = true;
         status.textContent = "Reading the label… this can take a few seconds the first time.";
         try {
           const barcode = await decodeCanvas(canvas).catch(() => "");
-          if (barcode) return finish({ value: barcode });
+          if (barcode) return finish({ value: barcode, picks: [] });
           const found = await readLabelText(canvas);
-          if (found.length) return finish({ value: found[0], fromText: true, others: found.slice(1) });
-          status.textContent = "No serial number could be read. Move closer, add light, and try again.";
+          if (found.length) offerPicks(found, "Tap the serial number from the label text:");
+          else status.textContent = "No text could be read. Move closer, add light, or use Take photo.";
         } catch (caught) {
           status.textContent = caught.message;
         }
@@ -2084,12 +2175,13 @@
           if (busy || closed || video.readyState < 2) return;
           busy = true;
           try {
-            const canvas = grab(0);
+            // Alternate between the whole picture and the framed area, like a dedicated scanner app.
+            const canvas = grab(tick++ % 2 === 0);
             const value = canvas && ("BarcodeDetector" in window || window.ZXing) ? await decodeCanvas(canvas) : "";
-            if (value && !closed) finish({ value });
+            if (value && !closed) finish({ value, picks: [] });
           } catch { /* keep trying */ }
           busy = false;
-        }, 250);
+        }, 200);
       }).catch(caught => {
         box.remove();
         reject(new Error(caught?.name === "NotAllowedError" ? "Camera permission was denied." : "The camera could not be opened."));
@@ -2116,10 +2208,12 @@
         <input type="file" accept="image/*" hidden data-serial-file>
       </div>
       <p class="dlg-error" role="alert" hidden></p>
+      <div class="scan-picks" hidden></div>
       <div class="dlg-actions"><button class="button button-outline" type="button" data-serial-cancel>Cancel</button><button class="button button-primary" type="button" data-serial-save>Save serial numbers</button></div>
     </div>`;
     host.appendChild(pop);
     const error = pop.querySelector(".dlg-error");
+    const picks = pop.querySelector(".scan-picks");
     const fileInput = pop.querySelector("[data-serial-file]");
     let target = null;
     const say = text => { error.textContent = text; error.hidden = !text; };
@@ -2136,7 +2230,7 @@
           const result = await scanWithCamera(pop);
           if (result) {
             input.value = result.value;
-            say(result.fromText ? `Read from the label text: ${result.value}. Please check it against the label.${result.others.length ? ` Other possibilities: ${result.others.join(", ")}.` : ""}` : "");
+            say(result.fromText ? `Read from the label text: ${result.value}. Please check it against the label.` : "");
           }
         } catch (caught) {
           say(caught.message);
@@ -2168,19 +2262,25 @@
       const file = fileInput.files?.[0];
       if (!file || !target) return;
       say("Reading the photo…");
+      picks.hidden = true;
       try {
-        const canvas = await canvasFromFile(file);
-        let value = await decodeCanvas(canvas).catch(() => "");
-        if (!value) value = await decodeCanvas(await canvasFromFile(file, 1100)).catch(() => "");
-        if (value) {
-          target.value = value;
-          return say("");
+        const result = await readPhoto(file, say);
+        if (!result) return say("Nothing readable was found in that photo. Retake it closer and in focus, or type the serial number.");
+        target.value = result.value;
+        if (!result.fromText) return say("");
+        say(`Read from the label text: ${result.value}. Check it against the label${result.picks.length ? " or tap another line:" : "."}`);
+        if (result.picks.length) {
+          const field = target;
+          picks.hidden = false;
+          picks.innerHTML = result.picks.map(text => `<button class="button button-outline button-small" type="button" data-pick="${escapeHTML(text)}">${escapeHTML(text)}</button>`).join("");
+          picks.onclick = click => {
+            const pick = click.target.closest("[data-pick]");
+            if (!pick) return;
+            field.value = pick.dataset.pick;
+            picks.hidden = true;
+            say("");
+          };
         }
-        say("No barcode found. Reading the label text… this can take a few seconds the first time.");
-        const found = await readLabelText(canvas);
-        if (!found.length) return say("Nothing readable was found in that photo. Retake it closer and in focus, or type the serial number.");
-        target.value = found[0];
-        say(`Read from the label text: ${found[0]}. Please check it against the label.${found.length > 1 ? ` Other possibilities: ${found.slice(1).join(", ")}.` : ""}`);
       } catch (caught) {
         say(caught?.message || "That photo could not be read. Type the serial number instead.");
       }
