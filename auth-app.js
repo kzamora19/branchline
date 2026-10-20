@@ -262,7 +262,7 @@
         const probe = await client.from("products").select("branch_id").eq("active", true).limit(1);
         catalogBranch = probe.data?.[0]?.branch_id || null;
       }
-      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, paymentTargets, importBatches, dailyHistory, saleSerials] = await Promise.all([
+      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, pushSchedules, paymentTargets, importBatches, dailyHistory, saleSerials] = await Promise.all([
         fetchAll("branches", "id,name,district_id", [["name", true], ["id", true]]),
         fetchAll("districts", "id,name", [["name", true], ["id", true]]),
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
@@ -281,6 +281,7 @@
         fetchAll("ps_walkins", "branch_id,ps_id,counted_on,clients_assisted", [["counted_on", false], ["ps_id", true]]),
         fetchAll("branch_walkins", "branch_id,counted_on,visitors", [["counted_on", false], ["branch_id", true]]),
         fetchAll("push_messages", "id,status,message,created_at", [["created_at", true], ["id", true]]),
+        fetchAll("push_alert_schedules", "id,send_at,active,created_at", [["send_at", true], ["created_at", true]]),
         fetchAll("payment_mode_targets", "id,branch_id,month,mode,share_pct,amount", [["month", false], ["id", true]]),
         isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("sales_import_batches", "id,label,source_file,created_at,sales_count,lines_count,amount,date_from,date_to,kind", [["created_at", false], ["id", true]]),
         isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("branch_daily_history", "branch_id,day,sales,transactions,walkins,remarks", [["day", false], ["branch_id", true]]),
@@ -347,6 +348,7 @@
         psWalkins: psWalkins.error ? [] : psWalkins.data,
         branchWalkins: branchWalkins.error ? [] : branchWalkins.data,
         pushMessages: pushMessages.error ? [] : pushMessages.data,
+        pushSchedules: pushSchedules.error ? [] : pushSchedules.data.map(item => ({ ...item, send_at: String(item.send_at || "").slice(0, 5) })),
         paymentTargets: paymentTargets.error ? [] : paymentTargets.data.map(item => ({ ...item, month: String(item.month).slice(0, 10), share_pct: item.share_pct === null ? null : Number(item.share_pct), amount: item.amount === null ? null : Number(item.amount) })),
         importBatches: importBatches.error ? [] : importBatches.data,
         dailyHistory: dailyHistory.error ? [] : dailyHistory.data.map(row => ({ ...row, day: String(row.day).slice(0, 10), sales: Number(row.sales), transactions: Number(row.transactions) })),
@@ -1370,7 +1372,7 @@
     const canEditHolidays = ["admin", "district_manager"].includes(currentProfile.role);
     const walkInButton = isPs
       ? '<button class="button button-outline" type="button" data-open="walkin-ps">Log clients assisted</button>'
-      : '<button class="button button-outline" type="button" data-open="walkin-store">Record store visitors</button>';
+      : "";
     const filters = `${filterBar({ district: true, branch: true })}<div class="connected-filters" role="group" aria-label="Analytics options">${monthSelect}${basisSelect}<div class="filter-actions">${walkInButton}</div></div>`;
 
     mountPage(
@@ -2311,7 +2313,7 @@
       submitLabel: sale ? "Save changes" : "Save sale",
       wide: true,
       body: `<div class="dlg-grid">
-          ${fieldHTML("Customer", "customer", `<input name="customer" autocomplete="off" required value="${escapeHTML(sale?.customer_name || "")}">`)}
+          ${fieldHTML("Customer", "customer", `<input name="customer" list="sale-customers" autocomplete="off" required value="${escapeHTML(sale?.customer_name || "")}">`)}
           ${fieldHTML("Invoice number", "invoice", `<input name="invoice" autocomplete="off" required value="${escapeHTML(sale?.invoice_number || "")}">`)}
           ${fieldHTML("Date", "date", `<input name="date" type="date" required value="${escapeHTML(sale?.sold_on || localISODate())}">`)}
           ${fieldHTML("Mode of payment", "payment", paymentSelectHTML(sale?.payment_mode))}
@@ -2320,12 +2322,36 @@
           ${fieldHTML("City / town (optional)", "city", `<input name="city" list="sale-cities" autocomplete="off" placeholder="e.g. Santiago City" value="${escapeHTML(sale?.city || "")}">`)}
           ${fieldHTML("Barangay (optional)", "barangay", `<input name="barangay" list="sale-barangays" autocomplete="off" placeholder="Pick a city first" value="${escapeHTML(sale?.barangay || "")}">`)}
         </div>
+        <datalist id="sale-customers"></datalist>
         <datalist id="sale-cities"></datalist>
         <datalist id="sale-barangays"></datalist>
         <datalist id="sale-products"></datalist>
         <div id="sale-rows">${lines.map(saleLineRow).join("")}</div>
         <div class="sale-footer"><span class="sale-footer-actions"><button class="button button-outline button-small" type="button" data-add-line>+ Add product line</button> <button class="button button-outline button-small" type="button" data-add-serials>+ Add serial number <span id="serial-count"></span></button></span><strong>Sale total: <span id="sale-total">${formatMoney(lines.reduce((sum, line) => sum + Number(line.selling_price || 0) * Number(line.quantity || 0), 0))}</span></strong></div>`,
       onReady: form => {
+        const customerPool = new Map();
+        [...(liveData.sales || []), ...(liveData.testSales || [])].forEach(item => {
+          const name = titleCase(String(item.customer_name || "").trim());
+          if (!name) return;
+          const current = customerPool.get(name) || { name, count: 0, last: "" };
+          current.count += 1;
+          current.last = String(item.sold_on || "") > current.last ? String(item.sold_on || "") : current.last;
+          customerPool.set(name, current);
+        });
+        const customerOptions = query => {
+          const text = String(query || "").trim().toLowerCase();
+          return [...customerPool.values()]
+            .filter(item => !text || item.name.toLowerCase().includes(text))
+            .sort((a, b) => b.count - a.count || String(b.last).localeCompare(String(a.last)) || a.name.localeCompare(b.name))
+            .slice(0, 30)
+            .map(item => item.name);
+        };
+        const fillCustomers = query => {
+          form.querySelector("#sale-customers").innerHTML = customerOptions(query).map(name => `<option value="${escapeHTML(name)}"></option>`).join("");
+        };
+        fillCustomers(form.elements.customer.value);
+        form.elements.customer.addEventListener("input", () => fillCustomers(form.elements.customer.value));
+        form.elements.customer.addEventListener("focus", () => fillCustomers(form.elements.customer.value));
         const serials = new Map();
         (sale ? liveData.serialsBySale.get(sale.id) || [] : []).forEach(row => {
           if (!serials.has(row.barcode)) serials.set(row.barcode, []);
@@ -2685,6 +2711,17 @@
   }
 
   const PACE_STATUS_LABELS = { behind: "Behind the pace", on: "On track", exceeded: "More than target" };
+  const SCHEDULE_DEFAULTS = ["10:00", "13:00", "16:00"];
+
+  function scheduleLabel(timeText) {
+    if (!timeText) return "—";
+    const [hourText, minuteText] = String(timeText).slice(0, 5).split(":");
+    const hour = Number(hourText || 0);
+    const minute = Number(minuteText || 0);
+    const ampm = hour >= 12 ? "PM" : "AM";
+    const h12 = hour % 12 || 12;
+    return `${h12}:${String(minute).padStart(2, "0")} ${ampm}`;
+  }
 
   function pushMessagesPanel() {
     if (currentProfile.role !== "admin") return "";
@@ -2695,7 +2732,12 @@
         : '<p class="an-note">No messages yet. A built-in default is used until you add one.</p>';
       return `<div class="push-group"><div class="push-group-head"><h3>${escapeHTML(label)}</h3><button class="button button-outline button-small" type="button" data-open="push-message" data-status="${status}">+ Add message</button></div>${list}</div>`;
     }).join("");
-    return panel("Alert messages", "Sent daily as a push notification and shown after a PS signs in.     When several messages exist for a status, one is picked at random.", `<div class="push-groups">${groups}</div>${PLACEHOLDER_LEGEND}`);
+    const schedules = (liveData.pushSchedules || []).slice().sort((a, b) => String(a.send_at).localeCompare(String(b.send_at)));
+    const rows = schedules.length
+      ? `<ul class="push-list">${schedules.map(item => `<li><span><strong>${escapeHTML(scheduleLabel(item.send_at))}</strong> · ${item.active ? "Active" : "Paused"}</span><span class="push-inline-actions"><button class="button button-outline button-small" type="button" data-open="push-schedule" data-id="${escapeHTML(item.id)}">Edit</button><button class="button button-outline button-small" type="button" data-push-schedule-delete="${escapeHTML(item.id)}">Delete</button></span></li>`).join("")}</ul>`
+      : '<p class="an-note">No schedule yet. Add one or more times per day for behind-pace alerts.</p>';
+    const schedulePanel = `<div class="push-group"><div class="push-group-head"><h3>Behind-pace push schedule</h3><button class="button button-outline button-small" type="button" data-open="push-schedule">+ Add time</button></div>${rows}<p class="an-note">These times control repeated push alerts for Product Specialists who are currently behind pace. Time zone: Asia/Manila.</p></div>`;
+    return panel("Alert messages", "Shown after sign in for all pace statuses. Push alerts use the schedule below and only target Product Specialists who are behind pace.", `<div class="push-groups">${schedulePanel}${groups}</div>${PLACEHOLDER_LEGEND}`);
   }
 
   const PLACEHOLDER_LEGEND = `<dl class="push-legend">
@@ -2714,6 +2756,24 @@
       body: fieldHTML("Message", "message", '<textarea name="message" rows="3" maxlength="240" required></textarea>') + PLACEHOLDER_LEGEND,
       onSubmit: async form => {
         mustRpc(await client.rpc("save_push_message", { p_status: status, p_message: form.elements.message.value.trim() }));
+        await refreshData();
+      },
+    });
+  }
+
+  function openPushScheduleModal(schedule) {
+    openModal({
+      title: schedule ? "Edit push schedule" : "Add push schedule",
+      intro: "At each active time, a push notification can be sent again to Product Specialists who are still behind pace.",
+      submitLabel: schedule ? "Save time" : "Add time",
+      body: `${fieldHTML("Time (Asia/Manila)", "time", `<input name="time" type="time" required value="${escapeHTML(schedule?.send_at || SCHEDULE_DEFAULTS[(liveData.pushSchedules || []).length % SCHEDULE_DEFAULTS.length])}">`)}
+        <label class="check-row"><input type="checkbox" name="active" ${schedule?.active === false ? "" : "checked"}> <span>Active</span></label>`,
+      onSubmit: async form => {
+        mustRpc(await client.rpc("save_push_alert_schedule", {
+          p_id: schedule?.id || null,
+          p_send_at: `${form.elements.time.value}:00`,
+          p_active: form.elements.active.checked,
+        }));
         await refreshData();
       },
     });
@@ -3069,7 +3129,7 @@
     modalRoot.className = "dlg-backdrop";
     const root = modalRoot;
     root.innerHTML = `<div class="dlg dlg-xwide" role="dialog" aria-modal="true" aria-label="${escapeHTML(label)} by day">
-      <div class="dlg-head"><h2>${escapeHTML(label)} · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div>
+      <div class="dlg-head"><h2>${escapeHTML(label)} · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><div class="dlg-head-actions">${isPs ? "" : '<button class="button button-outline button-small" type="button" data-walkin-entry>Record store visitors</button>'}<button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div></div>
       <div class="dlg-form">
         <div class="connected-metrics wk-totals">
           <article class="connected-metric"><span>This year (month to date)</span><strong>${value(total)}</strong><small>${total.coveredDays} day(s) counted · conversion ${rate(total)}</small></article>
@@ -3082,6 +3142,10 @@
     document.body.appendChild(root);
     root.addEventListener("pointerdown", event => {
       if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
+    });
+    root.querySelector("[data-walkin-entry]")?.addEventListener("click", () => {
+      closeModal();
+      openWalkInModal("store");
     });
   }
 
@@ -4137,12 +4201,23 @@
     else if (open === "walkin-daily") openWalkInDailyModal();
     else if (open === "transactions-daily") openTransactionsDailyModal();
     else if (open === "push-message") openPushMessageModal(event.target.closest("[data-open]").dataset.status);
+    else if (open === "push-schedule") {
+      const id = event.target.closest("[data-open]").dataset.id;
+      openPushScheduleModal((liveData.pushSchedules || []).find(item => item.id === id));
+    }
     const pushDelete = event.target.closest("[data-push-delete]");
     if (pushDelete) {
       pushDelete.disabled = true;
       client.rpc("delete_push_message", { p_id: pushDelete.dataset.pushDelete })
         .then(result => { mustRpc(result); return refreshData(); })
         .catch(error => { pushDelete.disabled = false; alert(error.message || "Could not delete the message."); });
+    }
+    const pushScheduleDelete = event.target.closest("[data-push-schedule-delete]");
+    if (pushScheduleDelete) {
+      pushScheduleDelete.disabled = true;
+      client.rpc("delete_push_alert_schedule", { p_id: pushScheduleDelete.dataset.pushScheduleDelete })
+        .then(result => { mustRpc(result); return refreshData(); })
+        .catch(error => { pushScheduleDelete.disabled = false; alert(error.message || "Could not delete the schedule."); });
     }
     const holidayDelete = event.target.closest("[data-holiday-delete]");
     if (holidayDelete) {

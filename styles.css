@@ -271,6 +271,7 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .dlg { width: min(440px, 100%); max-height: 92vh; overflow: auto; border-radius: 12px; background: #fff; box-shadow: var(--shadow); }
 .dlg-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 0; }
 .dlg-head h2 { margin: 0; font-size: 17px; }
+.dlg-head-actions { display: inline-flex; align-items: center; gap: 8px; }
 .dlg-close { border: 0; background: none; font-size: 24px; line-height: 1; color: var(--muted); cursor: pointer; }
 .dlg-form { display: grid; gap: 12px; padding: 14px 18px 18px; }
 .dlg-body { display: grid; gap: 12px; }
@@ -355,6 +356,7 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .push-group-head h3 { margin: 0; font-size: 13px; }
 .push-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
 .push-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
+.push-inline-actions { display: inline-flex; gap: 6px; }
 .dlg textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font: inherit; resize: vertical; }
 .pace-popup { --glow: #dc2626; border: 2px solid var(--glow); animation: pace-pop-glow 1.2s ease-in-out infinite; }
 .pace-popup .pace-text { margin: 0; font-size: 15px; line-height: 1.5; }
