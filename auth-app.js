@@ -241,7 +241,11 @@
       let query = inventoryClient.rpc(name);
       orders.forEach(column => { query = query.order(column); });
       const result = await query.range(offset, offset + 999);
-      if (result.error) throw new Error(`${name}: ${result.error.message}`);
+      if (result.error) {
+        const message = new Error(`${name}: ${result.error.message}`);
+        message.code = result.error.code;
+        throw message;
+      }
       rows.push(...result.data);
       if (result.data.length < 1000) return rows;
     }
@@ -458,7 +462,12 @@
       try { Object.assign(liveData, await loadInventoryData(client)); }
       catch (error) {
         console.error("Unable to load inventory.", error);
-        liveData.inventoryError = `Inventory is unavailable: ${error.message}. Apply the inventory database update and reload.`;
+        const advice = ["PGRST202", "42883"].includes(error.code)
+          ? "Apply the inventory database update and reload."
+          : error.code === "57014" || /statement timeout/i.test(error.message)
+            ? "The inventory query timed out. Ask your administrator to apply the inventory catalog performance update (20261110000000), then reload."
+            : "Reload to retry. If this continues, share this error with your administrator.";
+        liveData.inventoryError = `Inventory is unavailable: ${error.message}. ${advice}`;
       }
       if (sequence !== loadSequence || !currentSession) return;
 
