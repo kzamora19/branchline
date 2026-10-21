@@ -2176,21 +2176,22 @@
   function renderInventoryPage() {
     ui.invView ||= currentProfile.role === "ps" ? "brand" : "master";
     if (liveData.inventoryError) return mountPage(pageHeading("Inventory", "Store stock availability"), "", "", () => `<p class="connected-error">${escapeHTML(liveData.inventoryError)}</p>`);
-    const actions = managesInventory()
-      ? '<button class="button button-primary" type="button" data-open="inventory-import">Import stock reports</button><button class="button button-outline" type="button" data-open="inventory-transfer">Transfer stock</button>'
-      : "";
-    const brands = uniqueSorted((liveData.inventoryCatalog || []).map(item => item.brand));
     const pendingClassification = (liveData.inventoryCatalog || []).filter(item => scopeBranchIds().has(item.branch_id) &&
       window.BranchlineInventory.needsClassification(item)).length;
-    const views = [["master", "Item Master"], ["brand", currentProfile.role === "ps" ? "My Brand Inventory" : "Brand Inventory"], ["aging", "Aging stock"], ["transfers", "Transfers"], ["history", "Inventory history"],
+    const views = [["master", "Item Master"], ["brand", currentProfile.role === "ps" ? "My Brand Inventory" : "Brand Inventory"], ["aging", "Aging stock"], ["transfers", "Transfer history"], ["history", "Inventory history"],
       ...(currentProfile.role === "admin" ? [["classification", `Needs classification (${pendingClassification})`]] : []),
-      ...(!inventoryOnly() && managesInventory() ? [["missing", "Missing SRP"]] : [])];
+      ...(!inventoryOnly() && managesInventory() ? [["missing", "Missing SRP"]] : []),
+      ...(managesInventory() ? [["import", "Import stock"], ["transfer", "Transfer stock"]] : [])];
+    if (!views.some(([key]) => key === ui.invView)) ui.invView = "master";
+    const isForm = ["import", "transfer"].includes(ui.invView);
+    if (ui.invView === "missing" && !ui.sort["inventory-missing"]) ui.sort["inventory-missing"] = { col: 3, dir: "asc" };
+    const tabs = `<nav class="inventory-tabs" aria-label="Inventory sections">${views.map(([key, label]) =>
+      `<button class="inventory-tab${ui.invView === key ? " is-active" : ""}" type="button" data-inventory-tab="${key}" aria-current="${ui.invView === key ? "page" : "false"}">${escapeHTML(label)}</button>`).join("")}</nav>`;
     mountPage(pageHeading("Inventory", "Live availability since the latest imported snapshot. Reports reset stock, never the sales log."),
-      "", filterBar({ district: true, branch: true, search: "Barcode, product or brand", actions }) +
-      `<div class="connected-filters"><label class="field"><span>View</span><select data-filter="invView">${views.map(([key, label]) => `<option value="${key}" ${(ui.invView || "master") === key ? "selected" : ""}>${escapeHTML(label)}</option>`).join("")}</select></label>
-      <label class="field"><span>Brand</span><select data-filter="invBrand"><option value="">All brands</option>${brands.map(brand => `<option ${ui.invBrand === brand ? "selected" : ""} value="${escapeHTML(brand)}">${escapeHTML(brand)}</option>`).join("")}</select></label>
-      ${inventoryOnly() ? '<button class="button button-outline" type="button" data-export-all>Export All</button>' : ""}</div>`,
+      tabs, isForm ? "" : filterBar({ district: true, branch: true, search: ui.invView === "master" ? "Enter barcode or item name to show stock" : "Barcode, product, brand or category",
+        actions: inventoryOnly() ? '<button class="button button-outline" type="button" data-export-all>Export All</button>' : "" }),
       () => {
+        if (isForm) return "";
         const items = inventoryVisibleProducts();
         const ids = scopeBranchIds();
         const snapshots = liveData.inventorySnapshots.filter(item => ids.has(item.branch_id));
@@ -2199,46 +2200,54 @@
         const aged = units.filter(item => window.BranchlineInventory.ageDays(item.received_on, today) > 90);
         const uninitialized = items.filter(item => !inventoryStockFor(item.branch_id, item.barcode)).length;
         const available = items.reduce((sum, item) => sum + (inventoryStockFor(item.branch_id, item.barcode)?.quantity || 0), 0);
-        const metrics = `<div class="connected-metrics">
-          <article class="connected-metric"><span>Available units</span><strong>${uninitialized === items.length && uninitialized ? "Not initialized" : available}</strong>${uninitialized ? `<small>${uninitialized} catalog item(s) have unknown stock; totals cover initialized items only</small>` : ""}</article>
-          <article class="connected-metric"><span>Products (including zero stock)</span><strong>${items.length}</strong></article>
-          <article class="connected-metric"><span>Serialized units older than 90 days</span><strong>${uninitialized === items.length && uninitialized ? "Unknown" : aged.length}</strong><small>Other units without receipt dates have unknown age</small></article></div>`;
         const dates = `<p class="an-note">${liveData.branches.filter(branch => ids.has(branch.id)).map(branch => {
           const latest = snapshots.find(item => item.branch_id === branch.id);
           return `${escapeHTML(branch.name)}: ${latest ? `report ${escapeHTML(new Date(latest.reported_at).toLocaleString("en-PH"))}${latest.reported_at.slice(0, 10) < today ? " — check snapshot freshness" : ""}` : "inventory not initialized"}`;
         }).join("<br>")}</p>`;
         if (ui.invView === "transfers") {
-          const transfers = liveData.inventoryTransfers.filter(item => ids.has(item.from_branch) || ids.has(item.to_branch));
+          const transfers = liveData.inventoryTransfers.filter(item => (ids.has(item.from_branch) || ids.has(item.to_branch)) &&
+            matches(searchQuery(), item.barcode, item.note, item.status, inventoryBranchName(item.from_branch), inventoryBranchName(item.to_branch)))
+            .sort((a, b) => String(b.dispatched_at).localeCompare(String(a.dispatched_at)) || natural(b.id, a.id));
           return panel("Stock transfers", "Only destination-authorized users may receive. Source-authorized users may cancel an unreceived transfer.", tableBlock("inventory-transfers",
             ["From", "To", "Barcode", "Qty", "Serials", "Status", "Dispatched", ""], transfers,
             item => `<tr><td>${escapeHTML(inventoryBranchName(item.from_branch))}</td><td>${escapeHTML(inventoryBranchName(item.to_branch))}</td><td>${escapeHTML(item.barcode)}</td><td>${item.quantity}</td><td>${escapeHTML(item.serials.map(unit => unit.serial).join(", "))}</td><td>${escapeHTML(item.status)}</td><td>${escapeHTML(item.dispatched_at)}</td><td>${item.status === "transit" && managesInventory() ? `${liveData.branches.some(branch => branch.id === item.to_branch) ? `<button class="button button-small" data-transfer-action="receive" data-id="${escapeHTML(item.id)}">Confirm receipt</button>` : ""}${liveData.branches.some(branch => branch.id === item.from_branch) ? `<button class="button button-small" data-transfer-action="cancel" data-id="${escapeHTML(item.id)}">Cancel / restore</button>` : ""}` : ""}</td></tr>`, "No transfers.")) + dates;
         }
         if (ui.invView === "history") return panel("Inventory history", "Imports, adjustments and transfers are recorded with the acting account.", tableBlock("inventory-history",
-          ["When", "Branch", "Action", "Barcode", "Qty change", "Note"], liveData.inventoryEvents.filter(item => ids.has(item.branch_id)),
+          ["When", "Branch", "Action", "Barcode", "Qty change", "Note"], liveData.inventoryEvents.filter(item => ids.has(item.branch_id) &&
+            matches(searchQuery(), item.barcode, item.kind, item.note, branchName(item.branch_id)))
+            .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || natural(b.id, a.id)),
           item => `<tr><td>${escapeHTML(item.created_at)}</td><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.kind)}</td><td>${escapeHTML(item.barcode)}</td><td>${item.quantity ?? ""}</td><td>${escapeHTML(item.note)}</td></tr>`, "No inventory movements."));
         if (ui.invView === "brand" || ui.invView === "aging") {
           const rows = ui.invView === "aging" ? aged : units;
           const table = panel(ui.invView === "aging" ? "Stock older than 90 days" : "Available serials", "Serial identity is branch + barcode + serial. Original receipt dates survive branch transfers.", tableBlock("inventory-serials",
             ["Branch", "Barcode", "Product", "Serial", "Received", "Age (days)"], rows,
             item => `<tr><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(items.find(product => product.barcode === item.barcode && product.branch_id === item.branch_id)?.model_description)}</td><td>${escapeHTML(item.serial)}</td><td>${escapeHTML(item.received_on || "Unknown")}</td><td>${window.BranchlineInventory.ageDays(item.received_on, today) ?? "Unknown"}</td></tr>`, "No matching available serials."));
-          if (ui.invView === "aging") return metrics + dates + table;
-          return metrics + dates + inventoryMasterTable(items) + table;
+          if (ui.invView === "aging") return dates + table;
+          return dates + inventoryMasterTable(items, "inventory-brand", "Brand inventory") + table;
         }
         if (ui.invView === "classification" && currentProfile.role === "admin") {
           const pending = items.filter(item => window.BranchlineInventory.needsClassification(item));
-          return metrics + dates + panel("Needs classification",
+          return dates + panel("Needs classification",
             "Complete Brand and Category after importing. Subcategory is optional. Admin only; these shared catalog details also update matching historical product classifications, never prices or quantities.",
             tableBlock("inventory-classification", ["Branch", "Barcode", "Product", "Brand", "Category", "Subcategory", ""], pending,
               item => `<tr><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(item.model_description)}</td><td>${escapeHTML(item.brand || "Unclassified")}</td><td>${escapeHTML(item.category || "Missing")}</td><td>${escapeHTML(item.sub_category || "")}</td><td><button type="button" class="button button-outline button-small" data-inventory-classify="${escapeHTML(item.barcode)}" data-branch="${escapeHTML(item.branch_id)}">Classify</button></td></tr>`,
               "All matching products have a brand and category. Subcategory is optional."));
         }
         const displayed = ui.invView === "missing" ? items.filter(item => item.missing_srp) : items;
-        return metrics + dates + inventoryMasterTable(displayed);
+        if (ui.invView === "missing") return dates + inventoryMasterTable(displayed, "inventory-missing", "Missing SRP");
+        if (!searchQuery().trim()) return panel("Item Master", "Search by barcode or item name to see product details and quantities in your accessible branches.",
+          '<div class="empty-state">Enter a barcode or item name above to show inventory.</div>');
+        const total = uninitialized === items.length && uninitialized ? "Not initialized" : available;
+        return dates + inventoryMasterTable(displayed) + `<p class="inventory-total" role="status"><strong>Total available quantity: ${escapeHTML(total)}</strong>${uninitialized ? ` <span>${uninitialized} matching branch/item record(s) have unknown stock; total covers initialized stock only.</span>` : ""}</p>`;
       });
+    if (!collectingExports && !capturingPieResults && isForm) {
+      if (ui.invView === "import") openInventoryImport(true);
+      else openInventoryTransfer(true);
+    }
   }
 
-  function inventoryMasterTable(items) {
-    return panel("Item Master", `Zero-stock products remain listed. Uninitialized stock is unknown, not zero.${inventoryOnly() ? "" : " Edit product prices using Products → Edit (BM and above)."}`, tableBlock("inventory-master",
+  function inventoryMasterTable(items, key = "inventory-master", title = "Item Master") {
+    return panel(title, `Zero-stock products remain listed. Uninitialized stock is unknown, not zero.${inventoryOnly() ? "" : " Edit product prices using Products → Edit (BM and above)."}`, tableBlock(key,
       ["Branch", "Barcode", "Product", "Brand", "Category", "Subcategory", "Available qty", "Serialized", ""], items,
       item => {
         const stock = inventoryStockFor(item.branch_id, item.barcode);
@@ -2298,9 +2307,10 @@
     return fieldHTML(label, name, selectHTML(name, liveData.branches.map(item => [item.id, item.name]), selected || ui.branch || liveData.branches[0]?.id));
   }
 
-  function openInventoryImport() {
+  function openInventoryImport(inline = false) {
     let preview = null;
     openModal({
+      inline,
       title: "Import branch inventory", wide: true, submitLabel: "Replace branch stock",
       intro: "Choose both original reports—do not combine them. This replaces stock at confirmation, preserves all sales, and deducts only subsequent sales. Resolve in-transit transfers first.",
       body: `${inventoryBranchField("branch", "Branch")}${fieldHTML("Stock quantities report", "stock", '<input name="stock" type="file" accept=".xlsx,.xls" required>')}
@@ -2364,8 +2374,9 @@
     });
   }
 
-  function openInventoryTransfer() {
+  function openInventoryTransfer(inline = false) {
     openModal({
+      inline,
       title: "Transfer inventory", submitLabel: "Dispatch stock",
       intro: "The source loses availability now. The destination gains it only after confirming receipt. Original received dates are preserved.",
       body: `${inventoryBranchField("from", "From branch")}${fieldHTML("To branch", "to", selectHTML("to", liveData.inventoryDestinations.map(item => [item.id, item.name]), ""))}
@@ -3901,23 +3912,23 @@
   }
 
   // onSubmit(form) may return HTML to show as a result view; returning nothing closes the modal.
-  function openModal({ title, intro = "", body, submitLabel = "Save", wide = false, onSubmit, onReady }) {
-    closeModal();
-    modalRoot = document.createElement("div");
-    modalRoot.className = "dlg-backdrop";
-    modalRoot.innerHTML = `<div class="dlg${wide ? " dlg-wide" : ""}" role="dialog" aria-modal="true" aria-label="${escapeHTML(title)}">
-      <div class="dlg-head"><h2>${escapeHTML(title)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div>
+  function openModal({ title, intro = "", body, submitLabel = "Save", wide = false, inline = false, onSubmit, onReady }) {
+    if (!inline) closeModal();
+    const root = document.createElement("div");
+    root.className = inline ? "inventory-form-panel" : "dlg-backdrop";
+    root.innerHTML = `<div class="dlg${wide ? " dlg-wide" : ""}" ${inline ? 'role="region"' : 'role="dialog" aria-modal="true"'} aria-label="${escapeHTML(title)}">
+      <div class="dlg-head"><h2>${escapeHTML(title)}</h2>${inline ? "" : '<button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button>'}</div>
       <form class="dlg-form" novalidate>
         ${intro ? `<p class="dlg-intro">${escapeHTML(intro)}</p>` : ""}
         <div class="dlg-body">${body}</div>
         <p class="dlg-error" role="alert" hidden></p>
-        <div class="dlg-actions"><button class="button button-outline" type="button" data-modal-close>Cancel</button><button class="button button-primary" type="submit">${escapeHTML(submitLabel)}</button></div>
+        <div class="dlg-actions">${inline ? "" : '<button class="button button-outline" type="button" data-modal-close>Cancel</button>'}<button class="button button-primary" type="submit">${escapeHTML(submitLabel)}</button></div>
       </form></div>`;
-    document.body.appendChild(modalRoot);
-    const root = modalRoot;
+    if (inline) document.querySelector("#live-results").appendChild(root);
+    else { modalRoot = root; document.body.appendChild(root); }
     const form = root.querySelector("form");
     const error = root.querySelector(".dlg-error");
-    root.addEventListener("pointerdown", event => {
+    if (!inline) root.addEventListener("pointerdown", event => {
       if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
     });
     form.addEventListener("submit", async event => {
@@ -3932,6 +3943,10 @@
       workspaceWrites++;
       try {
         const result = await onSubmit(form);
+        if (inline) {
+          document.querySelector("#live-results")?.insertAdjacentHTML("afterbegin", `<p class="inventory-form-success" role="status">${escapeHTML(title)} saved successfully.</p>`);
+          return;
+        }
         if (result) {
           root.querySelector(".dlg").innerHTML = `<div class="dlg-head"><h2>${escapeHTML(title)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div><div class="dlg-form">${result}<div class="dlg-actions"><button class="button button-primary" type="button" data-modal-close>Done</button></div></div>`;
         } else {
@@ -3947,7 +3962,7 @@
       }
     });
     onReady?.(form);
-    form.querySelector("input,select")?.focus();
+    if (!inline) form.querySelector("input,select")?.focus();
   }
 
   function friendlyError(error) {
@@ -5174,6 +5189,15 @@
     }
     if (event.target.closest("[data-inventory-aging]")) {
       ui.invView = "aging"; activePage = "inventory"; renderConnected(); return;
+    }
+    const inventoryTab = event.target.closest("[data-inventory-tab]");
+    if (inventoryTab) {
+      if (workspaceWrites) { alert("Please wait for the current save to finish before switching tabs."); return; }
+      ui.invView = inventoryTab.dataset.inventoryTab;
+      ui.search = ""; ui.invBrand = ""; ui.pages = {};
+      renderConnected();
+      connectedContent.querySelector(`[data-inventory-tab="${ui.invView}"]`)?.focus({ preventScroll: true });
+      return;
     }
     const adjust = event.target.closest("[data-inventory-adjust]");
     if (adjust) { openInventoryAdjust(adjust.dataset.inventoryAdjust, adjust.dataset.branch); return; }
