@@ -2,7 +2,7 @@
   "use strict";
   const I = typeof module !== "undefined" && module.exports ? require("./inventory.js") : root.BranchlineInventory;
   const roles = ["inventory_controller", "stock_custodian"];
-  const tablesList = ["inventory_branch_users", "inventory_snapshots", "inventory_stock", "inventory_serials", "inventory_transfers", "inventory_events", "inventory_sale_allocations", "inventory_reminder_days"];
+  const tablesList = ["inventory_branch_users", "inventory_snapshots", "inventory_stock", "inventory_serials", "inventory_transfers", "inventory_transfer_batches", "inventory_transfer_notifications", "inventory_events", "inventory_sale_allocations", "inventory_reminder_days"];
   const serialKey = value => String(value).trim().toLowerCase();
   function reserved(t, branch, barcode, serial, exclude) {
     return t.inventory_sale_allocations.some(row => row.branch_id === branch && row.barcode === barcode && row.sale_id !== exclude &&
@@ -153,6 +153,58 @@
       event(p.p_branch, "adjustment", p.p_barcode, p.p_quantity - stock.quantity, p.p_note);
       stock.quantity = p.p_quantity; return null;
     }
+    const reviewAllowed = (branch, source) => ids.includes(branch) &&
+      (actor.role === "manager" || (!source && roles.includes(actor.role)));
+    const notify = (batch, phase) => {
+      const branch = phase === "approval" ? batch.from_branch : batch.to_branch;
+      for (const person of t.profiles.filter(person => person.active &&
+        (person.role === "manager" && t.manager_branches.some(link => link.manager_id === person.id && link.branch_id === branch) ||
+        phase === "receipt" && roles.includes(person.role) && t.inventory_branch_users.some(link => link.user_id === person.id && link.branch_id === branch)))) {
+        if (!t.inventory_transfer_notifications.some(row => row.batch_id === batch.id && row.user_id === person.id && row.phase === phase))
+          t.inventory_transfer_notifications.push({id:uid(),batch_id:batch.id,user_id:person.id,phase,created_at:now(),push_sent_at:null});
+      }
+    };
+    if (name === "submit_inventory_transfer") {
+      requireBranch(p.p_from);
+      if (!Array.isArray(p.p_items) || !p.p_items.length) throw new Error("Add at least one transfer item.");
+      if (new Set(p.p_items.map(line => I.code(line.barcode))).size !== p.p_items.length) throw new Error("Each barcode must appear only once.");
+      if (!t.manager_branches.some(link => link.branch_id === p.p_from &&
+        t.profiles.some(person => person.id === link.manager_id && person.role === "manager" && person.active)))
+        throw new Error("Assign an active source branch BM before submitting a transfer.");
+      const source = t.branches.find(branch => branch.id === p.p_from), number = source.transfer_sequence + 1;
+      const batch = {id:uid(),from_branch:p.p_from,to_branch:p.p_to,reference:`${source.code}-${String(number).padStart(6,"0")}`,
+        transfer_number:number,requested_by:actor.id,requested_at:now(),status:"pending_approval",note:String(p.p_note || "").trim().toUpperCase()};
+      t.inventory_transfer_batches.push(batch);
+      for (const line of p.p_items) {
+        const transferId = execute("dispatch_inventory", {p_from:p.p_from,p_to:p.p_to,p_barcode:I.code(line.barcode),
+          p_quantity:line.quantity,p_serials:line.serials,p_note:batch.note},env);
+        const transfer = t.inventory_transfers.find(row => row.id === transferId);
+        Object.assign(transfer,{batch_id:batch.id,reference:batch.reference,transfer_number:null});
+        const entry = t.inventory_events.find(row => row.note === transferId && row.kind === "dispatch");
+        Object.assign(entry,{note:batch.id,kind:"transfer_reserved"});
+      }
+      source.transfer_sequence = number;
+      notify(batch,"approval");
+      return batch.id;
+    }
+    if (name === "review_inventory_transfer") {
+      const batch = t.inventory_transfer_batches.find(row => row.id === p.p_batch), action = p.p_action;
+      if (!batch || !["approve","reject_source","receive","reject_destination"].includes(action)) throw new Error("Transfer or action is invalid.");
+      const source = ["approve","reject_source"].includes(action);
+      if (!reviewAllowed(source ? batch.from_branch : batch.to_branch, source)) throw new Error("Only source BM or destination BM/IC/SC may review this transfer.");
+      if (batch.status !== (source ? "pending_approval" : "transit")) throw new Error("Transfer is not awaiting this action or was already resolved.");
+      if (action === "approve") {
+        Object.assign(batch,{status:"transit",approved_by:actor.id,approved_at:now()});
+        notify(batch,"receipt");
+      } else {
+        for (const line of t.inventory_transfers.filter(row => row.batch_id === batch.id))
+          execute("resolve_inventory_transfer",{p_transfer:line.id,p_action:action === "receive" ? "receive" : "cancel"},{...env,reviewLine:true});
+        Object.assign(batch,{status:action === "receive" ? "received" : action === "reject_source" ? "rejected_source" : "rejected_destination",
+          resolved_by:actor.id,resolved_at:now()});
+      }
+      event(source ? batch.from_branch : batch.to_branch,action,null,null,batch.id);
+      return null;
+    }
     if (name === "dispatch_inventory") {
       requireBranch(p.p_from);
       if (p.p_from === p.p_to || !t.branches.some(branch => branch.id === p.p_to)) throw new Error("Choose a different company destination.");
@@ -178,7 +230,10 @@
       const transfer = t.inventory_transfers.find(row => row.id === p.p_transfer);
       if (!transfer || transfer.status !== "transit" || !["receive","cancel"].includes(p.p_action)) throw new Error("Transfer is invalid or already resolved.");
       const branch = p.p_action === "receive" ? transfer.to_branch : transfer.from_branch;
-      requireBranch(branch);
+      if (!env.reviewLine) {
+        if (transfer.batch_id) throw new Error("Use the whole-transfer approval/receipt workflow.");
+        if (!reviewAllowed(branch,p.p_action === "cancel")) throw new Error("Branch BM or authorized destination IC/SC access is required.");
+      }
       let stock = stockFor(branch, transfer.barcode);
       if (stock && stock.quantity > 0 && stock.serialized !== transfer.serialized) throw new Error("Destination serialization does not match.");
       if (!stock) {

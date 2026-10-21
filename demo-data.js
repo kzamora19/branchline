@@ -299,9 +299,16 @@
     function visible(table) {
       if (!Object.hasOwn(tables, table)) throw new Error(`The demo does not support table "${table}".`);
       const ids = inventoryBranchIds();
-      if (Inventory.roles.includes(actor.role) && !["profiles", "branches", "districts", "inventory_branch_users", "inventory_stock", "inventory_serials", "inventory_snapshots", "inventory_transfers", "inventory_events"].includes(table)) return [];
+      if (Inventory.roles.includes(actor.role) && !["profiles", "branches", "districts", "inventory_branch_users", "inventory_stock", "inventory_serials", "inventory_snapshots", "inventory_transfers", "inventory_transfer_batches", "inventory_transfer_notifications", "inventory_events"].includes(table)) return [];
       if (table === "inventory_branch_users") return tables[table].filter(row => actor.role === "admin" || row.user_id === actor.id);
-      if (table === "inventory_transfers") return tables[table].filter(row => ids.includes(row.from_branch) || ids.includes(row.to_branch));
+      const canReadBatch = row => ids.includes(row.from_branch) ||
+        ids.includes(row.to_branch) && (row.status !== "pending_approval" || ["admin","district_manager"].includes(actor.role));
+      if (table === "inventory_transfer_batches") return tables[table].filter(canReadBatch);
+      if (table === "inventory_transfer_notifications") return tables[table].filter(row => row.user_id === actor.id &&
+        tables.inventory_transfer_batches.some(batch => batch.id === row.batch_id && canReadBatch(batch)));
+      if (table === "inventory_transfers") return tables[table].filter(row => row.batch_id
+        ? tables.inventory_transfer_batches.some(batch => batch.id === row.batch_id && canReadBatch(batch))
+        : ids.includes(row.from_branch) || ids.includes(row.to_branch));
       if (table === "profiles" && Inventory.roles.includes(actor.role)) return [actor];
       if (table === "profiles") return tables.profiles.filter(p => actor.role === "admin" || p.id === actor.id ||
         actor.role !== "ps" && (ids.includes(p.branch_id) || p.district_id === actor.district_id && p.role === "district_manager"));
@@ -349,7 +356,8 @@
         tables.sale_lines.filter(l => l.sale_id === sale.id && brandMatches(l)).map(line => ({ sale, line })));
     }
     function rpc(name, p) {
-      if (["inventory_catalog", "inventory_destinations", "claim_inventory_reminder", "assign_inventory_branches", "classify_inventory_product", "import_inventory", "adjust_inventory", "dispatch_inventory", "resolve_inventory_transfer"].includes(name)) {
+      if (name === "dispatch_inventory") throw new Error("Use the whole-transfer approval/receipt workflow.");
+      if (["inventory_catalog", "inventory_destinations", "claim_inventory_reminder", "assign_inventory_branches", "classify_inventory_product", "import_inventory", "adjust_inventory", "submit_inventory_transfer", "review_inventory_transfer", "resolve_inventory_transfer"].includes(name)) {
         return Inventory.execute(name, p, { tables, actor, branchIds: inventoryBranchIds, uid, now, today });
       }
       if (name === "save_inventory_sale") {

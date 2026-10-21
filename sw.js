@@ -1,6 +1,6 @@
 ﻿"use strict";
 
-const CACHE_NAME = "branchline-shell-v77";
+const CACHE_NAME = "branchline-shell-v78";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
@@ -55,7 +55,7 @@ self.addEventListener("notificationclick", event => {
   const target = new URL(event.notification.data?.url || "./", self.registration.scope).href;
   event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(clients => {
     const open = clients.find(client => client.url.startsWith(self.registration.scope));
-    if (open) return open.focus();
+    if (open) return open.navigate(target).then(client => client?.focus());
     return self.clients.openWindow(target);
   }));
 });

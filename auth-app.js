@@ -254,7 +254,7 @@
 
   async function loadInventoryData(inventoryClient) {
     const fetchAll = (...args) => fetchAllFrom(inventoryClient, ...args);
-    const [catalog, stock, serials, snapshots, transfers, events, destinations, assignments] = await Promise.all([
+    const [catalog, stock, serials, snapshots, transfers, events, destinations, assignments, batches] = await Promise.all([
       fetchInventoryRpc("inventory_catalog", ["branch_id", "barcode"], inventoryClient),
       fetchAll("inventory_stock", "*", [["branch_id", true], ["barcode", true]]),
       fetchAll("inventory_serials", "*", [["branch_id", true], ["barcode", true], ["serial", true]]),
@@ -263,13 +263,56 @@
       fetchAll("inventory_events", "*", [["created_at", false], ["id", true]]),
       managesInventory() ? fetchInventoryRpc("inventory_destinations", ["id"], inventoryClient) : [],
       currentProfile.role === "admin" ? fetchAll("inventory_branch_users", "*", [["user_id", true], ["branch_id", true]]) : { data: [], error: null },
+      fetchAll("inventory_transfer_batches", "*", [["requested_at", false], ["id", true]]),
     ]);
     return {
       inventoryCatalog: catalog, inventoryStock: checkResult(stock, "Unable to load stock"),
       inventorySerials: checkResult(serials, "Unable to load serials"), inventorySnapshots: checkResult(snapshots, "Unable to load snapshots"),
       inventoryTransfers: checkResult(transfers, "Unable to load transfers"), inventoryEvents: checkResult(events, "Unable to load inventory history"),
       inventoryDestinations: destinations, inventoryAssignments: checkResult(assignments, "Unable to load inventory assignments"),
+      inventoryTransferBatches: checkResult(batches, "Unable to load transfer approvals"),
     };
+  }
+
+  async function refreshInventoryData({ refreshProducts = false } = {}) {
+    const capturedClient = client, profileId = currentProfile.id;
+    const [inventory, branches, products] = await Promise.all([
+      loadInventoryData(capturedClient),
+      fetchAllFrom(capturedClient, "branches", "id,name,district_id,code,transfer_sequence", [["id", true]]),
+      refreshProducts && !inventoryOnly()
+        ? fetchAllFrom(capturedClient, "products", "id,branch_id,barcode,model_description,brand,category,sub_category,active,srp",
+          [["model_description",true],["id",true]],query => query.eq("active",true))
+        : null,
+    ]);
+    if (client !== capturedClient || currentProfile?.id !== profileId) throw new Error("Account changed; reload Inventory.");
+    const productRows = products ? checkResult(products, "Unable to reload received products").map(item => ({
+      ...item, brand:titleCase(item.brand), model_description:titleCase(item.model_description),
+      category:titleCase(item.category) || "", sub_category:titleCase(item.sub_category) || "",
+    })) : liveData.products;
+    liveData = { ...liveData, ...inventory, inventoryError:null, products:productRows,
+      branches:checkResult(branches, "Unable to reload inventory branches").map(item => ({...item,name:titleCase(item.name)})) };
+    renderConnected();
+  }
+
+  async function sendTransferPush() {
+    if (demoStore) return;
+    try {
+      const result = await client.functions.invoke("transfer-push", { body: {} });
+      if (result.error || result.data?.failed) throw result.error || new Error("Some device notifications failed.");
+    } catch (error) {
+      console.error("Transfer saved, but device notification delivery failed.", error);
+      connectedContent.insertAdjacentHTML("afterbegin", '<p class="connected-error" role="alert">Transfer saved. Device push could not be delivered; in-app approvals remain available. Ask Admin to check transfer-push deployment/cron.</p>');
+    }
+  }
+
+  async function refreshSavedTransfer(options) {
+    try {
+      await refreshInventoryData(options);
+      return "";
+    } catch (error) {
+      console.error("Transfer action saved, but inventory refresh failed.", error);
+      return `<p class="connected-error" role="alert">Your transfer action was saved. Inventory could not refresh: ${escapeHTML(friendlyError(error))}. Reload to see the saved transfer; do not submit it again.</p>`;
+    }
   }
 
   // Standard letter casing for typed names: only plain all-caps or all-lowercase words are changed,
@@ -335,7 +378,9 @@
         document.querySelector("#connected-user-role").textContent = roleLabels[profile.role];
         refreshPushButton(false);
         activePage = "inventory";
+        if (location.hash === "#inventory") ui.invView = "transfers";
         renderConnected();
+        autoRegisterPush();
         if (passwordRecoveryPending && !demoStore) openPasswordModal(true);
         else await showInventoryReminder();
         return;
@@ -487,6 +532,7 @@
             : roleLabels[profile.role];
       document.querySelector("#connected-user-role").textContent = roleDetail;
       refreshPushButton(profile.role === "ps");
+      if (location.hash === "#inventory") { activePage = "inventory"; ui.invView = "transfers"; }
       if (!ui.month) ui.month = currentMonth();
       activePage = rolePageAllowed(activePage) ? activePage : "overview";
       renderConnected();
@@ -495,7 +541,7 @@
       } else if (profile.role === "ps" && !demoStore) {
         showPacePopup();
         autoRegisterPush();
-      }
+      } else autoRegisterPush();
       if (!passwordRecoveryPending) await showInventoryReminder();
     } catch (error) {
       if (sequence !== loadSequence) return;
@@ -1183,6 +1229,7 @@
     else if (activePage === "inventory") renderInventoryPage();
     else renderOverview();
     renderDemoControls();
+    renderTransferAlerts();
   }
 
   function renderDemoControls() {
@@ -2142,13 +2189,25 @@
   }
 
   function inventoryStockFor(branch, barcode) {
-    return liveData.inventoryStock?.find(item => item.branch_id === branch && item.barcode === barcode);
+    if (!inventoryStockFor.index || inventoryStockFor.source !== liveData.inventoryStock) {
+      inventoryStockFor.source = liveData.inventoryStock;
+      inventoryStockFor.index = new Map((liveData.inventoryStock || []).map(item => [`${item.branch_id}\0${item.barcode}`, item]));
+    }
+    return inventoryStockFor.index.get(`${branch}\0${barcode}`);
   }
 
   function inventoryUnitsFor(branch, barcode, saleId) {
+    if (!inventoryUnitsFor.index || inventoryUnitsFor.source !== liveData.inventorySerials) {
+      inventoryUnitsFor.source = liveData.inventorySerials;
+      inventoryUnitsFor.index = new Map();
+      for (const item of liveData.inventorySerials || []) {
+        const key = `${item.branch_id}\0${item.barcode}`;
+        if (!inventoryUnitsFor.index.has(key)) inventoryUnitsFor.index.set(key,[]);
+        inventoryUnitsFor.index.get(key).push(item);
+      }
+    }
     const owned = new Set(saleId ? serialsFor(saleId, barcode) : []);
-    return (liveData.inventorySerials || []).filter(item => item.branch_id === branch && item.barcode === barcode &&
-      (item.status === "available" || owned.has(item.serial)));
+    return (inventoryUnitsFor.index.get(`${branch}\0${barcode}`) || []).filter(item => item.status === "available" || owned.has(item.serial));
   }
 
   function inventorySheets() {
@@ -2160,15 +2219,24 @@
       })];
     const units = [["Branch", "Barcode", "Serial", "Received date", "Age (days)", "Status"], ...(liveData.inventorySerials || []).map(item =>
       [branchName(item.branch_id), item.barcode, item.serial, item.received_on || "", window.BranchlineInventory.ageDays(item.received_on, window.BranchlineDemo.philippineDate()) ?? "Unknown", item.status])];
-    const transfers = [["ID", "Reference", "From", "To", "Barcode", "Qty", "Serials", "Status", "Dispatched", "Resolved", "Remarks"],
-      ...(liveData.inventoryTransfers || []).map(item => [item.id, item.reference || "Legacy (no reference)", inventoryBranchName(item.from_branch), inventoryBranchName(item.to_branch), item.barcode, item.quantity, item.serials.map(unit => unit.serial).join(", "), item.status, item.dispatched_at, item.resolved_at || "", item.note])];
+    const batches = new Map((liveData.inventoryTransferBatches || []).map(batch => [batch.id,batch]));
+    const transfers = [["ID", "Reference", "From", "To", "Barcode", "Qty", "Serials", "Status", "Submitted", "Resolved", "Remarks"],
+      ...(liveData.inventoryTransfers || []).map(item => [item.id, item.reference || "Legacy (no reference)", inventoryBranchName(item.from_branch), inventoryBranchName(item.to_branch), item.barcode, item.quantity, item.serials.map(unit => unit.serial).join(", "), inventoryTransferStatus(batches.get(item.batch_id)?.status || item.status), item.dispatched_at, item.resolved_at || "", item.note])];
     return [{ name: "Item Master", rows: items }, { name: "Inventory serials", rows: units }, { name: "Stock transfers", rows: transfers },
+      { name: "Transfer approvals", rows: [["Reference","From","To","Status","Requested","Requester ID","Approved","Approver ID","Resolved","Resolver ID","Remarks"],
+        ...[...batches.values()].map(batch => [batch.reference,inventoryBranchName(batch.from_branch),inventoryBranchName(batch.to_branch),inventoryTransferStatus(batch.status),batch.requested_at,batch.requested_by,batch.approved_at || "",batch.approved_by || "",batch.resolved_at || "",batch.resolved_by || "",batch.note])] },
       { name: "Inventory history", rows: [["Date", "Branch", "Action", "Barcode", "Qty change", "Note"], ...(liveData.inventoryEvents || []).map(item => [item.created_at, branchName(item.branch_id), item.kind, item.barcode || "", item.quantity ?? "", inventoryEventNote(item)])] }];
   }
 
   function inventoryEventNote(item) {
-    return (["dispatch", "receive", "cancel"].includes(item.kind)
-      ? liveData.inventoryTransfers?.find(transfer => transfer.id === item.note)?.reference : null) || item.note;
+    return liveData.inventoryTransferBatches?.find(batch => batch.id === item.note)?.reference ||
+      (["dispatch", "receive", "cancel"].includes(item.kind)
+        ? liveData.inventoryTransfers?.find(transfer => transfer.id === item.note)?.reference : null) || item.note;
+  }
+
+  function inventoryTransferStatus(status) {
+    return {pending_approval:"Awaiting source BM approval",transit:"In transit",received:"Received",
+      rejected_source:"Rejected by source BM",rejected_destination:"Rejected by destination",cancelled:"Cancelled"}[status] || status;
   }
 
   function inventoryBranchName(id) {
@@ -2185,10 +2253,13 @@
   }
 
   function renderInventoryPage() {
+    const tabScroll = connectedContent.querySelector(".inventory-tabs")?.scrollLeft ?? ui.invTabScroll ?? 0;
+    ui.invTabScroll = tabScroll;
     ui.invView ||= currentProfile.role === "ps" ? "brand" : "master";
     if (liveData.inventoryError) return mountPage(pageHeading("Inventory", "Store stock availability"), "", "", () => `<p class="connected-error">${escapeHTML(liveData.inventoryError)}</p>`);
-    const pendingClassification = (liveData.inventoryCatalog || []).filter(item => scopeBranchIds().has(item.branch_id) &&
-      window.BranchlineInventory.needsClassification(item)).length;
+    const visibleIds = scopeBranchIds();
+    const pendingClassification = currentProfile.role === "admin" ? (liveData.inventoryCatalog || []).filter(item => visibleIds.has(item.branch_id) &&
+      window.BranchlineInventory.needsClassification(item)).length : 0;
     const views = [["master", "Item Master"], ["brand", currentProfile.role === "ps" ? "My Brand Inventory" : "Brand Inventory"], ["aging", "Aging stock"], ["transfers", "Transfer history"], ["history", "Inventory history"],
       ...(currentProfile.role === "admin" ? [["classification", `Needs classification (${pendingClassification})`]] : []),
       ...(!inventoryOnly() && managesInventory() ? [["missing", "Missing SRP"]] : []),
@@ -2203,11 +2274,16 @@
         actions: inventoryOnly() ? '<button class="button button-outline" type="button" data-export-all>Export All</button>' : "" }),
       () => {
         if (isForm) return "";
+        if (ui.invView === "master" && !searchQuery().trim()) return panel("Item Master",
+          "Search by barcode or item name to see product details and quantities in your accessible branches.",
+          '<div class="empty-state">Enter a barcode or item name above to show inventory.</div>');
         const items = inventoryVisibleProducts();
+        const productIndex = new Map(items.map(item => [`${item.branch_id}\0${item.barcode}`, item]));
         const ids = scopeBranchIds();
         const snapshots = liveData.inventorySnapshots.filter(item => ids.has(item.branch_id));
         const today = window.BranchlineDemo.philippineDate();
-        const units = liveData.inventorySerials.filter(item => item.status === "available" && items.some(product => product.branch_id === item.branch_id && product.barcode === item.barcode));
+        const units = ["brand", "aging"].includes(ui.invView)
+          ? liveData.inventorySerials.filter(item => item.status === "available" && productIndex.has(`${item.branch_id}\0${item.barcode}`)) : [];
         const aged = units.filter(item => window.BranchlineInventory.ageDays(item.received_on, today) > 90);
         const uninitialized = items.filter(item => !inventoryStockFor(item.branch_id, item.barcode)).length;
         const available = items.reduce((sum, item) => sum + (inventoryStockFor(item.branch_id, item.barcode)?.quantity || 0), 0);
@@ -2216,12 +2292,7 @@
           return `${escapeHTML(branch.name)}: ${latest ? `report ${escapeHTML(new Date(latest.reported_at).toLocaleString("en-PH"))}${latest.reported_at.slice(0, 10) < today ? " — check snapshot freshness" : ""}` : "inventory not initialized"}`;
         }).join("<br>")}</p>`;
         if (ui.invView === "transfers") {
-          const transfers = liveData.inventoryTransfers.filter(item => (ids.has(item.from_branch) || ids.has(item.to_branch)) &&
-            matches(searchQuery(), item.reference, item.barcode, item.note, item.status, inventoryBranchName(item.from_branch), inventoryBranchName(item.to_branch)))
-            .sort((a, b) => String(b.dispatched_at).localeCompare(String(a.dispatched_at)) || natural(b.id, a.id));
-          return panel("Stock transfers", "Only destination-authorized users may receive. Source-authorized users may cancel an unreceived transfer.", tableBlock("inventory-transfers",
-            ["Reference", "From", "To", "Barcode", "Qty", "Serials", "Status", "Dispatched", "Remarks", ""], transfers,
-            item => `<tr><td>${escapeHTML(item.reference || "Legacy (no reference)")}</td><td>${escapeHTML(inventoryBranchName(item.from_branch))}</td><td>${escapeHTML(inventoryBranchName(item.to_branch))}</td><td>${escapeHTML(item.barcode)}</td><td>${item.quantity}</td><td>${escapeHTML(item.serials.map(unit => unit.serial).join(", "))}</td><td>${escapeHTML(item.status)}</td><td>${escapeHTML(item.dispatched_at)}</td><td>${escapeHTML(item.note)}</td><td>${item.status === "transit" && managesInventory() ? `${liveData.branches.some(branch => branch.id === item.to_branch) ? `<button class="button button-small" data-transfer-action="receive" data-id="${escapeHTML(item.id)}">Confirm receipt</button>` : ""}${liveData.branches.some(branch => branch.id === item.from_branch) ? `<button class="button button-small" data-transfer-action="cancel" data-id="${escapeHTML(item.id)}">Cancel / restore</button>` : ""}` : ""}</td></tr>`, "No transfers.")) + dates;
+          return inventoryBatchHistory(ids) + dates;
         }
         if (ui.invView === "history") return panel("Inventory history", "Imports, adjustments and transfers are recorded with the acting account.", tableBlock("inventory-history",
           ["When", "Branch", "Action", "Barcode", "Qty change", "Note"], liveData.inventoryEvents.filter(item => ids.has(item.branch_id) &&
@@ -2232,7 +2303,7 @@
           const rows = ui.invView === "aging" ? aged : units;
           const table = panel(ui.invView === "aging" ? "Stock older than 90 days" : "Available serials", "Serial identity is branch + barcode + serial. Original receipt dates survive branch transfers.", tableBlock("inventory-serials",
             ["Branch", "Barcode", "Product", "Serial", "Received", "Age (days)"], rows,
-            item => `<tr><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(items.find(product => product.barcode === item.barcode && product.branch_id === item.branch_id)?.model_description)}</td><td>${escapeHTML(item.serial)}</td><td>${escapeHTML(item.received_on || "Unknown")}</td><td>${window.BranchlineInventory.ageDays(item.received_on, today) ?? "Unknown"}</td></tr>`, "No matching available serials."));
+            item => `<tr><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(productIndex.get(`${item.branch_id}\0${item.barcode}`)?.model_description)}</td><td>${escapeHTML(item.serial)}</td><td>${escapeHTML(item.received_on || "Unknown")}</td><td>${window.BranchlineInventory.ageDays(item.received_on, today) ?? "Unknown"}</td></tr>`, "No matching available serials."));
           if (ui.invView === "aging") return dates + table;
           return dates + inventoryMasterTable(items, "inventory-brand", "Brand inventory") + table;
         }
@@ -2251,6 +2322,13 @@
         const total = uninitialized === items.length && uninitialized ? "Not initialized" : available;
         return dates + inventoryMasterTable(displayed) + `<p class="inventory-total" role="status"><strong>Total available quantity: ${escapeHTML(total)}</strong>${uninitialized ? ` <span>${uninitialized} matching branch/item record(s) have unknown stock; total covers initialized stock only.</span>` : ""}</p>`;
       });
+    if (!collectingExports && !capturingPieResults) {
+      const strip = connectedContent.querySelector(".inventory-tabs");
+      if (strip) {
+        strip.scrollLeft = tabScroll;
+        strip.addEventListener("scroll",() => { ui.invTabScroll = strip.scrollLeft; },{passive:true});
+      }
+    }
     if (!collectingExports && !capturingPieResults && isForm) {
       if (ui.invView === "import") openInventoryImport(true);
       else openInventoryTransfer(true);
@@ -2384,20 +2462,25 @@
           return { serial: parts[0], received_on: parts[1] ? window.BranchlineInventory.day(parts[1]) : null };
         }) : [];
         mustRpc(await client.rpc("adjust_inventory", { p_branch: branch, p_barcode: barcode, p_quantity: Number(form.elements.quantity.value), p_serials: serials, p_note: uppercaseEntry(form.elements.reason.value) }));
-        await refreshData();
+        await refreshInventoryData();
       },
     });
   }
 
   function openInventoryTransfer(inline = false) {
+    const draft = [];
+    let readLine;
     openModal({
       inline,
-      title: "Transfer inventory", submitLabel: "Dispatch stock",
-      intro: "The source loses availability now. The destination gains it only after confirming receipt. Original received dates are preserved.",
+      title: "Transfer inventory", submitLabel: "Review transfer",
+      intro: "Add one or more items, then review the summary. Submission reserves stock for source BM approval. Only after approval can destination BM, IC or SC accept/reject the whole transfer.",
       body: `${inventoryBranchField("from", "From branch")}${fieldHTML("To branch", "to", selectHTML("to", liveData.inventoryDestinations.map(item => [item.id, item.name]), ""))}
         ${fieldHTML("Product (search barcode or product info)", "product", '<input name="product" list="transfer-products" required autocomplete="off" placeholder="Type barcode, product, brand or category"><datalist id="transfer-products"></datalist><input name="barcode" type="hidden">')}
-        ${fieldHTML("Quantity", "quantity", '<input name="quantity" type="number" min="1" step="1" value="1" required>')}
+        <div class="dlg-grid">${fieldHTML("Quantity", "quantity", '<input name="quantity" type="number" min="1" step="1" value="1" required>')}
+        ${fieldHTML("Available stock", "available", '<input name="available" readonly value="Choose a product" aria-live="polite">')}</div>
         <div data-transfer-serials></div>
+        <button type="button" class="button button-outline" data-transfer-add>+ Add item</button>
+        <div data-transfer-draft></div>
         ${fieldHTML("Transfer reference (automatic)", "reference", '<input name="reference" readonly aria-describedby="transfer-reference-help"><small id="transfer-reference-help">Preview only. The final unique reference is assigned when stock is dispatched.</small>')}
         ${fieldHTML("Note / remarks (optional)", "note", '<textarea name="note" rows="3" maxlength="500"></textarea>')}`,
       onReady: form => {
@@ -2408,6 +2491,7 @@
           const quantity = Number(form.elements.quantity.value);
           const previous = preserve ? [...form.querySelectorAll("[data-transfer-serial]")].map(input => input.value) : [];
           form.elements.quantity.max = stock ? String(stock.quantity) : "";
+          form.elements.available.value = stock ? String(stock.quantity) : "Choose a product";
           form.querySelector("[data-transfer-serials]").innerHTML = stock?.serialized && Number.isInteger(quantity) && quantity > 0 && quantity <= stock.quantity
             ? Array.from({ length: quantity }, (_,index) => fieldHTML(`Serial number ${index + 1}`, `transfer_serial_${index}`,
               `<input name="transfer_serial_${index}" data-transfer-serial list="transfer-serial-options" required autocomplete="off" placeholder="Choose or search an available serial" value="${escapeHTML(previous[index] || "")}">`)).join("") +
@@ -2416,6 +2500,10 @@
             : stock && !stock.serialized ? '<p class="an-note">This product has no serial numbers. Transfer uses quantity only.</p>' : "";
         };
         const products = () => {
+          if (draft.length) {
+            draft.length = 0;
+            form.querySelector("[data-transfer-draft]").innerHTML = '<p class="an-note">Source changed. Draft items were cleared; add items from this source branch.</p>';
+          }
           candidates = liveData.inventoryCatalog.filter(item => item.branch_id === form.elements.from.value && inventoryStockFor(item.branch_id, item.barcode)?.quantity > 0);
           form.querySelector("#transfer-products").innerHTML = candidates.map(item => `<option value="${escapeHTML(productLabel(item))}"></option>`).join("");
           form.elements.product.value = ""; form.elements.barcode.value = ""; form.elements.quantity.value = "1";
@@ -2436,29 +2524,127 @@
         form.elements.product.addEventListener("input", chooseProduct);
         form.elements.product.addEventListener("change", chooseProduct);
         form.elements.quantity.addEventListener("input", () => serials(true));
+        readLine = () => {
+          const barcode = form.elements.barcode.value;
+          const item = candidates.find(item => item.barcode === barcode);
+          if (!item) throw new Error("Choose an available product using its barcode or product suggestions.");
+          const quantity = Number(form.elements.quantity.value), stock = inventoryStockFor(form.elements.from.value, barcode);
+          if (!Number.isInteger(quantity) || quantity < 1 || quantity > stock.quantity) throw new Error("Quantity must be a positive whole number within available stock.");
+          const units = inventoryUnitsFor(form.elements.from.value, barcode);
+          const selected = [...form.querySelectorAll("[data-transfer-serial]")].map(input => {
+            const unit = units.find(item => item.serial.toLowerCase() === input.value.trim().toLowerCase());
+            if (!unit) throw new Error("Choose available serials for this source branch and barcode.");
+            return { serial: unit.serial };
+          });
+          if (stock.serialized && selected.length !== quantity) throw new Error("Choose one serial per transferred unit.");
+          if (new Set(selected.map(item => item.serial.toLowerCase())).size !== selected.length) throw new Error("Choose a different serial per unit.");
+          if (draft.some(line => line.barcode === barcode)) throw new Error("This barcode is already in the draft. Remove it first to change its quantity.");
+          return { barcode, quantity, serials: selected, description: item.model_description, brand: item.brand, available: stock.quantity };
+        };
+        const drawDraft = () => {
+          form.querySelector("[data-transfer-draft]").innerHTML = draft.length ? inventoryTransferSummary(draft, true) : "";
+          form.elements.product.required = !draft.length;
+        };
+        form.querySelector("[data-transfer-add]").addEventListener("click", () => {
+          const error = form.querySelector(".dlg-error");
+          try {
+            draft.push(readLine());
+            form.elements.product.value = ""; form.elements.barcode.value = "";
+            form.elements.product.setCustomValidity(""); form.elements.quantity.value = "1";
+            serials(); drawDraft(); error.hidden = true;
+          } catch (caught) {
+            console.error("Unable to add transfer item.", caught);
+            error.textContent = caught.message; error.hidden = false;
+          }
+        });
+        form.querySelector("[data-transfer-draft]").addEventListener("click", event => {
+          const button = event.target.closest("[data-transfer-remove]");
+          if (button) { draft.splice(Number(button.dataset.transferRemove),1); drawDraft(); }
+        });
         products();
       },
       onSubmit: async form => {
-        const barcode = form.elements.barcode.value;
-        if (!barcode) throw new Error("Choose an available product using its barcode or product suggestions.");
-        const available = inventoryUnitsFor(form.elements.from.value, barcode);
-        const serials = [...form.querySelectorAll("[data-transfer-serial]")].map(input => {
-          const unit = available.find(item => item.serial.toLowerCase() === input.value.trim().toLowerCase());
-          if (!unit) throw new Error("Choose serial numbers available for this source branch and barcode.");
-          return { serial: unit.serial };
+        const lines = [...draft];
+        if (form.elements.product.value.trim()) lines.push(readLine());
+        if (!lines.length) throw new Error("Add at least one transfer item.");
+        const from = form.elements.from.value, to = form.elements.to.value, note = uppercaseEntry(form.elements.note.value);
+        if (from === to) throw new Error("Choose a different destination branch.");
+        openModal({
+          title: "Review transfer summary", wide: true, submitLabel: "Dispatch",
+          intro: `${inventoryBranchName(from)} → ${inventoryBranchName(to)}. Dispatch reserves all items for source BM approval. Cancel returns to the unchanged draft.`,
+          body: inventoryTransferSummary(lines) + `<p class="an-note">Remarks: ${escapeHTML(note || "None")}</p>`,
+          onSubmit: async () => {
+            const batchId = mustRpc(await client.rpc("submit_inventory_transfer", { p_from: from, p_to: to,
+              p_items: lines.map(({barcode,quantity,serials}) => ({barcode,quantity,serials})), p_note: note }));
+            const refreshWarning = await refreshSavedTransfer();
+            await sendTransferPush();
+            const batch = liveData.inventoryTransferBatches.find(item => item.id === batchId);
+            return `<p role="status">Transfer ${escapeHTML(batch?.reference || batchId)} submitted. Stock reserved; awaiting source BM approval.</p>${refreshWarning}`;
+          },
         });
-        if (new Set(serials.map(item => item.serial.toLowerCase())).size !== serials.length) throw new Error("Choose a different serial number for each unit.");
-        const transferId = mustRpc(await client.rpc("dispatch_inventory", {
-          p_from: form.elements.from.value, p_to: form.elements.to.value, p_barcode: barcode,
-          p_quantity: Number(form.elements.quantity.value), p_serials: serials, p_note: uppercaseEntry(form.elements.note.value),
-        }));
-        await refreshData();
-        const transfer = liveData.inventoryTransfers.find(item => item.id === transferId);
-        return `Stock dispatched. Transfer reference: ${escapeHTML(transfer?.reference || transferId)}.`;
+        return false;
       },
     });
   }
 
+  function inventoryTransferSummary(lines, removable = false) {
+    return `<div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Barcode</th><th>Product</th><th>Brand</th><th>Available</th><th>Qty</th><th>Serials</th>${removable ? "<th></th>" : ""}</tr></thead><tbody>${lines.map((line,index) =>
+      `<tr><td>${escapeHTML(line.barcode)}</td><td>${escapeHTML(line.description || line.model_description || "")}</td><td>${escapeHTML(line.brand || "")}</td><td>${line.available ?? "—"}</td><td>${line.quantity}</td><td>${escapeHTML(line.serials.map(unit => unit.serial).join(", ") || "Not serialized")}</td>${removable ? `<td><button type="button" class="button button-outline" data-transfer-remove="${index}">Remove</button></td>` : ""}</tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function canReviewTransfer(branch, source = false) {
+    return (currentProfile.role === "manager" || (!source && inventoryOnly())) &&
+      liveData.branches.some(item => item.id === branch);
+  }
+
+  function inventoryBatchHistory(ids) {
+    const batches = (liveData.inventoryTransferBatches || []).filter(batch => ids.has(batch.from_branch) || ids.has(batch.to_branch));
+    const legacy = liveData.inventoryTransfers.filter(line => !line.batch_id && (ids.has(line.from_branch) || ids.has(line.to_branch)));
+    const grouped = new Map();
+    for (const line of liveData.inventoryTransfers) {
+      if (!grouped.has(line.batch_id)) grouped.set(line.batch_id,[]);
+      grouped.get(line.batch_id).push(line);
+    }
+    const records = [...batches, ...legacy].filter(item => matches(searchQuery(), item.reference, item.note, item.status,inventoryTransferStatus(item.status),
+      inventoryBranchName(item.from_branch), inventoryBranchName(item.to_branch),
+      ...(grouped.get(item.id) || []).map(line => line.barcode), item.barcode))
+      .sort((a,b) => String(b.requested_at || b.dispatched_at).localeCompare(String(a.requested_at || a.dispatched_at)));
+    return panel("Transfer history", "Source BM approves dispatch. Destination BM/IC/SC accepts or rejects the whole transfer. DM/Admin have history access, not approval/receipt authority.",
+      tableBlock("inventory-transfer-batches", ["Reference","From","To","Items","Status","Requested","Remarks",""],records,item => {
+        const isBatch = !!item.requested_at;
+        const actions = isBatch
+          ? item.status === "pending_approval" && canReviewTransfer(item.from_branch,true) ? [["approve","Approve dispatch"],["reject_source","Reject dispatch"]]
+            : item.status === "transit" && canReviewTransfer(item.to_branch) ? [["receive","Accept receipt"],["reject_destination","Reject receipt"]] : []
+          : [];
+        return `<tr><td>${escapeHTML(item.reference || item.id)}</td><td>${escapeHTML(inventoryBranchName(item.from_branch))}</td><td>${escapeHTML(inventoryBranchName(item.to_branch))}</td><td>${isBatch ? grouped.get(item.id)?.length || 0 : 1}</td><td>${escapeHTML(inventoryTransferStatus(item.status))}</td><td>${escapeHTML(item.requested_at || item.dispatched_at)}</td><td>${escapeHTML(item.note)}</td><td>${isBatch ? `<button type="button" class="button button-outline button-small" data-batch-action="view" data-id="${escapeHTML(item.id)}">Summary</button>` : ""}${actions.map(([action,label]) => `<button type="button" class="button button-small" data-batch-action="${action}" data-id="${escapeHTML(item.id)}">${label}</button>`).join("")}${!isBatch && item.status === "transit" ? `${canReviewTransfer(item.to_branch) ? `<button type="button" class="button" data-transfer-action="receive" data-id="${escapeHTML(item.id)}">Accept receipt</button>` : ""}${canReviewTransfer(item.from_branch,true) ? `<button type="button" class="button" data-transfer-action="cancel" data-id="${escapeHTML(item.id)}">Cancel legacy transfer</button>` : ""}` : ""}</td></tr>`;
+      }, "No transfers."));
+  }
+
+  function openInventoryBatchAction(id, action) {
+    const batch = liveData.inventoryTransferBatches.find(item => item.id === id);
+    if (!batch) throw new Error("Transfer not found. Reload Inventory.");
+    const lines = liveData.inventoryTransfers.filter(line => line.batch_id === id).map(line => {
+      const product = liveData.inventoryCatalog.find(item => item.branch_id === batch.from_branch && item.barcode === line.barcode) ||
+        liveData.inventoryCatalog.find(item => item.branch_id === batch.to_branch && item.barcode === line.barcode);
+      return {...line,description:product?.model_description,brand:product?.brand};
+    });
+    openModal({
+      title: `${batch.reference} · ${action === "view" ? "Transfer summary" : action.replaceAll("_"," ")}`, wide: true,
+      intro: `${inventoryBranchName(batch.from_branch)} → ${inventoryBranchName(batch.to_branch)} · ${inventoryTransferStatus(batch.status)}. Rejection immediately restores the source's reserved stock. All lines are processed together.`,
+      body: inventoryTransferSummary(lines) + `<p class="an-note">Remarks: ${escapeHTML(batch.note || "None")}</p>
+        <p class="an-note">Submitted: ${escapeHTML(batch.requested_at)} · User: ${escapeHTML(batch.requested_by)}<br>
+        Source approval: ${escapeHTML(batch.approved_at || "Not approved")} · User: ${escapeHTML(batch.approved_by || "—")}<br>
+        Resolution: ${escapeHTML(batch.resolved_at || "Not resolved")} · User: ${escapeHTML(batch.resolved_by || "—")}</p>`,
+      submitLabel: action === "view" ? "Close" : "Confirm",
+      onSubmit: async () => {
+        if (action === "view") return;
+        mustRpc(await client.rpc("review_inventory_transfer", {p_batch:id,p_action:action}));
+        const refreshWarning = await refreshSavedTransfer({refreshProducts:action === "receive"});
+        await sendTransferPush();
+        return refreshWarning;
+      },
+    });
+  }
   function openInventoryTransferAction(id, action) {
     const transfer = liveData.inventoryTransfers.find(item => item.id === id);
     openModal({
@@ -2467,7 +2653,7 @@
       body: "", submitLabel: "Confirm",
       onSubmit: async () => {
         mustRpc(await client.rpc("resolve_inventory_transfer", { p_transfer: id, p_action: action }));
-        await refreshData();
+        return refreshSavedTransfer({refreshProducts:action === "receive"});
       },
     });
   }
@@ -3853,7 +4039,7 @@
     document.body.appendChild(root);
     wireDialogExport(root, `${label} by day`);
     root.addEventListener("pointerdown", event => {
-      if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
+      if ((event.target === root || event.target.closest("[data-modal-close]")) && !form.querySelector('[type="submit"]')?.disabled) closeModal();
     });
     root.querySelector("[data-walkin-entry]")?.addEventListener("click", () => {
       closeModal();
@@ -3997,6 +4183,7 @@
       workspaceWrites++;
       try {
         const result = await onSubmit(form);
+        if (result === false) return;
         if (inline) {
           document.querySelector("#live-results")?.insertAdjacentHTML("afterbegin", `<p class="inventory-form-success" role="status">${result || `${escapeHTML(title)} saved successfully.`}</p>`);
           return;
@@ -4013,6 +4200,7 @@
         submit.disabled = false;
       } finally {
         workspaceWrites--;
+        submit.disabled = false;
       }
     });
     onReady?.(form);
@@ -4031,18 +4219,58 @@
   }
 
   document.addEventListener("keydown", event => {
-    if (event.key === "Escape" && modalRoot) closeModal();
+    if (event.key === "Escape" && modalRoot && !workspaceWrites) closeModal();
   });
 
   async function refreshData() {
     if (currentSession) await loadLiveWorkspace(currentSession);
   }
 
+  function renderTransferAlerts() {
+    connectedContent.querySelector("[data-transfer-alerts]")?.remove();
+    if (!liveData || !currentProfile) return;
+    const pending = (liveData.inventoryTransferBatches || []).filter(batch =>
+      (batch.status === "pending_approval" && canReviewTransfer(batch.from_branch,true)) ||
+      (batch.status === "transit" && canReviewTransfer(batch.to_branch)));
+    if (pending.length) connectedContent.insertAdjacentHTML("afterbegin",
+      `<section class="inventory-reminder" role="status" data-transfer-alerts><strong>${pending.length} transfer(s) need your review</strong><p>${pending.map(batch => escapeHTML(`${batch.reference}: ${batch.status === "pending_approval" ? "Approve or reject source dispatch" : "Accept or reject destination receipt"}`)).join("<br>")}</p><button class="button button-outline" type="button" data-transfer-inbox>Review transfers</button></section>`);
+  }
+
+  let transferPollBusy = false;
+  async function refreshTransferAlerts() {
+    if (transferPollBusy || !currentProfile || currentProfile.role === "ps" || !liveData || workspaceWrites || modalRoot ||
+        document.visibilityState !== "visible" || (activePage === "inventory" && ["import","transfer"].includes(ui.invView))) return;
+    const capturedClient = client, profileId = currentProfile.id;
+    transferPollBusy = true;
+    try {
+      const batches = checkResult(await fetchAllFrom(capturedClient, "inventory_transfer_batches", "*", [["requested_at",false],["id",true]]),
+        "Unable to refresh transfer approvals");
+      if (client !== capturedClient || currentProfile?.id !== profileId) return;
+      const changed = JSON.stringify(batches) !== JSON.stringify(liveData.inventoryTransferBatches);
+      const oldStates = new Map((liveData.inventoryTransferBatches || []).map(batch => [batch.id,batch.status]));
+      const received = batches.some(batch => batch.status === "received" && oldStates.get(batch.id) !== "received");
+      if (changed) await refreshInventoryData({refreshProducts:received});
+      else renderTransferAlerts();
+      connectedContent.querySelector("[data-transfer-alert-error]")?.remove();
+    } catch (error) {
+      console.error("Unable to refresh transfer approvals.", error);
+      if (!connectedContent.querySelector("[data-transfer-alert-error]")) connectedContent.insertAdjacentHTML("afterbegin",
+        '<p class="connected-error" role="alert" data-transfer-alert-error>Transfer alerts could not refresh. Reload before reviewing stock transfers.</p>');
+    } finally { transferPollBusy = false; }
+  }
+  setInterval(refreshTransferAlerts, 45000);
+  document.addEventListener("visibilitychange", refreshTransferAlerts);
+  window.addEventListener("hashchange", () => {
+    if (location.hash !== "#inventory" || !currentProfile || !liveData || workspaceWrites) return;
+    activePage = "inventory"; ui.invView = "transfers"; renderConnected();
+    refreshTransferAlerts();
+  });
+
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible" || !currentProfile || !liveData?.inventoryStock?.length || workspaceWrites || modalRoot) return;
     const dayKey = `${demoStore ? "demo" : "live"}:${currentProfile.id}:${window.BranchlineDemo.philippineDate()}`;
     if (inventoryReminderChecked === dayKey) return;
-    refreshData().catch(error => {
+    refreshInventoryData().then(showInventoryReminder).catch(error => {
       console.error("Unable to refresh inventory reminder.", error);
       connectedContent.insertAdjacentHTML("afterbegin", '<p class="connected-error">Inventory could not refresh. Reload to check aging stock.</p>');
     });
@@ -5269,6 +5497,11 @@
     if (classify && currentProfile.role === "admin") { openInventoryClassification(classify.dataset.inventoryClassify, classify.dataset.branch); return; }
     const transferAction = event.target.closest("[data-transfer-action]");
     if (transferAction) { openInventoryTransferAction(transferAction.dataset.id, transferAction.dataset.transferAction); return; }
+    const batchAction = event.target.closest("[data-batch-action]");
+    if (batchAction) { openInventoryBatchAction(batchAction.dataset.id, batchAction.dataset.batchAction); return; }
+    if (event.target.closest("[data-transfer-inbox]")) {
+      ui.invView = "transfers"; ui.search = ""; ui.pages = {}; activePage = "inventory"; renderConnected(); return;
+    }
     const chartButton = event.target.closest("[data-chart-download]");
     if (chartButton) {
       chartButton.disabled = true;
@@ -5416,7 +5649,7 @@
   async function refreshPushButton(isPs) {
     const button = pushButton();
     if (!button) return;
-    if (demoStore || !isPs || !config.vapidPublicKey) { button.hidden = true; return; }
+    if (demoStore || (!isPs && !["manager","inventory_controller","stock_custodian"].includes(currentProfile?.role)) || !config.vapidPublicKey) { button.hidden = true; return; }
     button.hidden = false;
     if (!pushSupported) {
       button.disabled = true;
@@ -5458,7 +5691,7 @@
 
   // Once the phone/browser has granted permission, every app open silently (re)registers this device for the signed-in PS.
   async function autoRegisterPush() {
-    if (demoStore || !pushSupported || !config.vapidPublicKey || currentProfile?.role !== "ps") return;
+    if (demoStore || !pushSupported || !config.vapidPublicKey || !["ps","manager","inventory_controller","stock_custodian"].includes(currentProfile?.role)) return;
     if (Notification.permission !== "granted" || localStorage.getItem(pushOptOutKey())) return;
     try {
       await saveCurrentPushSubscription(await navigator.serviceWorker.ready);
