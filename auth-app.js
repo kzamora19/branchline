@@ -88,6 +88,7 @@
   const formatCurrencyInput = window.formatCurrencyInput;
 
   function localISODate(date = new Date()) {
+    if (demoStore) return window.BranchlineDemo.philippineDate(date);
     const pad = number => String(number).padStart(2, "0");
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
   }
@@ -337,17 +338,6 @@
       if (brandSales.error) console.warn("Brand sales are unavailable.", brandSales.error);
 
       if (sequence !== loadSequence || !currentSession) return;
-      if (!isDemoLoad && visibleProducts.length) {
-        try {
-          const catalog = window.BranchlineDemo.catalogOnly(visibleProducts);
-          const text = JSON.stringify(catalog);
-          let hash = 2166136261;
-          for (let index = 0; index < text.length; index++) hash = Math.imul(hash ^ text.charCodeAt(index), 16777619) >>> 0;
-          localStorage.setItem(window.BranchlineDemo.CATALOG_KEY, JSON.stringify({ products: catalog, stamp: String(hash), capturedAt: new Date().toISOString() }));
-        } catch (error) {
-          console.warn("Could not save the product-only catalog for the demo.", error);
-        }
-      }
 
       const testPsIds = new Set(visibleProfiles.filter(isTestProfile).map(item => item.id));
       const testSaleIds = new Set(visibleSales.filter(item => isTestSale(item, testPsIds)).map(item => item.id));
@@ -1050,6 +1040,11 @@
     bar.innerHTML = `<div><strong>DEMO · local data only</strong><p>${escapeHTML(demoStore.catalogLabel)}. Starts with fictional sales, customers and accounts. Edits stay in this browser; no live data is changed.</p></div>
       <label class="field"><span>Preview role</span><select id="demo-role">${Object.entries(roleLabels).map(([role, label]) =>
         `<option value="${role}" ${currentProfile.role === role ? "selected" : ""}>${escapeHTML(label)}</option>`).join("")}</select></label>
+      <div class="demo-scenario" role="group" aria-label="Demo sales performance">
+        <span>Sales performance</span><div>${[["behind", "Behind Pace"], ["on", "On Track"]].map(([value, label]) =>
+          `<button type="button" class="button button-outline button-small" data-demo-scenario="${value}" aria-pressed="${demoStore.scenario === value}">${label}</button>`).join("")}</div>
+        <small>Recalculates fictional sales for MTD branch/district pace. Philippine date: ${escapeHTML(localISODate())}. ${localISODate().endsWith("-01") ? "Pace begins after the first completed day." : ""}</small>
+      </div>
       <button class="button button-outline button-small" type="button" id="demo-reset">Reset demo</button>
       <button class="button button-outline button-small" type="button" id="demo-exit">Exit demo</button>`;
     bar.querySelector("#demo-role").addEventListener("change", async event => {
@@ -1065,9 +1060,21 @@
         event.target.value = currentProfile.role;
       }
     });
+    bar.querySelectorAll("[data-demo-scenario]").forEach(button => button.addEventListener("click", async () => {
+      if (workspaceWrites) return alert("Wait for the current save to finish before changing the demo scenario.");
+      if (demoStore.scenario === button.dataset.demoScenario) return;
+      try {
+        closeModal();
+        demoStore.setScenario(button.dataset.demoScenario);
+        ui.period = "month";
+        ui.month = currentMonth();
+        ui.anBasis = "all";
+        await loadLiveWorkspace(demoStore.session);
+      } catch (error) { alert(error.message); }
+    }));
     bar.querySelector("#demo-reset").addEventListener("click", async () => {
       if (workspaceWrites) return alert("Wait for the current save to finish before resetting the demo.");
-      if (!confirm("Reset only the sample workspace and discard demo edits on this device? Real data and the saved product catalog are not changed.")) return;
+      if (!confirm("Reset only the sample workspace and discard demo edits on this device? Real data is not changed.")) return;
       try {
         demoStore.reset();
         await startDemo();
@@ -1085,16 +1092,9 @@
   async function startDemo() {
     if (workspaceWrites) return alert("Wait for the current save to finish before entering demo mode.");
     try {
-      let catalog = window.BranchlineDemo.sampleCatalog();
-      let catalogLabel = "Illustrative sample products (sign in to the real app on this device to copy its catalog)";
-      let catalogStamp = "samples";
-      const cached = localStorage.getItem(window.BranchlineDemo.CATALOG_KEY);
-      if (cached) {
-        const snapshot = JSON.parse(cached);
-        catalog = window.BranchlineDemo.catalogOnly(snapshot.products);
-        catalogStamp = snapshot.stamp;
-        catalogLabel = `Real product catalog saved on ${new Date(snapshot.capturedAt).toLocaleString("en-PH")}`;
-      }
+      const catalog = window.BranchlineDemo.sampleCatalog();
+      const catalogLabel = "Illustrative products only · no sign-in needed · Philippine calendar";
+      const catalogStamp = "illustrative-v3";
       demoStore = window.BranchlineDemo.create({ storage: localStorage, catalog, catalogLabel, catalogStamp });
       client = demoStore.client;
       closeModal();
@@ -4849,7 +4849,7 @@
 
   document.querySelector("#enter-demo").addEventListener("click", startDemo);
   document.querySelector("#reset-saved-demo").addEventListener("click", async () => {
-    if (!confirm("Discard saved demo edits and its device-only product catalog? Sign in again to copy the current catalog. Your real data is not affected.")) return;
+    if (!confirm("Discard saved demo edits? Your real data is not affected.")) return;
     try {
       localStorage.removeItem(window.BranchlineDemo.STATE_KEY);
       localStorage.removeItem(window.BranchlineDemo.CATALOG_KEY);

@@ -2,6 +2,8 @@
   "use strict";
   const STATE_KEY = "branchline-demo-workspace-v1";
   const CATALOG_KEY = "branchline-demo-catalog-v1";
+  const SAMPLE_REVISION = 3;
+  const BRANDS = ["TCL", "LG", "Samsung", "Panasonic", "Hanabishi", "Camel", "Sharp", "Sony", "Devant", "Skyworth"];
   const roles = ["ps", "manager", "district_manager", "admin"];
   const copy = value => JSON.parse(JSON.stringify(value));
   const uid = () => root.crypto.randomUUID();
@@ -10,6 +12,13 @@
   const norm = value => String(value || "").trim().toLowerCase();
   const testName = value => /^\s*test(?![a-z])/i.test(String(value || ""));
   const testProfile = person => testName(person.full_name) || testName(person.login_id);
+  function philippineDate(date = new Date()) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(date);
+    const part = type => parts.find(item => item.type === type).value;
+    return `${part("year")}-${part("month")}-${part("day")}`;
+  }
 
   function catalogOnly(products) {
     const unique = new Map();
@@ -29,13 +38,19 @@
   }
 
   function sampleCatalog() {
-    return ["Tcl", "Lg", "Samsung", "Panasonic", "Midea", "Hanabishi"].flatMap((brand, index) => [
+    return BRANDS.flatMap((brand, index) => [
       { barcode: String(63000 + index * 10).padStart(8, "0"), brand, model_description: `${brand} demonstration television 43 inch`, category: "Television", sub_category: "Smart TV", srp: 22000 + index * 2000 },
       { barcode: String(63001 + index * 10).padStart(8, "0"), brand, model_description: `${brand} demonstration window aircon 1HP`, category: "Aircon", sub_category: "Window Type", srp: 18000 + index * 1000 },
     ]);
   }
 
-  function seed(catalog) {
+  const knownBrand = value => BRANDS.find(brand => norm(brand) === norm(value));
+  function demoCatalog(products) {
+    return catalogOnly(products.filter(product => knownBrand(product.brand)))
+      .map(product => ({ ...product, brand: knownBrand(product.brand) }));
+  }
+
+  function seed(catalog, todayISO) {
     const tables = Object.fromEntries([
       "branches", "districts", "profiles", "products", "monthly_targets", "brand_targets", "sales",
       "sale_lines", "sale_serials", "manager_branches", "payment_modes", "company_holidays",
@@ -43,7 +58,10 @@
       "payment_mode_targets", "sales_import_batches", "branch_daily_history", "sale_edit_history",
     ].map(key => [key, []]));
     const dealer = "demo-dealer";
-    tables.districts = [{ id: "district-north", name: "North District" }, { id: "district-south", name: "South District" }];
+    tables.districts = [
+      { id: "district-north", name: "District 1" }, { id: "district-south", name: "District 2" },
+      ...[3, 4, 5].map(number => ({ id: `district-${number}`, name: `District ${number}` })),
+    ];
     tables.branches = ["Santiago", "Cauayan", "Ilagan", "Tuguegarao"].map((name, i) => ({
       id: `branch-${i}`, name: `${name} (Demo)`, district_id: i < 2 ? "district-north" : "district-south",
     }));
@@ -64,7 +82,8 @@
     );
     tables.payment_modes = ["Cash", "Debit Card", "Credit Card", "Home Credit", "Online Payment / Bank Transfer"]
       .map((name, position) => ({ id: `mode-${position}`, name, position }));
-    const today = new Date();
+    const [year, monthNumber, dayNumber] = todayISO.split("-").map(Number);
+    const today = new Date(year, monthNumber - 1, dayNumber);
     for (const yearOffset of [-1, 0]) {
       for (let monthOffset = -2; monthOffset <= 0; monthOffset++) {
         const first = new Date(today.getFullYear() + yearOffset, today.getMonth() + monthOffset, 1);
@@ -131,28 +150,124 @@
     }
   }
 
-  function create({ storage, catalog, catalogLabel = "Illustrative sample products", catalogStamp = "samples" }) {
-    const clean = catalogOnly(catalog);
+  function create({ storage, catalog, catalogLabel = "Illustrative sample products", catalogStamp = "samples", today = philippineDate() }) {
+    const clean = demoCatalog(catalog);
     if (!clean.length) throw new Error("The demo catalog is empty.");
     let tables;
     let savedLabel = catalogLabel;
+    let scenario = "behind";
+    let sampleThrough = today;
+    let needsScenario = false;
     const saved = storage.getItem(STATE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed.version !== 1 || !parsed.tables || !parsed.tables.profiles?.length ||
           Object.values(parsed.tables).some(rows => !Array.isArray(rows))) throw new Error("Demo data is invalid. Reset the demo to start again.");
       tables = parsed.tables;
+      scenario = parsed.scenario || "behind";
+      sampleThrough = parsed.sampleThrough || today;
+      needsScenario = !parsed.scenario;
       savedLabel = parsed.catalogLabel;
-      if (catalogStamp !== (parsed.catalogStamp || "samples")) {
+      if (catalogStamp !== (parsed.catalogStamp || "samples") || parsed.sampleRevision !== SAMPLE_REVISION) {
         tables.products = tables.branches.flatMap(branch => clean.map(product => ({
           ...product, id: uid(), dealer_id: "demo-dealer", branch_id: branch.id, active: true,
         })));
         savedLabel = catalogLabel;
       }
-    } else tables = seed(clean);
+      if (parsed.sampleRevision !== SAMPLE_REVISION) {
+        const brands = [...new Set(clean.map(product => product.brand))];
+        for (const [index, person] of tables.profiles.entries()) {
+          if (person.role === "ps") person.assigned_brand = knownBrand(person.assigned_brand) || brands[index % brands.length];
+        }
+        for (const line of tables.sale_lines) {
+          if (knownBrand(line.brand)) line.brand = knownBrand(line.brand);
+          else {
+            const product = clean.find(item => item.category === line.category) || clean[0];
+            Object.assign(line, { brand: product.brand, model_description: product.model_description, category: product.category, sub_category: product.sub_category });
+          }
+        }
+        for (const target of tables.brand_targets) target.brand = knownBrand(target.brand) || brands[0];
+        const merged = new Map();
+        for (const target of tables.brand_targets) {
+          const key = JSON.stringify([target.branch_id, target.month, target.brand]);
+          if (merged.has(key)) merged.get(key).amount += Number(target.amount);
+          else merged.set(key, { ...target, amount: Number(target.amount) });
+        }
+        tables.brand_targets = [...merged.values()];
+        for (const district of tables.districts) {
+          if (district.id === "district-north") district.name = "District 1";
+          if (district.id === "district-south") district.name = "District 2";
+        }
+        for (const number of [1, 2, 3, 4, 5]) {
+          if (!tables.districts.some(district => district.name === `District ${number}`)) {
+            tables.districts.push({ id: uid(), name: `District ${number}` });
+          }
+        }
+      }
+      if (sampleThrough < today) {
+        const fresh = seed(clean, today);
+        const priorYear = day => `${Number(day.slice(0, 4)) - 1}${day.slice(4)}`;
+        const dates = new Set(fresh.sales.filter(sale =>
+          sale.sold_on > sampleThrough && sale.sold_on <= today ||
+          sale.sold_on > priorYear(sampleThrough) && sale.sold_on <= priorYear(today)).map(sale => sale.sold_on));
+        const invoices = new Set(tables.sales.map(sale => sale.invoice_number));
+        const added = fresh.sales.filter(sale => dates.has(sale.sold_on) && !invoices.has(sale.invoice_number) &&
+          tables.profiles.some(person => person.id === sale.ps_id) && tables.branches.some(branch => branch.id === sale.branch_id));
+        const ids = new Set(added.map(sale => sale.id));
+        tables.sales.push(...added);
+        tables.sale_lines.push(...fresh.sale_lines.filter(line => ids.has(line.sale_id)));
+        for (const table of ["monthly_targets", "brand_targets", "branch_walkins", "ps_walkins"]) {
+          const keys = table.includes("targets") ? ["branch_id", "month", ...(table === "brand_targets" ? ["brand"] : [])]
+            : ["branch_id", "counted_on", ...(table === "ps_walkins" ? ["ps_id"] : [])];
+          const existing = new Set(tables[table].map(row => JSON.stringify(keys.map(key => row[key]))));
+          tables[table].push(...fresh[table].filter(row =>
+            tables.branches.some(branch => branch.id === row.branch_id) &&
+            (row.counted_on ? dates.has(row.counted_on) : true) &&
+            !existing.has(JSON.stringify(keys.map(key => row[key])))));
+        }
+        sampleThrough = today;
+        needsScenario = true;
+      }
+    } else {
+      tables = seed(clean, today);
+      needsScenario = true;
+    }
     let actor = tables.profiles.find(p => p.role === "ps" && p.active) || tables.profiles.find(p => p.role === "admin" && p.active);
     if (!actor) throw new Error("No active demo account. Reset the demo to restore sample accounts.");
-    const persist = () => storage.setItem(STATE_KEY, JSON.stringify({ version: 1, tables, catalogLabel: savedLabel, catalogStamp }));
+    const persist = () => storage.setItem(STATE_KEY, JSON.stringify({ version: 1, sampleRevision: SAMPLE_REVISION, tables, catalogLabel: savedLabel, catalogStamp, scenario, sampleThrough }));
+    function applyScenario(value) {
+      if (!["behind", "on"].includes(value)) throw new Error("Unknown demo performance scenario.");
+      const testIds = new Set(tables.profiles.filter(testProfile).map(person => person.id));
+      const saleById = new Map(tables.sales.filter(sale => !testName(sale.customer_name) &&
+        !testName(sale.invoice_number) && !testIds.has(sale.ps_id)).map(sale => [sale.id, sale]));
+      const groups = new Map();
+      for (const line of tables.sale_lines) {
+        const sale = saleById.get(line.sale_id);
+        if (!sale) continue;
+        const key = `${sale.branch_id}:${sale.sold_on.slice(0, 7)}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(line);
+      }
+      for (const target of tables.monthly_targets) {
+        const month = target.month.slice(0, 7);
+        if (month > today.slice(0, 7)) continue;
+        const lines = groups.get(`${target.branch_id}:${month}`);
+        if (!lines?.length) continue;
+        const [year, number] = month.split("-").map(Number);
+        const days = new Date(year, number, 0).getDate();
+        const fraction = month < today.slice(0, 7) || Number(today.slice(8)) === days ? 1 : (Number(today.slice(8)) - 1) / days;
+        const ratio = value === "behind" ? fraction * 0.5 : fraction === 1 ? 1.05 : Math.min(0.99, Math.max(fraction + 0.1, fraction * 1.15));
+        const goal = Number(target.amount) * ratio;
+        const total = lines.reduce((sum, line) => sum + Math.max(0, Number(line.selling_price)) * Math.max(0, line.quantity), 0);
+        const quantity = lines.reduce((sum, line) => sum + Math.max(0, line.quantity), 0);
+        for (const line of lines) {
+          line.selling_price = Math.round((total > 0 ? Math.max(0, Number(line.selling_price)) * goal / total : quantity ? goal / quantity : 0) * 100) / 100;
+        }
+      }
+      scenario = value;
+    }
+    if (needsScenario) applyScenario(scenario);
+    persist();
     const branchIds = () => tables.branches.filter(b => actor.role === "admin" ||
       actor.role === "district_manager" && b.district_id === actor.district_id ||
       actor.role === "ps" && b.id === actor.branch_id ||
@@ -297,6 +412,8 @@
           barcode: p.p_barcode, description: p.p_description, brand: p.p_brand, category: p.p_category, sub_category: p.p_sub_category, srp: p.p_srp,
         }];
         const products = catalogOnly(items);
+        if (products.some(product => !knownBrand(product.brand))) throw new Error(`Demo products must use one of: ${BRANDS.join(", ")}.`);
+        products.forEach(product => { product.brand = knownBrand(product.brand); });
         if (name === "add_product" && tables.products.some(row => row.barcode === p.p_barcode)) throw new Error("This barcode already exists.");
         if (name === "update_product") tables.products = tables.products.filter(row => row.barcode !== p.p_old_barcode);
         for (const branch of tables.branches) upsert("products", products.map(product => ({ ...product, branch_id: branch.id, active: true })), ["branch_id", "barcode"]);
@@ -485,6 +602,12 @@
     return {
       client,
       get catalogLabel() { return savedLabel; },
+      get scenario() { return scenario; },
+      setScenario(value) {
+        const previous = scenario;
+        const result = transaction(() => { applyScenario(value); return null; });
+        if (result.error) { scenario = previous; throw new Error(result.error.message); }
+      },
       get profile() { return copy(actor); },
       get session() { return { user: { id: actor.id, email: "demo@example.invalid" } }; },
       setRole(role) {
@@ -497,7 +620,7 @@
     };
   }
 
-  const api = { create, catalogOnly, sampleCatalog, STATE_KEY, CATALOG_KEY };
+  const api = { create, catalogOnly, demoCatalog, sampleCatalog, philippineDate, STATE_KEY, CATALOG_KEY };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.BranchlineDemo = api;
 })(typeof window !== "undefined" ? window : globalThis);
