@@ -270,6 +270,11 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .panel-actions { display: flex; align-items: flex-end; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; max-width: 100%; }
 .panel-actions .an-inline { min-width: 120px; width: 140px; }
 .panel-actions .button { white-space: nowrap; }
+.export-icon { display: inline-flex; align-items: center; justify-content: center; width: 35px; min-width: 35px; height: 35px; padding: 7px; flex: 0 0 auto; }
+.export-icon svg { pointer-events: none; }
+.chart-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.chart-download { display: flex; justify-content: flex-end; }
+.chart-heading .chart-download { margin-left: auto; }
 .table-category-filters { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
 .table-category-filters .field { width: 180px; max-width: 100%; }
 .daily-table-action { display: flex; justify-content: center; margin-top: 12px; }

@@ -388,6 +388,14 @@
         paymentTargets: paymentTargets.error ? [] : paymentTargets.data.map(item => ({ ...item, month: String(item.month).slice(0, 10), share_pct: item.share_pct === null ? null : Number(item.share_pct), amount: item.amount === null ? null : Number(item.amount) })),
         importBatches: importBatches.error ? [] : importBatches.data,
         dailyHistory: dailyHistory.error ? [] : dailyHistory.data.map(row => ({ ...row, day: String(row.day).slice(0, 10), sales: Number(row.sales), transactions: Number(row.transactions) })),
+        exportWarnings: [
+          ["Brand targets", brandTargets], ["Manager links", managerLinks], ["Brand sales", brandSales],
+          ["Personal dashboard", psDashboard], ["Brand contribution", brandContribution], ["Store-closed dates", holidays],
+          ["Clients assisted", psWalkins], ["Store walk-ins", branchWalkins], ["Payment targets", paymentTargets],
+          ["Import batches", importBatches], ["Imported daily history", dailyHistory], ["Serial numbers", saleSerials],
+          ["Payment modes", paymentModes],
+          ...(profile.role === "admin" ? [["Push messages", pushMessages], ["Push schedules", pushSchedules]] : []),
+        ].filter(([, result]) => result.error).map(([label]) => label),
       };
 
       document.querySelector("#connected-user-name").textContent = connectedUserLabel();
@@ -756,7 +764,10 @@
     const rest = data.slice(6).reduce((total, entry) => total + entry.value, 0);
     if (rest > 0) shown.push({ label: "Others", value: rest });
     const total = shown.reduce((sum, entry) => sum + entry.value, 0);
-    const heading = `<div class="connected-panel-heading"><h2>${escapeHTML(title)}</h2><p>${escapeHTML(subtitle)}</p>${options.controls || ""}</div>`;
+    const chartTotal = entries.filter(entry => entry.value > 0).reduce((sum, entry) => sum + entry.value, 0);
+    const chartRows = options.exportRows || [[title, subtitle], ["Label", ...(showAmounts ? ["Amount"] : []), "Share (%)"],
+      ...entries.filter(entry => entry.value > 0).map(entry => [entry.label, ...(showAmounts ? [entry.value] : []), chartTotal ? entry.value / chartTotal * 100 : 0])];
+    const heading = `<div class="connected-panel-heading"><div class="chart-heading"><h2>${escapeHTML(title)}</h2>${chartExport(title, chartRows)}</div><p>${escapeHTML(subtitle)}</p>${options.controls || ""}</div>`;
     if (!total) {
       return `<section class="connected-panel pie-card">${heading}<div class="empty-state" ${pieAction}>No sales recorded for this selection.</div>${options.footer || ""}</section>`;
     }
@@ -835,7 +846,7 @@
     options = { tableKey: currentProfile.role === "ps" ? "sales" : "branches", ...options };
     const title = options.title || "Target progress";
     if (!(target > 0)) {
-      return `<section class="connected-panel pie-card"><div class="connected-panel-heading"><h2>${escapeHTML(title)}</h2><p>${escapeHTML(subtitle)}</p></div><div class="empty-state" role="button" tabindex="0" data-pie-table="${escapeHTML(options.tableKey)}" aria-label="${escapeHTML(`View table for ${title}`)}">${escapeHTML(options.emptyText || "No target is set for this selection.")}</div></section>`;
+      return `<section class="connected-panel pie-card"><div class="connected-panel-heading"><div class="chart-heading"><h2>${escapeHTML(title)}</h2>${chartExport(title, [[title, subtitle], ["Status"], [options.emptyText || "No target is set for this selection."]])}</div><p>${escapeHTML(subtitle)}</p></div><div class="empty-state" role="button" tabindex="0" data-pie-table="${escapeHTML(options.tableKey)}" aria-label="${escapeHTML(`View table for ${title}`)}">${escapeHTML(options.emptyText || "No target is set for this selection.")}</div></section>`;
     }
     const showAmounts = options.amounts !== false;
     const status = paceStatus(actual, target);
@@ -848,7 +859,7 @@
         { label: options.currentLabel || "Current sales", value: Math.min(actual, target), color: status.color, glow: { behind: "red", on: "green", exceeded: "blue" }[status.key], percentText: percent(actual, target), labelText: percent(actual, target, 2) },
         { label: "Remaining", value: Math.max(target - actual, 0), color: "#e2e8f0", muted: true },
       ],
-      options,
+      { ...options, exportRows: [[title, subtitle], ["Metric", "Value"], ["Actual sales", actual], ["Target", target], ["Remaining", Math.max(target - actual, 0)], ["Achievement (%)", actual / target * 100]] },
     );
   }
 
@@ -923,7 +934,7 @@
   // Exports a table that is not built with tableBlock; returns the Export button for the panel header.
   function manualExport(key, title, headers, items, rowHtml) {
     tableStore[key] = { headers, items, rowHtml, title };
-    return `<button class="button button-outline button-small" type="button" data-export-table="${key}">Export</button>`;
+    return exportButton(`data-export-table="${escapeHTML(key)}"`, `Download ${title}`);
   }
 
   // Only categorical filters are shown; numeric columns remain sortable.
@@ -950,9 +961,9 @@
 
   function panel(title, detail, content, action = "", sourceKey = "") {
     const key = /data-table-key="([^"]+)"/.exec(content)?.[1];
-    if (key && key !== "sales" && (currentProfile.role !== "ps" || key === "brandlog")) {
+    if (key && key !== "sales") {
       if (tableStore[key]) tableStore[key].title = title;
-      action = `${action}<button class="button button-outline button-small" type="button" data-export-table="${key}">Export</button>`;
+      action = `${action}${exportButton(`data-export-table="${escapeHTML(key)}"`, `Download ${title}`)}`;
     }
     return `<section class="connected-panel"${sourceKey || key ? ` data-pie-source="${escapeHTML(sourceKey || key)}"` : ""}><div class="connected-panel-heading panel-heading-row"><div><h2>${escapeHTML(title)}</h2>${detail ? `<p>${escapeHTML(detail)}</p>` : ""}</div>${action ? `<div class="panel-actions">${action}</div>` : ""}</div>${content}</section>`;
   }
@@ -998,6 +1009,7 @@
   }
 
   function mountPage(heading, beforeFilters, filters, results) {
+    if (collectingExports) return results();
     if (capturingPieResults) return results;
     if (pieTablePopup) closeModal();
     connectedContent.innerHTML = `${heading}${beforeFilters}${filters}<div id="live-results"></div>`;
@@ -1012,6 +1024,7 @@
   }
 
   let capturingPieResults = false;
+  let collectingExports = false;
   let pieTablePopup = null;
 
   function openPieTable(key, trigger) {
@@ -1263,7 +1276,7 @@
         <text class="an-axis daily-day-label" x="${x + 15}" y="${bottom + 22}" text-anchor="middle">${day}</text>
       </g>`;
     }).join("");
-    return `<div class="daily-chart-scroll" role="region" aria-label="Daily sales chart; scroll horizontally to see every day" tabindex="0"><svg class="daily-sales-chart" viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="group" aria-label="Daily sales for ${escapeHTML(monthLabel(month))}; each bar is one day">
+    return `${chartExport(`Daily sales ${month}`, [["Date", "Day", "No. of sales", "Total sales"], ...rows.map(row => [row.date, new Date(`${row.date}T00:00:00`).toLocaleDateString("en-PH", { weekday: "long" }), row.count, row.total])])}<div class="daily-chart-scroll" role="region" aria-label="Daily sales chart; scroll horizontally to see every day" tabindex="0"><svg class="daily-sales-chart" viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="group" aria-label="Daily sales for ${escapeHTML(monthLabel(month))}; each bar is one day">
       ${ticks}<line class="an-grid" x1="100" x2="${width - 10}" y1="${zero}" y2="${zero}"/>${bars}
     </svg></div><p class="an-note">Daily actuals, not cumulative or forecast. Hover a day, focus it with the keyboard, or long press on mobile for date, weekday, number of sales and total. Scroll sideways to see all days. Future days are not recorded.</p>`;
   }
@@ -1844,10 +1857,10 @@
   }
 
   function renderOverview() {
-    mountPage(
+    return mountPage(
       pageHeading("Overview", demoStore ? `Local demo data for ${monthLabel(ui.month)}. Role preview only—not a real account.` : `Live data for ${monthLabel(ui.month)}. Access is enforced by Supabase.`),
       "",
-      filterBar({ district: true, branch: true, period: true }),
+      filterBar({ district: true, branch: true, period: true, actions: '<button class="button button-outline" type="button" data-export-all>Export All</button>' }),
       () => {
         const month = anchorMonth();
         const label = statusLabel();
@@ -1939,7 +1952,7 @@
         const logBranches = liveData.branches.filter(branch => ids.has(branch.id)).sort((a, b) => natural(a.name, b.name));
         const logFilters = `${!isPs && logBranches.length > 1 ? `<label class="field log-filter"><span>Branch</span><select data-filter="logBranch"><option value="">All branches</option>${logBranches.map(branch =>
           `<option value="${escapeHTML(branch.id)}" ${branch.id === ui.logBranch ? "selected" : ""}>${escapeHTML(branch.name)}</option>`).join("")}</select></label>` : ""}<label class="field log-filter"><span>From</span><input type="date" data-filter="logFrom" value="${escapeHTML(ui.logFrom)}"></label><label class="field log-filter"><span>To</span><input type="date" data-filter="logTo" value="${escapeHTML(ui.logTo)}"></label>${ui.logBranch || logRange ? '<button class="button button-outline" type="button" data-log-clear>Clear</button>' : ""}`;
-        const tools = `<div class="table-tools log-tools">${logFilters}<label class="field log-filter log-search"><span>Search</span><input type="search" data-filter="search" placeholder="Invoice, customer, product, staff" value="${escapeHTML(ui.search)}" autocomplete="off"></label><button class="button button-outline" type="button" data-export="sales">Export</button></div>`;
+        const tools = `<div class="table-tools log-tools">${logFilters}<label class="field log-filter log-search"><span>Search</span><input type="search" data-filter="search" placeholder="Invoice, customer, product, staff" value="${escapeHTML(ui.search)}" autocomplete="off"></label>${exportButton('data-export="sales"', "Download sales")}</div>`;
         const rangeNote = logRange ? `${ui.logFrom || "start"} to ${ui.logTo || "today"} · ` : ui.period === "day" ? "this day only · " : "";
 
         // Totals above the log: one card per branch for district managers and above, one card otherwise.
@@ -2028,6 +2041,9 @@
       { label: "Sold by other PS", value: other, color: "#16a34a" },
     ], {
       controls, footer, amounts: false, legend: false, names: true, tableKey: "brandlog",
+      exportRows: [[title, `${scope} · ${srp ? "SRP" : "Price"} × quantity`], ["Seller", "Amount", "Share (%)"],
+        ["Sold by you", own, total ? own / total * 100 : 0], ["Sold by other PS", "Hidden", total ? other / total * 100 : 0],
+        ...(srp ? [["Units without recorded SRP", missing, "Excluded"]] : [])],
     });
   }
 
@@ -3368,6 +3384,7 @@
       const before = summarize(A.sameDayPriorYear(day), A.sameDayPriorYear(day));
       return `<tr><td>${escapeHTML(day)}</td><td>${value(now)}</td><td>${escapeHTML(A.sameDayPriorYear(day))}</td><td>${value(before)}</td><td>${change(now, before)}</td></tr>`;
     }).reverse().join("");
+    if (collectingExports) return dailyComparisonSheet(`${label} by day`, body);
     closeModal();
     modalRoot = document.createElement("div");
     modalRoot.className = "dlg-backdrop";
@@ -3384,9 +3401,10 @@
           <article class="connected-metric"><span>Change</span><strong>${change(total, priorTotal)}</strong><small>Only days with a recorded count are included</small></article>
         </div>
         <div class="ps-lines"><table class="connected-table"><thead><tr><th>Date</th><th>This year</th><th>Last year date</th><th>Last year</th><th>Change</th></tr></thead><tbody>${body}</tbody></table></div>
-        <div class="dlg-actions"><button class="button button-primary" type="button" data-modal-close>Close</button></div>
+        <div class="dlg-actions">${exportButton('data-download-dialog', `Download ${label} by day`)}<button class="button button-primary" type="button" data-modal-close>Close</button></div>
       </div></div>`;
     document.body.appendChild(root);
+    wireDialogExport(root, `${label} by day`);
     root.addEventListener("pointerdown", event => {
       if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
     });
@@ -3439,6 +3457,7 @@
       const before = perDay.get(prior)?.size || 0;
       return `<tr><td>${escapeHTML(day)}</td><td>${now}</td><td>${escapeHTML(prior)}</td><td>${before}</td><td>${change(now, before)}</td></tr>`;
     }).reverse().join("");
+    if (collectingExports) return dailyComparisonSheet("Transactions by day", body);
     closeModal();
     modalRoot = document.createElement("div");
     modalRoot.className = "dlg-backdrop";
@@ -3452,9 +3471,10 @@
           <article class="connected-metric"><span>Change</span><strong>${change(total, priorTotal)}</strong><small>Versus the same days last year</small></article>
         </div>
         <div class="ps-lines"><table class="connected-table"><thead><tr><th>Date</th><th>This year</th><th>Last year date</th><th>Last year</th><th>Change</th></tr></thead><tbody>${body}</tbody></table></div>
-        <div class="dlg-actions"><button class="button button-primary" type="button" data-modal-close>Close</button></div>
+        <div class="dlg-actions">${exportButton('data-download-dialog', "Download transactions by day")}<button class="button button-primary" type="button" data-modal-close>Close</button></div>
       </div></div>`;
     document.body.appendChild(root);
+    wireDialogExport(root, "Transactions by day");
     root.addEventListener("pointerdown", event => {
       if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
     });
@@ -4261,21 +4281,263 @@
   }
 
   // ---------- Export ----------
-  function exportWorkbook(sheets, fileName) {
+  function exportButton(attributes, label) {
+    return `<button class="button button-outline button-small export-icon" type="button" ${attributes} title="${escapeHTML(label)}" aria-label="${escapeHTML(label)}"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg></button>`;
+  }
+
+  function chartExport(title, rows) {
+    return `<div class="chart-download">${exportButton(`data-chart-download="${escapeHTML(title)}" data-chart-rows="${escapeHTML(JSON.stringify(rows))}"`, `Download ${title}: Excel data and PNG image`)}</div>`;
+  }
+
+  function exportError(error) {
+    console.error("Branchline download failed.", error);
+    alert(`Download failed: ${error.message || "Please try again."}`);
+  }
+
+  function tableElementSheet(table, name) {
+    return { name, rows: [...table.querySelectorAll("tr")].map(row => [...row.children].map(cell => cell.textContent.trim())) };
+  }
+
+  function dailyComparisonSheet(name, body) {
+    const template = document.createElement("template");
+    template.innerHTML = `<table><thead><tr><th>Date</th><th>This year</th><th>Last year date</th><th>Last year</th><th>Change</th></tr></thead><tbody>${body}</tbody></table>`;
+    return tableElementSheet(template.content.querySelector("table"), name);
+  }
+
+  function wireDialogExport(root, title) {
+    root.querySelector("[data-download-dialog]").addEventListener("click", () => {
+      try {
+        const table = root.querySelector("table");
+        if (!table) throw new Error("The daily table is unavailable.");
+        exportWorkbook([tableElementSheet(table, title)], `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${localISODate()}`);
+      } catch (error) { exportError(error); }
+    });
+  }
+
+  async function downloadChart(button) {
+    const card = button.closest(".connected-panel");
+    if (!card) throw new Error("This chart is no longer available.");
+    const profileId = currentProfile.id;
+    const exportClient = client;
+    const title = button.dataset.chartDownload;
+    const rows = JSON.parse(button.dataset.chartRows);
+    const filename = `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${localISODate()}`;
+    const original = card.querySelector(".pie-body svg, .daily-sales-chart");
+    const daily = original?.classList.contains("daily-sales-chart");
+    const width = daily ? Math.max(1000, original.viewBox.baseVal.width + 40) : 1000;
+    const textLines = (text, x, y, maxChars, size = 16, weight = 400) => {
+      const lines = [];
+      for (const word of String(text || "").split(/\s+/)) {
+        if (!lines.length || lines.at(-1).length + word.length + 1 > maxChars) lines.push(word);
+        else lines[lines.length - 1] += ` ${word}`;
+      }
+      return { height: lines.length * (size + 7), svg: lines.map((line, index) => `<text x="${x}" y="${y + index * (size + 7)}" font-size="${size}" font-weight="${weight}">${escapeHTML(line)}</text>`).join("") };
+    };
+    const heading = textLines(title, 24, 34, Math.floor(width / 16), 24, 700);
+    const subtitle = textLines(card.querySelector(".connected-panel-heading p")?.textContent, 24, heading.height + 42, Math.floor(width / 9), 16);
+    const chartTop = heading.height + subtitle.height + 60;
+    let graphic = "";
+    if (original) {
+      const clone = original.cloneNode(true);
+      const originals = [original, ...original.querySelectorAll("*")];
+      const copies = [clone, ...clone.querySelectorAll("*")];
+      originals.forEach((element, index) => {
+        const style = getComputedStyle(element);
+        copies[index].setAttribute("style", ["fill", "stroke", "stroke-width", "font-family", "font-size", "font-weight", "text-anchor", "dominant-baseline"]
+          .map(key => `${key}:${style.getPropertyValue(key)}`).join(";"));
+      });
+      clone.querySelectorAll(".daily-bar-hit").forEach(element => element.remove());
+      clone.setAttribute("x", "24");
+      clone.setAttribute("y", String(chartTop));
+      clone.setAttribute("width", String(daily ? width - 48 : 400));
+      clone.setAttribute("height", String(daily ? 320 : 400));
+      clone.style.minWidth = "0";
+      graphic = new XMLSerializer().serializeToString(clone);
+    } else {
+      graphic = textLines(card.querySelector(".empty-state")?.textContent || "No data for this selection.", 24, chartTop + 40, 90).svg;
+    }
+    let legendTop = chartTop + 20;
+    card.querySelectorAll(".pie-legend li").forEach(item => {
+      const color = getComputedStyle(item.querySelector("i")).backgroundColor;
+      const line = textLines(`${item.querySelector("span")?.textContent || ""}: ${item.querySelector("strong")?.textContent || ""}`, 470, legendTop, 50, 16, 500);
+      graphic += `<rect x="446" y="${legendTop - 13}" width="14" height="14" rx="3" fill="${escapeHTML(color)}"/>${line.svg}`;
+      legendTop += line.height + 15;
+    });
+    const footerTop = Math.max(chartTop + (daily ? 360 : 430), legendTop + 20);
+    const note = [...card.querySelectorAll(".an-note")].map(element => element.textContent).join(" ");
+    const footer = textLines(note, 24, footerTop, Math.floor(width / 9), 15);
+    const height = footerTop + footer.height + 28;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" font-family="Segoe UI, Arial, sans-serif" fill="#162033"><rect width="100%" height="100%" fill="#fff"/>${heading.svg}${subtitle.svg}${graphic}${footer.svg}</svg>`;
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+    try {
+      const image = new Image();
+      image.src = url;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = width * 2;
+      canvas.height = height * 2;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Your browser could not create the chart image.");
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const png = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+      if (!png) throw new Error("Your browser could not encode the chart image.");
+      if (currentProfile?.id !== profileId || client !== exportClient) throw new Error("The account changed during export. Start again after signing in.");
+      exportWorkbook([{ name: title, rows }], filename);
+      downloadFile(`${filename}.png`, png);
+    } finally { URL.revokeObjectURL(url); }
+  }
+
+  function exportWorkbook(sheets, fileName, includeIndex = false) {
     if (window.XLSX) {
       const book = window.XLSX.utils.book_new();
+      const names = new Set(includeIndex ? ["worksheet index"] : []);
+      const index = [["Worksheet", "Full report name"]];
       sheets.forEach(sheet => {
         const worksheet = window.XLSX.utils.aoa_to_sheet(sheet.rows);
         worksheet["!cols"] = sheet.rows[0].map((_, index) => ({
           wch: Math.min(40, Math.max(10, ...sheet.rows.slice(0, 200).map(row => String(row[index] ?? "").length))),
         }));
-        window.XLSX.utils.book_append_sheet(book, worksheet, sheet.name.slice(0, 31));
+        const base = sheet.name.replace(/[\\/?*[\]:]/g, " ").trim().replace(/^'+|'+$/g, "") || "Table";
+        let name = base.slice(0, 31);
+        for (let suffix = 2; names.has(name.toLowerCase()); suffix += 1) name = `${base.slice(0, 31 - String(suffix).length - 1)} ${suffix}`;
+        names.add(name.toLowerCase());
+        index.push([name, sheet.name]);
+        window.XLSX.utils.book_append_sheet(book, worksheet, name);
       });
+      if (includeIndex) {
+        const worksheet = window.XLSX.utils.aoa_to_sheet(index);
+        worksheet["!cols"] = [{ wch: 33 }, { wch: 90 }];
+        window.XLSX.utils.book_append_sheet(book, worksheet, "Worksheet index");
+      }
       window.XLSX.writeFile(book, `${fileName}.xlsx`);
     } else {
       // Offline fallback: one CSV per sheet.
       sheets.forEach(sheet => downloadFile(`${fileName} - ${sheet.name}.csv`, new Blob([csvText(sheet.rows)], { type: "text/csv" })));
     }
+  }
+
+  async function fetchExportBrandLog(exportClient, profileId) {
+    const rows = [];
+    for (let offset = 0; ; offset += 1000) {
+      const result = await exportClient.rpc("export_brand_branch_sales").order("line_id").range(offset, offset + 999);
+      if (currentProfile?.id !== profileId || client !== exportClient) throw new Error("The account changed during export. Start again after signing in.");
+      if (result.error) {
+        if (["PGRST202", "42883"].includes(result.error.code)) throw new Error("Export All needs the complete brand-log export database update. Ask your administrator to apply migration 20261108000000.");
+        throw new Error(`Unable to export the full brand log: ${result.error.message || "database request failed"}`);
+      }
+      rows.push(...result.data);
+      if (result.data.length < 1000) return rows;
+    }
+  }
+
+  async function exportAllTables() {
+    if (!window.XLSX) throw new Error("Excel export is unavailable. Connect to the internet and reload before using Export All.");
+    if (!liveData || !currentProfile) throw new Error("Sign in and wait for your workspace to finish loading.");
+    if (liveData.exportWarnings?.length) throw new Error(`Some datasets failed to load (${liveData.exportWarnings.join(", ")}). Reload successfully before exporting all tables.`);
+    const completeBrandLog = currentProfile.role === "ps" ? await fetchExportBrandLog(client, currentProfile.id) : [];
+    const savedUi = structuredClone(ui);
+    const savedTables = { ...tableStore };
+    const savedSalesExport = salesLogExport;
+    const savedWalkContext = walkInDailyCtx;
+    const savedBrandLog = liveData.brandSales;
+    const sheets = [];
+    const isPs = currentProfile.role === "ps";
+    const ids = new Set(liveData.branches.map(branch => branch.id));
+    const add = (name, headers, rows) => sheets.push({ name, rows: [headers, ...rows] });
+    const records = (name, items, columns) => add(name, columns.map(([label]) => label), items.map(item => columns.map(([, key]) => item[key] ?? "")));
+    const sales = [...visibleSales(), ...liveData.testSales.filter(sale => !isPs || sale.ps_id === currentProfile.id)].filter(sale => ids.has(sale.branch_id));
+    add("Export information", ["Field", "Value"], [
+      ["Account", currentProfile.full_name], ["Role", roleLabels[currentProfile.role]],
+      ["Generated", new Date().toISOString()], ["Scope", "All available dates and role-permitted branches; display filters ignored"],
+      ["Test sales", "Included and explicitly marked in Sales; excluded from performance reports"],
+      ["Reports", "Monthly report worksheets follow each report's normal privacy and history rules. Missing counts remain missing."],
+    ]);
+    records("Branches", liveData.branches, [["Branch ID", "id"], ["Branch", "name"], ["District ID", "district_id"]]);
+    const districtIds = new Set(liveData.branches.map(branch => branch.district_id));
+    records("Districts", liveData.districts.filter(district => districtIds.has(district.id)), [["District ID", "id"], ["District", "name"]]);
+    add(isPs ? "My sales" : "Sales", ["Date", "Invoice", "Customer", "Branch", "PS", "Payment", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "City", "Barangay", "Serials", "Test"],
+      sales.flatMap(sale => linesForSale(sale.id).map(line => [
+        sale.sold_on, sale.invoice_number, sale.customer_name, branchName(sale.branch_id), psNameOf(sale.ps_id, sale.ps_name), sale.payment_mode,
+        line.brand, line.category, line.sub_category, line.model_description, line.barcode, Number(line.quantity), line.srp ?? "",
+        Number(line.selling_price), Number(line.quantity) * Number(line.selling_price), sale.city || "", sale.barangay || "",
+        serialsFor(sale.id, line.barcode).join(", "), isTestSale(sale, liveData.testPsIds) ? "Yes" : "No",
+      ])));
+    if (isPs) {
+      records("Brand branch-wide", completeBrandLog.filter(row => ids.has(row.branch_id)), [
+        ["Date", "sold_on"], ["Invoice", "invoice_number"], ["PS", "ps_name"], ["Brand", "brand"], ["Category", "category"], ["Sub-category", "sub_category"], ["Product", "model_description"], ["Qty", "quantity"],
+      ]);
+    } else {
+      records("Monthly targets", liveData.targets.filter(row => ids.has(row.branch_id)), [["Branch ID", "branch_id"], ["Month", "month"], ["Target", "amount"]]);
+      records("Brand targets", liveData.brandTargets.filter(row => ids.has(row.branch_id)), [["Branch ID", "branch_id"], ["Month", "month"], ["Brand", "brand"], ["Target", "amount"]]);
+      records("Payment targets", liveData.paymentTargets.filter(row => ids.has(row.branch_id)), [["Branch ID", "branch_id"], ["Month", "month"], ["Mode", "mode"], ["Share (%)", "share_pct"], ["Amount", "amount"]]);
+      records("Products", liveData.products, [["Brand", "brand"], ["Category", "category"], ["Sub-category", "sub_category"], ["Product", "model_description"], ["Barcode", "barcode"], ["SRP", "srp"]]);
+      records("Imported daily history", liveData.dailyHistory.filter(row => ids.has(row.branch_id)), [["Branch ID", "branch_id"], ["Date", "day"], ["Sales", "sales"], ["Transactions", "transactions"], ["Walk-ins", "walkins"], ["Remarks", "remarks"]]);
+      records("Import batches", liveData.importBatches, [["Label", "label"], ["Source file", "source_file"], ["Kind", "kind"], ["Created", "created_at"], ["From", "date_from"], ["To", "date_to"], ["Sales", "sales_count"], ["Lines", "lines_count"], ["Amount", "amount"]]);
+      records("Store walk-ins", liveData.branchWalkins.filter(row => ids.has(row.branch_id)), [["Branch ID", "branch_id"], ["Date", "counted_on"], ["Visitors", "visitors"]]);
+    }
+    records("Clients assisted", liveData.psWalkins.filter(row => ids.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id)), [["Branch ID", "branch_id"], ["PS ID", "ps_id"], ["Date", "counted_on"], ["Clients assisted", "clients_assisted"]]);
+    records("Store-closed dates", liveData.holidays, [["Date", "date"], ["Label", "label"]]);
+    records("Payment modes", liveData.paymentModes, [["Name", "name"], ["Position", "position"]]);
+    if (currentProfile.role === "admin") {
+      records("People and access", liveData.profiles, [["Name", "full_name"], ["Role", "role"], ["District ID", "district_id"], ["Branch ID", "branch_id"], ["Assigned brand", "assigned_brand"], ["Active", "active"], ["Login", "login_id"], ["Email", "email"]]);
+      records("Manager branches", liveData.managerLinks, [["Manager ID", "manager_id"], ["Branch ID", "branch_id"]]);
+      records("Push messages", liveData.pushMessages, [["Status", "status"], ["Message", "message"], ["Created", "created_at"]]);
+      records("Push schedules", liveData.pushSchedules, [["Send at", "send_at"], ["Active", "active"], ["Created", "created_at"]]);
+    }
+    const months = new Set([currentMonth()]);
+    [sales.map(row => row.sold_on), liveData.targets.map(row => row.month), completeBrandLog.map(row => row.sold_on), liveData.psWalkins.map(row => row.counted_on),
+      ...(!isPs ? [liveData.brandTargets.map(row => row.month), liveData.paymentTargets.map(row => row.month), liveData.dailyHistory.map(row => row.day), liveData.branchWalkins.map(row => row.counted_on)] : [])]
+      .flat().forEach(date => { if (/^\d{4}-\d{2}/.test(date || "")) months.add(date.slice(0, 7)); });
+    try {
+      collectingExports = true;
+      if (isPs) liveData.brandSales = completeBrandLog;
+      Object.keys(ui).forEach(key => { ui[key] = typeof ui[key] === "object" ? {} : ""; });
+      ui.period = "month";
+      ui.anBasis = "all";
+      const appendRegistered = month => {
+        Object.entries(tableStore).forEach(([key, table]) => {
+          if (key === "sales") return;
+          sheets.push({ ...tableToSheet(table, `${month} ${table.title || key}`) });
+        });
+      };
+      for (const month of [...months].sort()) {
+        ui.month = month;
+        ui.dsMonth = month.slice(5, 7);
+        ui.dsYear = month.slice(0, 4);
+        Object.keys(tableStore).forEach(key => delete tableStore[key]);
+        const overview = renderOverview();
+        renderSalesPage(true);
+        walkInDailyCtx = null;
+        renderAnalyticsPage();
+        if (!isPs) {
+          renderTargetsPage();
+          branchPerformancePanel();
+        }
+        appendRegistered(month);
+        if (walkInDailyCtx) {
+          [openWalkInDailyModal(), openTransactionsDailyModal()].forEach(sheet => {
+            sheets.push({ ...sheet, name: `${month} ${sheet.name}` });
+          });
+        }
+        const template = document.createElement("template");
+        template.innerHTML = overview;
+        template.content.querySelectorAll("[data-chart-download]").forEach(button => {
+          sheets.push({ name: `${month} ${button.dataset.chartDownload}`, rows: JSON.parse(button.dataset.chartRows) });
+        });
+      }
+    } finally {
+      collectingExports = false;
+      Object.keys(ui).forEach(key => delete ui[key]);
+      Object.assign(ui, savedUi);
+      Object.keys(tableStore).forEach(key => delete tableStore[key]);
+      Object.assign(tableStore, savedTables);
+      salesLogExport = savedSalesExport;
+      walkInDailyCtx = savedWalkContext;
+      liveData.brandSales = savedBrandLog;
+    }
+    exportWorkbook(sheets, `branchline-export-all-${localISODate()}`, true);
   }
 
   function psNameOf(psId, fallbackName = "") {
@@ -4357,7 +4619,7 @@
     root.innerHTML = `<div class="dlg dlg-xwide" role="dialog" aria-modal="true" aria-label="${escapeHTML(title)}">
       <div class="dlg-head"><h2>${escapeHTML(title)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div>
       <div class="dlg-form"><div id="ps-detail"></div>
-      <div class="dlg-actions"><button class="button button-outline" type="button" id="ps-detail-export">Export</button><button class="button button-primary" type="button" data-modal-close>Close</button></div></div></div>`;
+      <div class="dlg-actions">${exportButton('id="ps-detail-export"', `Download ${title}`)}<button class="button button-primary" type="button" data-modal-close>Close</button></div></div></div>`;
     document.body.appendChild(root);
     const rows = () => all.filter(({ line }) => lineMatches(line, state));
     const sortHead = (key, label) => `<th aria-sort="${state.sortKey === key ? (state.sortDir === "asc" ? "ascending" : "descending") : "none"}"><button class="sort-btn" type="button" data-sort="${key}">${label}<span class="sort-arrow">${state.sortKey === key ? (state.sortDir === "asc" ? "▲" : "▼") : ""}</span></button></th>`;
@@ -4469,6 +4731,18 @@
   }
 
   connectedContent.addEventListener("click", event => {
+    const chartButton = event.target.closest("[data-chart-download]");
+    if (chartButton) {
+      chartButton.disabled = true;
+      downloadChart(chartButton).catch(exportError).finally(() => { chartButton.disabled = false; });
+      return;
+    }
+    const exportAll = event.target.closest("[data-export-all]");
+    if (exportAll) {
+      exportAll.disabled = true;
+      exportAllTables().catch(exportError).finally(() => { exportAll.disabled = false; });
+      return;
+    }
     const pie = event.target.closest("[data-pie-table]");
     if (pie) {
       openPieTable(pie.dataset.pieTable, pie);
@@ -4539,11 +4813,11 @@
       refreshResults();
     }
     if (event.target.closest("[data-export]")) {
-      try { exportSales(); } catch (error) { console.error("Export failed.", error); }
+      try { exportSales(); } catch (error) { exportError(error); }
     }
     const exportKey = event.target.closest("[data-export-table]")?.dataset.exportTable;
     if (exportKey) {
-      try { exportTable(exportKey); } catch (error) { console.error("Export failed.", error); }
+      try { exportTable(exportKey); } catch (error) { exportError(error); }
     }
     if (open === "sale") openSaleModal();
     const editProduct = event.target.closest("[data-edit-product]");
@@ -4569,15 +4843,19 @@
   });
 
   // Exports every row of a table (all pages), not just the visible page.
-  function exportTable(key) {
-    const table = tableStore[key];
-    if (!table) return;
+  function tableToSheet(table, name) {
     const keep = table.headers.map(isDataHeader);
     const doc = new DOMParser().parseFromString(`<table><tbody>${table.items.map(table.rowHtml).join("")}</tbody></table>`, "text/html");
     const rows = [...doc.querySelectorAll("tr")].map(tr =>
       [...tr.children].filter((_, index) => keep[index]).map(cell => cell.textContent.trim()));
+    return { name, rows: [table.headers.filter(isDataHeader), ...rows] };
+  }
+
+  function exportTable(key) {
+    const table = tableStore[key];
+    if (!table) throw new Error("This table is no longer available. Reopen it and try again.");
     const title = table.title || key;
-    exportWorkbook([{ name: title.replace(/[\\/?*[\]:]/g, " "), rows: [table.headers.filter(isDataHeader), ...rows] }],
+    exportWorkbook([tableToSheet(table, title)],
       `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${localISODate()}`);
   }
 

@@ -338,6 +338,15 @@
         tables.sale_lines.filter(l => l.sale_id === sale.id && brandMatches(l)).map(line => ({ sale, line })));
     }
     function rpc(name, p) {
+      if (name === "export_brand_branch_sales") {
+        requireRole("ps");
+        return brandLines().map(({ sale, line }) => ({
+          line_id: line.id, sold_on: sale.sold_on, invoice_number: sale.invoice_number,
+          ps_name: tables.profiles.find(person => person.id === sale.ps_id)?.full_name || sale.ps_name,
+          brand: line.brand, category: line.category, sub_category: line.sub_category,
+          model_description: line.model_description, quantity: line.quantity, branch_id: sale.branch_id,
+        }));
+      }
       if (name === "brand_branch_sales") {
         requireRole("ps");
         return brandLines().map(({ sale, line }) => ({
@@ -585,7 +594,7 @@
         });
       },
       rpc(name, params = {}) {
-        const read = ["brand_branch_sales", "brand_sales_contribution", "get_ps_dashboard"].includes(name);
+        const read = ["brand_branch_sales", "export_brand_branch_sales", "brand_sales_contribution", "get_ps_dashboard"].includes(name);
         return new Query(() => read ? { data: rpc(name, params), error: null } : transaction(() => rpc(name, params)));
       },
       functions: { async invoke(name, { body }) {
