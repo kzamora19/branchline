@@ -82,20 +82,28 @@
       sharedSerials: [...shared].filter(([, owners]) => owners.size > 1).map(([serial, owners]) => ({ serial, barcodes: [...owners] })),
     };
   }
-  function brandMatches(item, profile, profiles, catalog) {
+  function brandMatcher(profile, profiles, catalog) {
     const norm = value => text(value).toLowerCase();
+    const brands = new Set(catalog.map(product => norm(product.brand)));
     const parts = assignment => text(assignment).split("/").filter(Boolean).map(part => {
       part = norm(part);
-      const at = catalog.some(product => norm(product.brand) === part) ? -1 : part.indexOf("-");
+      const at = brands.has(part) ? -1 : part.indexOf("-");
       return { brand: at < 0 ? part : part.slice(0, at).trim(), scope: at < 0 ? "" : part.slice(at + 1).trim() };
     });
-    const scopeMatches = scope => [item.category, item.sub_category, item.model_description || item.description].some(value => norm(value).includes(scope));
-    return parts(profile.assigned_brand).some(part => norm(item.brand) === part.brand && (part.scope ? scopeMatches(part.scope)
-      : !profiles.filter(person => person.role === "ps" && person.active && person.branch_id === profile.branch_id && person.id !== profile.id)
-        .flatMap(person => parts(person.assigned_brand)).some(other => other.brand === part.brand && other.scope && scopeMatches(other.scope))));
+    const assigned = parts(profile.assigned_brand);
+    const others = profiles.filter(person => person.role === "ps" && person.active && person.branch_id === profile.branch_id && person.id !== profile.id)
+      .flatMap(person => parts(person.assigned_brand));
+    return item => {
+      const scopeMatches = scope => [item.category, item.sub_category, item.model_description || item.description].some(value => norm(value).includes(scope));
+      return assigned.some(part => norm(item.brand) === part.brand && (part.scope ? scopeMatches(part.scope)
+        : !others.some(other => other.brand === part.brand && other.scope && scopeMatches(other.scope))));
+    };
+  }
+  function brandMatches(item, profile, profiles, catalog) {
+    return brandMatcher(profile, profiles, catalog)(item);
   }
   const needsClassification = item => !text(item.brand) || text(item.brand).toLowerCase() === "unclassified" || !text(item.category);
-  const api = { code, day, ageDays, parseReports, brandMatches, needsClassification };
+  const api = { code, day, ageDays, parseReports, brandMatcher, brandMatches, needsClassification };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.BranchlineInventory = api;
 })(typeof window !== "undefined" ? window : globalThis);

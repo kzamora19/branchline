@@ -109,8 +109,9 @@
     return new Date(`${month}-01T12:00:00`).toLocaleDateString("en", { month: "long", year: "numeric" });
   }
 
+  const naturalOrder = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
   function natural(a, b) {
-    return String(a ?? "").localeCompare(String(b ?? ""), undefined, { numeric: true, sensitivity: "base" });
+    return naturalOrder.compare(String(a ?? ""), String(b ?? ""));
   }
 
   function percent(actual, target, decimals = PERCENT_DECIMALS) {
@@ -1000,11 +1001,16 @@
   const isDataHeader = header => header !== "" && header !== SELECT_HEADER;
 
   // Sorts rows by the text of one column (numbers, money and percentages compare numerically; a data-sort attribute overrides the text).
-  function sortedItems(items, rowHtml, sort) {
-    const doc = new DOMParser().parseFromString(`<table><tbody>${items.map(rowHtml).join("")}</tbody></table>`, "text/html");
-    const keys = [...doc.querySelectorAll("tbody > tr")].map(tr => {
-      const cell = tr.children[sort.col];
-      const text = (cell?.dataset.sort ?? cell?.textContent ?? "").trim();
+  function sortedItems(items, rowHtml, sort, sortValue) {
+    const cells = sortValue ? items.map(item => sortValue(item, sort.col)) : (() => {
+      const doc = new DOMParser().parseFromString(`<table><tbody>${items.map(rowHtml).join("")}</tbody></table>`, "text/html");
+      return [...doc.querySelectorAll("tbody > tr")].map(tr => {
+        const cell = tr.children[sort.col];
+        return cell?.dataset.sort ?? cell?.textContent ?? "";
+      });
+    })();
+    const keys = cells.map(value => {
+      const text = String(value ?? "").trim();
       const number = /\d/.test(text) ? Number(text.replace(/[₱,%#+\s]/g, "")) : NaN;
       return { text, number: Number.isNaN(number) ? null : number, empty: !text || text === "—" };
     });
@@ -1021,9 +1027,9 @@
       .map(entry => entry.item);
   }
 
-  function tableBlock(key, headers, items, rowHtml, emptyText, pageSize = PAGE_SIZE) {
+  function tableBlock(key, headers, items, rowHtml, emptyText, pageSize = PAGE_SIZE, sortValue) {
     const sort = ui.sort[key];
-    if (sort && isDataHeader(headers[sort.col] ?? "")) items = sortedItems(items, rowHtml, sort);
+    if (sort && isDataHeader(headers[sort.col] ?? "")) items = sortedItems(items, rowHtml, sort, sortValue);
     tableStore[key] = { headers, items, rowHtml };
     const pages = Math.max(1, Math.ceil(items.length / pageSize));
     const page = Math.min(Math.max(1, ui.pages[key] || 1), pages);
@@ -1137,7 +1143,24 @@
     if (collectingExports) return results();
     if (capturingPieResults) return results;
     if (pieTablePopup) closeModal();
-    connectedContent.innerHTML = `${heading}${beforeFilters}${filters}<div id="live-results"></div>`;
+    const strip = connectedContent.querySelector(".inventory-tabs");
+    if (strip && beforeFilters.startsWith('<nav class="inventory-tabs"')) {
+      const template = document.createElement("template");
+      template.innerHTML = beforeFilters;
+      const next = template.content.firstElementChild;
+      const buttons = [...strip.querySelectorAll("[data-inventory-tab]")];
+      const nextButtons = [...next.querySelectorAll("[data-inventory-tab]")];
+      if (buttons.length === nextButtons.length && buttons.every((button,index) => button.dataset.inventoryTab === nextButtons[index].dataset.inventoryTab)) {
+        buttons.forEach((button,index) => {
+          button.className = nextButtons[index].className;
+          button.setAttribute("aria-current",nextButtons[index].getAttribute("aria-current"));
+          if (button.textContent !== nextButtons[index].textContent) button.textContent = nextButtons[index].textContent;
+        });
+      } else strip.replaceChildren(...next.childNodes);
+      for (const child of [...connectedContent.children]) if (child !== strip) child.remove();
+      strip.insertAdjacentHTML("beforebegin",heading);
+      strip.insertAdjacentHTML("afterend",`${filters}<div id="live-results"></div>`);
+    } else connectedContent.innerHTML = `${heading}${beforeFilters}${filters}<div id="live-results"></div>`;
     resultsView = results;
     refreshResults();
   }
@@ -2246,10 +2269,13 @@
 
   function inventoryVisibleProducts() {
     const ids = scopeBranchIds();
+    const brandMatches = ["brand", "aging"].includes(ui.invView) && currentProfile.role === "ps"
+      ? window.BranchlineInventory.brandMatcher(currentProfile, liveData.profiles, liveData.inventoryCatalog) : null;
+    const query = searchQuery();
     return (liveData.inventoryCatalog || []).filter(item => ids.has(item.branch_id) &&
-      (!["brand", "aging"].includes(ui.invView) || currentProfile.role !== "ps" || window.BranchlineInventory.brandMatches(item, currentProfile, liveData.profiles, liveData.inventoryCatalog)) &&
+      (!brandMatches || brandMatches(item)) &&
       (!(ui.invAvailable && ["master", "brand"].includes(ui.invView)) || inventoryStockFor(item.branch_id, item.barcode)?.quantity > 0) &&
-      (!ui.invBrand || item.brand === ui.invBrand) && matches(searchQuery(), item.barcode, item.model_description, item.brand, item.category, item.sub_category));
+      (!ui.invBrand || item.brand === ui.invBrand) && matches(query, item.barcode, item.model_description, item.brand, item.category, item.sub_category));
   }
 
   function renderInventoryPage() {
@@ -2258,8 +2284,14 @@
     ui.invView ||= currentProfile.role === "ps" ? "brand" : "master";
     if (liveData.inventoryError) return mountPage(pageHeading("Inventory", "Store stock availability"), "", "", () => `<p class="connected-error">${escapeHTML(liveData.inventoryError)}</p>`);
     const visibleIds = scopeBranchIds();
-    const pendingClassification = currentProfile.role === "admin" ? (liveData.inventoryCatalog || []).filter(item => visibleIds.has(item.branch_id) &&
-      window.BranchlineInventory.needsClassification(item)).length : 0;
+    const scopeKey = [...visibleIds].sort().join("\0");
+    if (currentProfile.role === "admin" && (renderInventoryPage.catalog !== liveData.inventoryCatalog || renderInventoryPage.scope !== scopeKey)) {
+      renderInventoryPage.catalog = liveData.inventoryCatalog;
+      renderInventoryPage.scope = scopeKey;
+      renderInventoryPage.pending = (liveData.inventoryCatalog || []).filter(item => visibleIds.has(item.branch_id) &&
+        window.BranchlineInventory.needsClassification(item)).length;
+    }
+    const pendingClassification = currentProfile.role === "admin" ? renderInventoryPage.pending : 0;
     const views = [["master", "Item Master"], ["brand", currentProfile.role === "ps" ? "My Brand Inventory" : "Brand Inventory"], ["aging", "Aging stock"], ["transfers", "Transfer history"], ["history", "Inventory history"],
       ...(currentProfile.role === "admin" ? [["classification", `Needs classification (${pendingClassification})`]] : []),
       ...(!inventoryOnly() && managesInventory() ? [["missing", "Missing SRP"]] : []),
@@ -2277,16 +2309,9 @@
         if (ui.invView === "master" && !searchQuery().trim()) return panel("Item Master",
           "Search by barcode or item name to see product details and quantities in your accessible branches.",
           '<div class="empty-state">Enter a barcode or item name above to show inventory.</div>');
-        const items = inventoryVisibleProducts();
-        const productIndex = new Map(items.map(item => [`${item.branch_id}\0${item.barcode}`, item]));
         const ids = scopeBranchIds();
         const snapshots = liveData.inventorySnapshots.filter(item => ids.has(item.branch_id));
         const today = window.BranchlineDemo.philippineDate();
-        const units = ["brand", "aging"].includes(ui.invView)
-          ? liveData.inventorySerials.filter(item => item.status === "available" && productIndex.has(`${item.branch_id}\0${item.barcode}`)) : [];
-        const aged = units.filter(item => window.BranchlineInventory.ageDays(item.received_on, today) > 90);
-        const uninitialized = items.filter(item => !inventoryStockFor(item.branch_id, item.barcode)).length;
-        const available = items.reduce((sum, item) => sum + (inventoryStockFor(item.branch_id, item.barcode)?.quantity || 0), 0);
         const dates = `<p class="an-note">${liveData.branches.filter(branch => ids.has(branch.id)).map(branch => {
           const latest = snapshots.find(item => item.branch_id === branch.id);
           return `${escapeHTML(branch.name)}: ${latest ? `report ${escapeHTML(new Date(latest.reported_at).toLocaleString("en-PH"))}${latest.reported_at.slice(0, 10) < today ? " — check snapshot freshness" : ""}` : "inventory not initialized"}`;
@@ -2299,8 +2324,11 @@
             matches(searchQuery(), item.barcode, item.kind, inventoryEventNote(item), branchName(item.branch_id)))
             .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || natural(b.id, a.id)),
           item => `<tr><td>${escapeHTML(item.created_at)}</td><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.kind)}</td><td>${escapeHTML(item.barcode)}</td><td>${item.quantity ?? ""}</td><td>${escapeHTML(inventoryEventNote(item))}</td></tr>`, "No inventory movements."));
+        const items = inventoryVisibleProducts();
         if (ui.invView === "brand" || ui.invView === "aging") {
-          const rows = ui.invView === "aging" ? aged : units;
+          const productIndex = new Map(items.map(item => [`${item.branch_id}\0${item.barcode}`, item]));
+          const units = liveData.inventorySerials.filter(item => item.status === "available" && productIndex.has(`${item.branch_id}\0${item.barcode}`));
+          const rows = ui.invView === "aging" ? units.filter(item => window.BranchlineInventory.ageDays(item.received_on, today) > 90) : units;
           const table = panel(ui.invView === "aging" ? "Stock older than 90 days" : "Available serials", "Serial identity is branch + barcode + serial. Original receipt dates survive branch transfers.", tableBlock("inventory-serials",
             ["Branch", "Barcode", "Product", "Serial", "Received", "Age (days)"], rows,
             item => `<tr><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(productIndex.get(`${item.branch_id}\0${item.barcode}`)?.model_description)}</td><td>${escapeHTML(item.serial)}</td><td>${escapeHTML(item.received_on || "Unknown")}</td><td>${window.BranchlineInventory.ageDays(item.received_on, today) ?? "Unknown"}</td></tr>`, "No matching available serials."));
@@ -2319,6 +2347,8 @@
         if (ui.invView === "missing") return dates + inventoryMasterTable(displayed, "inventory-missing", "Missing SRP");
         if (!searchQuery().trim()) return panel("Item Master", "Search by barcode or item name to see product details and quantities in your accessible branches.",
           '<div class="empty-state">Enter a barcode or item name above to show inventory.</div>');
+        const uninitialized = items.filter(item => !inventoryStockFor(item.branch_id, item.barcode)).length;
+        const available = items.reduce((sum, item) => sum + (inventoryStockFor(item.branch_id, item.barcode)?.quantity || 0), 0);
         const total = uninitialized === items.length && uninitialized ? "Not initialized" : available;
         return dates + inventoryMasterTable(displayed) + `<p class="inventory-total" role="status"><strong>Total available quantity: ${escapeHTML(total)}</strong>${uninitialized ? ` <span>${uninitialized} matching branch/item record(s) have unknown stock; total covers initialized stock only.</span>` : ""}</p>`;
       });
@@ -2326,7 +2356,7 @@
       const strip = connectedContent.querySelector(".inventory-tabs");
       if (strip) {
         strip.scrollLeft = tabScroll;
-        strip.addEventListener("scroll",() => { ui.invTabScroll = strip.scrollLeft; },{passive:true});
+        strip.onscroll = () => { ui.invTabScroll = strip.scrollLeft; };
       }
     }
     if (!collectingExports && !capturingPieResults && isForm) {
@@ -2344,7 +2374,13 @@
       item => {
         const stock = inventoryStockFor(item.branch_id, item.barcode);
         return `<tr><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(item.model_description)}${item.missing_srp ? '<br><span class="an-down">SRP needed — Products → Edit</span>' : ""}</td><td>${escapeHTML(item.brand)}</td><td>${escapeHTML(item.category || "Needs classification")}</td><td>${escapeHTML(item.sub_category || "")}</td><td>${stock ? stock.quantity : "Not initialized"}</td><td>${stock ? stock.serialized ? "Yes" : "No" : "Unknown"}</td><td>${currentProfile.role === "admin" ? `<button class="button button-outline button-small" type="button" data-inventory-classify="${escapeHTML(item.barcode)}" data-branch="${escapeHTML(item.branch_id)}">Classify</button> ` : ""}${managesInventory() && stock ? `<button class="button button-outline button-small" data-inventory-adjust="${escapeHTML(item.barcode)}" data-branch="${escapeHTML(item.branch_id)}">Adjust</button>` : ""}</td></tr>`;
-      }, "No products match this selection."), toggle);
+      }, "No products match this selection.", PAGE_SIZE, (item,col) => {
+        const stock = col >= 6 ? inventoryStockFor(item.branch_id,item.barcode) : null;
+        return [branchName(item.branch_id),item.barcode,
+          `${item.model_description}${item.missing_srp ? "SRP needed — Products → Edit" : ""}`,
+          item.brand,item.category || "Needs classification",item.sub_category || "",
+          stock ? stock.quantity : "Not initialized",stock ? stock.serialized ? "Yes" : "No" : "Unknown"][col];
+      }), toggle);
   }
 
   function openInventoryClassification(barcode, branch) {
@@ -2388,9 +2424,12 @@
     }
     if (!result.data) return;
     const today = window.BranchlineDemo.philippineDate();
+    const matchesBrand = currentProfile.role === "ps"
+      ? window.BranchlineInventory.brandMatcher(currentProfile, liveData.profiles, liveData.inventoryCatalog) : null;
+    const assignedProducts = matchesBrand ? new Set(liveData.inventoryCatalog.filter(matchesBrand)
+      .map(item => `${item.branch_id}\0${item.barcode}`)) : null;
     const aged = liveData.inventorySerials.filter(unit => unit.status === "available" && window.BranchlineInventory.ageDays(unit.received_on, today) > 90 &&
-      (currentProfile.role !== "ps" || liveData.inventoryCatalog.some(item => item.branch_id === unit.branch_id && item.barcode === unit.barcode &&
-        window.BranchlineInventory.brandMatches(item, currentProfile, liveData.profiles, liveData.inventoryCatalog))));
+      (!assignedProducts || assignedProducts.has(`${unit.branch_id}\0${unit.barcode}`)));
     const missing = !inventoryOnly() && managesInventory() ? liveData.inventoryCatalog.filter(item => item.missing_srp).length : 0;
     if (aged.length || missing) connectedContent.insertAdjacentHTML("afterbegin", `<aside class="inventory-reminder" role="status"><strong>Inventory reminder</strong><p>${aged.length} available serialized unit(s) are older than 90 days.${missing ? ` ${missing} branch/catalog item(s) need SRP — use Products → Edit.` : ""}</p><button class="button button-small" data-inventory-aging>View aging inventory</button><button class="button button-small" data-inventory-dismiss>Dismiss</button></aside>`);
   }
@@ -2485,7 +2524,17 @@
         ${fieldHTML("Note / remarks (optional)", "note", '<textarea name="note" rows="3" maxlength="500"></textarea>')}`,
       onReady: form => {
         let candidates = [];
+        let choices = new Map();
         const productLabel = item => [item.barcode, item.model_description, item.brand, item.category, item.sub_category].filter(Boolean).join(" · ");
+        const suggestProducts = () => {
+          const query = form.elements.product.value.trim().toLowerCase();
+          const suggestions = [];
+          for (const item of candidates) {
+            if (!query || item.label.toLowerCase().includes(query)) suggestions.push(`<option value="${escapeHTML(item.label)}"></option>`);
+            if (suggestions.length === 100) break;
+          }
+          form.querySelector("#transfer-products").innerHTML = suggestions.join("");
+        };
         const serials = (preserve = false) => {
           const stock = inventoryStockFor(form.elements.from.value, form.elements.barcode.value);
           const quantity = Number(form.elements.quantity.value);
@@ -2504,21 +2553,29 @@
             draft.length = 0;
             form.querySelector("[data-transfer-draft]").innerHTML = '<p class="an-note">Source changed. Draft items were cleared; add items from this source branch.</p>';
           }
-          candidates = liveData.inventoryCatalog.filter(item => item.branch_id === form.elements.from.value && inventoryStockFor(item.branch_id, item.barcode)?.quantity > 0);
-          form.querySelector("#transfer-products").innerHTML = candidates.map(item => `<option value="${escapeHTML(productLabel(item))}"></option>`).join("");
+          candidates = liveData.inventoryCatalog.filter(item => item.branch_id === form.elements.from.value && inventoryStockFor(item.branch_id, item.barcode)?.quantity > 0)
+            .map(item => ({...item,label:productLabel(item)}));
+          choices = new Map();
+          for (const item of candidates) {
+            choices.set(item.barcode.toLowerCase(),item);
+            choices.set(item.label.toLowerCase(),item);
+          }
           form.elements.product.value = ""; form.elements.barcode.value = ""; form.elements.quantity.value = "1";
+          form.elements.product.required = true;
           form.elements.product.setCustomValidity("");
+          suggestProducts();
           const branch = liveData.branches.find(item => item.id === form.elements.from.value);
           form.elements.reference.value = branch?.code ? `${branch.code}-${String(Number(branch.transfer_sequence || 0) + 1).padStart(6, "0")} (preview)` : "Branch code needed — ask Admin";
           serials();
         };
         const chooseProduct = () => {
           const value = form.elements.product.value.trim().toLowerCase();
-          const item = candidates.find(item => item.barcode.toLowerCase() === value || productLabel(item).toLowerCase() === value);
+          const item = choices.get(value);
           const changed = form.elements.barcode.value !== (item?.barcode || "");
           form.elements.barcode.value = item?.barcode || "";
           form.elements.product.setCustomValidity(item ? "" : "Choose an available product from the suggestions, or enter its exact barcode.");
           if (changed) serials();
+          suggestProducts();
         };
         form.elements.from.addEventListener("change", products);
         form.elements.product.addEventListener("input", chooseProduct);
@@ -2551,7 +2608,7 @@
             draft.push(readLine());
             form.elements.product.value = ""; form.elements.barcode.value = "";
             form.elements.product.setCustomValidity(""); form.elements.quantity.value = "1";
-            serials(); drawDraft(); error.hidden = true;
+            serials(); drawDraft(); suggestProducts(); error.hidden = true;
           } catch (caught) {
             console.error("Unable to add transfer item.", caught);
             error.textContent = caught.message; error.hidden = false;
@@ -5478,10 +5535,21 @@
     const inventoryTab = event.target.closest("[data-inventory-tab]");
     if (inventoryTab) {
       if (workspaceWrites) { alert("Please wait for the current save to finish before switching tabs."); return; }
+      if (ui.invView === inventoryTab.dataset.inventoryTab) return;
+      ui.invTabScroll = inventoryTab.closest(".inventory-tabs").scrollLeft;
       ui.invView = inventoryTab.dataset.inventoryTab;
       ui.search = ""; ui.invBrand = ""; ui.pages = {};
-      renderConnected();
-      connectedContent.querySelector(`[data-inventory-tab="${ui.invView}"]`)?.focus({ preventScroll: true });
+      renderInventoryPage();
+      renderTransferAlerts();
+      const selected = connectedContent.querySelector(`[data-inventory-tab="${ui.invView}"]`);
+      selected?.focus({ preventScroll: true });
+      if (selected) {
+        const strip = selected.closest(".inventory-tabs");
+        const buttonBounds = selected.getBoundingClientRect(), stripBounds = strip.getBoundingClientRect();
+        if (buttonBounds.left < stripBounds.left) strip.scrollLeft -= stripBounds.left - buttonBounds.left;
+        else if (buttonBounds.right > stripBounds.right) strip.scrollLeft += buttonBounds.right - stripBounds.right;
+        ui.invTabScroll = strip.scrollLeft;
+      }
       return;
     }
     const availability = event.target.closest("[data-inventory-available]");
