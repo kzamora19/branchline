@@ -1232,27 +1232,43 @@
     return facts;
   }
 
-  function analyticsChart(series, target, days) {
-    const width = 640;
-    const height = 220;
-    const pad = { left: 56, right: 12, top: 12, bottom: 24 };
-    const last = series.forecast.at(-1)?.value ?? 0;
-    const max = Math.max(target || 0, last, series.actual.at(-1)?.value || 0, 1);
-    const x = day => pad.left + ((day - 1) / Math.max(days - 1, 1)) * (width - pad.left - pad.right);
-    const y = value => pad.top + (1 - value / max) * (height - pad.top - pad.bottom);
-    const path = points => points.map((point, index) => `${index ? "L" : "M"}${x(point.day).toFixed(1)} ${y(point.value).toFixed(1)}`).join(" ");
-    const targetLine = target > 0
-      ? `<line class="an-target" x1="${pad.left}" x2="${width - pad.right}" y1="${y(target).toFixed(1)}" y2="${y(target).toFixed(1)}"/><text class="an-axis" x="${width - pad.right}" y="${(y(target) - 4).toFixed(1)}" text-anchor="end">Target ${escapeHTML(formatMoney(target))}</text>`
-      : "";
-    const ticks = [0, 0.5, 1].map(fraction => `<text class="an-axis" x="${pad.left - 6}" y="${(y(max * fraction) + 4).toFixed(1)}" text-anchor="end">${escapeHTML(formatMoney(max * fraction).replace(/\.\d+$/, ""))}</text>`).join("");
-    const dayTicks = [1, Math.ceil(days / 2), days].map(day => `<text class="an-axis" x="${x(day).toFixed(1)}" y="${height - 6}" text-anchor="middle">${day}</text>`).join("");
-    return `<svg class="an-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Cumulative sales this month: actual, forecast and target">
-      <line class="an-grid" x1="${pad.left}" x2="${width - pad.right}" y1="${y(0)}" y2="${y(0)}"/>
-      ${ticks}${dayTicks}${targetLine}
-      ${series.forecast.length > 1 ? `<path class="an-forecast" d="${path(series.forecast)}"/>` : ""}
-      ${series.actual.length ? `<path class="an-actual" d="${path(series.actual)}"/>` : ""}
-    </svg>
-    <div class="an-legend"><span class="an-key an-key-actual">Actual</span><span class="an-key an-key-forecast">Forecast (projection, not actual)</span>${target > 0 ? '<span class="an-key an-key-target">Target</span>' : ""}</div>`;
+  function dailySalesChart(rows, month, today) {
+    const days = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+    const byDate = new Map(rows.map(row => [row.date, row]));
+    const width = 110 + days * 30;
+    const height = 300;
+    const top = 20;
+    const bottom = 258;
+    const min = Math.min(0, ...rows.map(row => row.total));
+    const max = Math.max(min === 0 ? 1 : 0, ...rows.map(row => row.total));
+    const range = max - min || 1;
+    const y = value => top + (max - value) / range * (bottom - top);
+    const zero = y(0);
+    const ticks = [...new Set([min, (max + min) / 2, max])].map(value => {
+      const position = y(value);
+      return `<line class="an-grid" x1="100" x2="${width - 10}" y1="${position}" y2="${position}"/><text class="an-axis" x="92" y="${position + 4}" text-anchor="end">${escapeHTML(formatMoney(value))}</text>`;
+    }).join("");
+    const bars = Array.from({ length: days }, (_, index) => {
+      const day = index + 1;
+      const date = `${month}-${String(day).padStart(2, "0")}`;
+      const row = byDate.get(date) || { total: 0, count: 0 };
+      const future = date > today;
+      const weekday = new Date(`${date}T00:00:00`).toLocaleDateString("en-PH", { weekday: "long" });
+      const label = `${date} · ${weekday}`;
+      const count = future ? "Not yet recorded" : `${row.count} sale${row.count === 1 ? "" : "s"}`;
+      const amount = future ? "Future day · not a forecast" : formatMoney(row.total);
+      const tip = `${label}|${count}|${amount}`;
+      const x = 100 + index * 30;
+      const valueY = y(row.total);
+      return `<g class="daily-day${future ? " daily-day-future" : ""}">
+        ${future ? "" : `<rect class="daily-bar${row.total < 0 ? " daily-bar-negative" : ""}" x="${x + 5}" y="${Math.min(zero, valueY)}" width="20" height="${Math.max(2, Math.abs(valueY - zero))}"/>`}
+        <rect class="daily-bar-hit" x="${x}" y="${top}" width="30" height="${bottom - top + 30}" fill="transparent" tabindex="0" role="img" aria-label="${escapeHTML(`${label}: ${count}, ${amount}`)}" data-tip="${escapeHTML(tip)}"/>
+        <text class="an-axis daily-day-label" x="${x + 15}" y="${bottom + 22}" text-anchor="middle">${day}</text>
+      </g>`;
+    }).join("");
+    return `<div class="daily-chart-scroll" role="region" aria-label="Daily sales chart; scroll horizontally to see every day" tabindex="0"><svg class="daily-sales-chart" viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="group" aria-label="Daily sales for ${escapeHTML(monthLabel(month))}; each bar is one day">
+      ${ticks}<line class="an-grid" x1="100" x2="${width - 10}" y1="${zero}" y2="${zero}"/>${bars}
+    </svg></div><p class="an-note">Daily actuals, not cumulative or forecast. Hover a day, focus it with the keyboard, or long press on mobile for date, weekday, number of sales and total. Scroll sideways to see all days. Future days are not recorded.</p>`;
   }
 
   function growthCell(value) {
@@ -1661,7 +1677,6 @@
         const remainingSellingDays = isCurrent ? A.countSellingDays(today, monthEnd, rules) : 0;
         const pace = A.requiredPace({ target, actual, paceDays: remainingSellingDays });
         const transactions = new Set(allFacts.filter(f => f.date >= monthStart && f.date <= through).map(f => f.saleId)).size;
-        const series = A.cumulativeSeries({ month, refDate, daily, rules, rate: forecast.status === "projected" ? forecast.rate : null });
 
         const forecastText = forecast.status === "projected" || forecast.status === "final"
           ? formatMoney(forecast.value) : "Not enough data";
@@ -1709,9 +1724,6 @@
         ];
         const comparisonTable = `<div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Period</th><th>Dates</th><th>Actual</th><th>Prior</th><th>Growth</th></tr></thead><tbody>${comparisons.map(([name, dates, current, prior, note]) =>
           `<tr><td>${escapeHTML(name)}<br><small class="an-muted">${escapeHTML(note)}</small></td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${growthCell(A.growth(current, prior))}</td></tr>`).join("")}</tbody></table></div>`;
-
-        const chartPanel = panel("Cumulative sales vs target", `${A.RULES[ui.anBasis].label}${holidayDates.length ? `, ${holidayDates.length} store-closed date(s) excluded` : ""}. Solid = actual, dashed = forecast.`,
-          `<div class="an-chart-wrap">${analyticsChart(series, target, series.days)}</div>`);
 
         const current = { from: monthStart, to: through };
         const previous = { from: A.monthStart(A.shiftMonth(month, -1)), to: A.sameDayPriorMonth(through) };
@@ -1832,7 +1844,7 @@
           : '<p class="an-note">No store-closed dates set.</p>';
         const holidayPanel = panel("Store-closed dates", canEditHolidays ? "Company-wide. These dates are skipped in forecasts." : "Company-wide. Managed by district managers and admins.",
           `${canEditHolidays ? '<p><button class="button" type="button" data-open="holiday">Add date</button></p>' : ""}${holidayTable}`);
-        return `${warning}${cards}${insightsPanel(insights)}${chartPanel}${panel("Period comparison", "Growth compares like-for-like elapsed days.", comparisonTable, manualExport("an-compare", "Period comparison", ["Period", "Comparison", "Dates", "Actual", "Prior", "Growth"], comparisons,
+        return `${warning}${cards}${insightsPanel(insights)}${panel("Period comparison", "Growth compares like-for-like elapsed days.", comparisonTable, manualExport("an-compare", "Period comparison", ["Period", "Comparison", "Dates", "Actual", "Prior", "Growth"], comparisons,
           ([name, dates, current, prior, note]) => { const g = A.growth(current, prior); return `<tr><td>${escapeHTML(name)}</td><td>${escapeHTML(note)}</td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${g === null ? "n/a" : (g * 100).toFixed(1) + "%"}</td></tr>`; }))}${traffic.compare}${traffic.trend}${paymentMixPanels(month, mixView, mixLabel, `${panelBranchSelect("bpMix", ids)}${periodControl("pdMix", through)}`)}${trendPanel}${psPanel}${holidayPanel}${missing}`;
       },
     );
@@ -1958,29 +1970,22 @@
         const dsYear = yearList.includes(ui.dsYear) ? ui.dsYear : (ui.month || currentMonth()).slice(0, 4);
         const dsMonth = /^(0[1-9]|1[0-2])$/.test(ui.dsMonth) ? ui.dsMonth : (ui.month || currentMonth()).slice(5, 7);
         const dsPrefix = `${dsYear}-${dsMonth}`;
-        const monthFacts = allSaleFacts.filter(f => f.date.startsWith(dsPrefix));
+        const monthFacts = allSaleFacts.filter(f => f.date.startsWith(dsPrefix) && f.date <= todayISO);
         const dayRows = [];
         for (let day = new Date(Number(dsYear), Number(dsMonth), 0).getDate(); day >= 1; day -= 1) {
           const date = `${dsPrefix}-${String(day).padStart(2, "0")}`;
           if (date > todayISO) continue;
-          dayRows.push({ date, weekday: new Date(`${date}T00:00:00`).getDay(), ...totalOf(monthFacts.filter(f => f.date === date)) });
+          dayRows.push({ date, ...totalOf(monthFacts.filter(f => f.date === date)) });
         }
         const monthTotal = totalOf(monthFacts);
-        const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
         const monthOptions = Array.from({ length: 12 }, (_, index) => {
           const value = String(index + 1).padStart(2, "0");
           return `<option value="${value}" ${value === dsMonth ? "selected" : ""}>${new Date(2000, index, 1).toLocaleString("en-PH", { month: "long" })}</option>`;
         }).join("");
         const dailyControls = `<label class="field an-inline"><span class="visually-hidden">Month</span><select data-filter="dsMonth">${monthOptions}</select></label><label class="field an-inline"><span class="visually-hidden">Year</span><select data-filter="dsYear">${yearList.map(value =>
           `<option value="${value}" ${value === dsYear ? "selected" : ""}>${value}</option>`).join("")}</select></label>`;
-        const dailySummary = panel("Daily sales summary", `${isPs ? "Your account's sales only · " : ""}${monthLabel(dsPrefix)} · ${formatMoney(monthTotal.total)} · ${monthTotal.count} sale${monthTotal.count === 1 ? "" : "s"} · totals only, newest day first. Click a heading to sort.`, tableBlock(
-          "dailysum",
-          ["Date", "Day", "No. of sales", "Total sales"],
-          dayRows,
-          row => `<tr><td><strong>${escapeHTML(row.date)}</strong></td><td data-sort="${row.weekday}">${WEEKDAYS[row.weekday]}</td><td>${row.count}</td><td>${formatMoney(row.total)}</td></tr>`,
-          "No days to show for this month yet.",
-          31,
-        ), dailyControls);
+        const dailySummary = panel("Daily sales summary", `${isPs ? "Your account's sales only · " : ""}${monthLabel(dsPrefix)} · ${formatMoney(monthTotal.total)} · ${monthTotal.count} sale${monthTotal.count === 1 ? "" : "s"}`,
+          dailySalesChart(dayRows, dsPrefix, todayISO), dailyControls);
         return `${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} ·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a column heading to sort.`, totalsCards + tableBlock(
             "sales",
                       ["Invoice", "Customer", "Products", "Serial numbers", "Qty", "Payment", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(canEditSales || isAdmin ? [""] : [])],
@@ -4768,6 +4773,7 @@
   pieTip.hidden = true;
   document.body.appendChild(pieTip);
   let pieHoldTimer = 0;
+  let chartTouchStart = null;
 
   function showPieTip(slice, x, y) {
     const [label, money, pct] = slice.dataset.tip.split("|");
@@ -4784,30 +4790,60 @@
   }
 
   connectedContent.addEventListener("pointermove", event => {
+    if (chartTouchStart && Math.hypot(event.clientX - chartTouchStart.x, event.clientY - chartTouchStart.y) > 10) {
+      chartTouchStart = null;
+      hidePieTip();
+    }
     if (event.pointerType !== "mouse") return;
-    const slice = event.target.closest(".pie-slice");
+    const slice = event.target.closest(".pie-slice, .daily-bar-hit");
     if (slice) showPieTip(slice, event.clientX, event.clientY);
     else hidePieTip();
   });
   connectedContent.addEventListener("pointerleave", hidePieTip);
   connectedContent.addEventListener("pointerdown", event => {
     if (event.pointerType === "mouse") return;
-    const slice = event.target.closest(".pie-slice");
+    const slice = event.target.closest(".pie-slice, .daily-bar-hit");
     if (!slice) return hidePieTip();
     const { clientX, clientY } = event;
+    chartTouchStart = { x: clientX, y: clientY };
     clearTimeout(pieHoldTimer);
     pieHoldTimer = setTimeout(() => showPieTip(slice, clientX, clientY), 400);
   });
   ["pointerup", "pointercancel"].forEach(name =>
     connectedContent.addEventListener(name, event => {
       if (event.pointerType === "mouse") return;
+      chartTouchStart = null;
       clearTimeout(pieHoldTimer);
-      setTimeout(hidePieTip, 1500);
+      if (name === "pointercancel") hidePieTip();
+      else setTimeout(hidePieTip, 1500);
     }));
   connectedContent.addEventListener("contextmenu", event => {
-    if (event.target.closest(".pie-slice")) event.preventDefault();
+    if (event.target.closest(".pie-slice, .daily-bar-hit")) event.preventDefault();
   });
-  window.addEventListener("scroll", hidePieTip, { passive: true });
+  connectedContent.addEventListener("focusin", event => {
+    const day = event.target.closest(".daily-bar-hit");
+    if (!day) return;
+    showFocusedDailyTip();
+  });
+  function showFocusedDailyTip() {
+    window.requestAnimationFrame(() => {
+      const day = document.activeElement;
+      if (!day?.matches(".daily-bar-hit:focus-visible")) return;
+      const rect = day.getBoundingClientRect();
+      if (rect.right <= 0 || rect.left >= window.innerWidth || rect.bottom <= 0 || rect.top >= window.innerHeight) return;
+      showPieTip(day, rect.left + rect.width / 2, rect.top + rect.height / 2);
+    });
+  }
+  connectedContent.addEventListener("focusout", event => {
+    if (event.target.closest(".daily-bar-hit")) hidePieTip();
+  });
+  function hideChartTipOnScroll() {
+    chartTouchStart = null;
+    hidePieTip();
+    showFocusedDailyTip();
+  }
+  connectedContent.addEventListener("scroll", hideChartTipOnScroll, { capture: true, passive: true });
+  window.addEventListener("scroll", hideChartTipOnScroll, { passive: true });
 
   connectedContent.addEventListener("input", event => {
     const box = event.target.closest?.("[data-colfilter]");

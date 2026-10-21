@@ -220,6 +220,14 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .field textarea { width: 100%; min-height: 35px; padding: 8px 10px; color: var(--ink); border: 1px solid #e4e8ee; border-radius: 6px; background: white; font: inherit; font-size: 10px; resize: vertical; outline: none; }
 .an-chart-wrap { padding: 4px 0; }
 .an-chart { width: 100%; height: auto; display: block; }
+.daily-chart-scroll { max-width: 100%; overflow-x: auto; }
+.daily-sales-chart { display: block; width: 100%; height: auto; }
+.daily-bar { fill: #355ee8; pointer-events: none; }
+.daily-bar-negative { fill: #dc2626; }
+.daily-bar-hit { cursor: help; touch-action: pan-x pan-y; }
+.daily-bar-hit:hover, .daily-bar-hit:focus { fill: rgba(53,94,232,.08); outline: none; stroke: #355ee8; stroke-width: 1; }
+.daily-day-label { pointer-events: none; }
+.daily-day-future .daily-day-label { fill: #64748b; }
 .an-grid { stroke: #d9dfe8; stroke-width: 1; }
 .an-actual { fill: none; stroke: var(--blue); stroke-width: 2.5; stroke-linejoin: round; }
 .an-forecast { fill: none; stroke: #f59e0b; stroke-width: 2.5; stroke-dasharray: 6 5; }
