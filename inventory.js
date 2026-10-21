@@ -25,6 +25,9 @@
     const h = headers(stockRows, ["item code", "item name", "total"]);
     const sh = headers(serialRows, ["item code", "item name", "loc code", "serial no", "tran date"]);
     const products = new Map(catalog.map(item => [code(item.barcode), item]));
+    const normalizedHeaders = stockRows[h.index].map(value => text(value).toLowerCase().replace(/[^a-z0-9]/g,""));
+    const categoryAt = normalizedHeaders.indexOf("category"), subAt = normalizedHeaders.indexOf("subcategory");
+    const srpAt = normalizedHeaders.findIndex(value => ["srp","suggestedretailprice","price"].includes(value));
     const items = new Map();
     let total = null;
     for (let rowIndex = h.index + 1; rowIndex < stockRows.length; rowIndex++) {
@@ -36,9 +39,11 @@
       if (text(raw) === "" || !Number.isSafeInteger(quantity) || quantity < 0) throw new Error(`Stock row ${rowIndex + 1}: invalid quantity.`);
       if (items.has(barcode)) throw new Error(`Stock row ${rowIndex + 1}: duplicate barcode ${barcode}.`);
       const known = products.get(barcode);
+      const srp = srpAt < 0 || !text(row[srpAt]) ? null : Number(text(row[srpAt]).replace(/[₱,\s]/g,""));
+      if (srp !== null && (!Number.isFinite(srp) || srp < 0)) throw new Error(`Stock row ${rowIndex + 1}: SRP must be a non-negative number.`);
       items.set(barcode, {
         barcode, description: text(row[h.at("item name")]), brand: known?.brand || "",
-        category: known?.category || "", sub_category: known?.sub_category || "",
+        category: categoryAt < 0 ? "" : text(row[categoryAt]), sub_category: subAt < 0 ? "" : text(row[subAt]), srp,
         quantity, serialized: false, serials: [], isNew: !known,
       });
     }
@@ -72,7 +77,8 @@
     for (const item of items.values()) {
       if (item.serialized && item.quantity !== item.serials.length) throw new Error(`Barcode ${item.barcode}: stock quantity ${item.quantity} differs from its ${item.serials.length} serials.`);
     }
-    const locationColumns = stockRows[h.index].filter(value => text(value) && !["item code", "item name", "total"].includes(text(value).toLowerCase()));
+    const locationColumns = stockRows[h.index].filter((value,index) => text(value) &&
+      !["item code", "item name", "total"].includes(text(value).toLowerCase()) && ![categoryAt,subAt,srpAt].includes(index));
     if (locationColumns.length !== 1) throw new Error("Choose a quantity report for one branch only.");
     const normalizeLocation = value => text(value).toLowerCase().replace(/^[a-z0-9]+\s*-\s*/, "").replace(/\s+/g, " ");
     if (location && normalizeLocation(location) !== normalizeLocation(locationColumns[0])) throw new Error("The stock and serial reports refer to different branches.");

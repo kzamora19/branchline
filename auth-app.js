@@ -225,33 +225,42 @@
   }
 
   // PostgREST caps each response at 1000 rows, so read larger tables page by page.
-  async function fetchAllFrom(client, table, columns, orders, refine) {
-    const rows = [];
-    for (let from = 0; ; from += 1000) {
-      let query = client.from(table).select(columns);
-      if (refine) query = refine(query);
-      orders.forEach(([column, ascending]) => { query = query.order(column, { ascending }); });
-      const { data, error } = await query.range(from, from + 999);
-      if (error) return { data: null, error };
-      rows.push(...data);
-      if (data.length < 1000) return { data: rows, error: null };
+  async function fetchPagedRows(page) {
+    const first = await page(0);
+    if (first.error || first.data.length < 1000) return first;
+    const rows = [...first.data];
+    for (let from = 1000; ; from += 3000) {
+      const batch = await Promise.all([from, from + 1000, from + 2000].map(page));
+      const failed = batch.find(result => result.error);
+      if (failed) return { data: null, error: failed.error };
+      for (const result of batch) {
+        rows.push(...result.data);
+        if (result.data.length < 1000) return { data: rows, error: null };
+      }
     }
   }
 
+  async function fetchAllFrom(client, table, columns, orders, refine) {
+    return fetchPagedRows(from => {
+      let query = client.from(table).select(columns);
+      if (refine) query = refine(query);
+      orders.forEach(([column, ascending]) => { query = query.order(column, { ascending }); });
+      return query.range(from, from + 999);
+    });
+  }
+
   async function fetchInventoryRpc(name, orders, inventoryClient) {
-    const rows = [];
-    for (let offset = 0; ; offset += 1000) {
+    const result = await fetchPagedRows(offset => {
       let query = inventoryClient.rpc(name);
       orders.forEach(column => { query = query.order(column); });
-      const result = await query.range(offset, offset + 999);
-      if (result.error) {
-        const message = new Error(`${name}: ${result.error.message}`);
-        message.code = result.error.code;
-        throw message;
-      }
-      rows.push(...result.data);
-      if (result.data.length < 1000) return rows;
+      return query.range(offset, offset + 999);
+    });
+    if (result.error) {
+      const message = new Error(`${name}: ${result.error.message}`);
+      message.code = result.error.code;
+      throw message;
     }
+    return result.data;
   }
 
   async function loadInventoryData(inventoryClient, onProgress = () => {}) {
@@ -293,10 +302,7 @@
         : null,
     ]);
     if (client !== capturedClient || currentProfile?.id !== profileId) throw new Error("Account changed; reload Inventory.");
-    const productRows = products ? checkResult(products, "Unable to reload received products").map(item => ({
-      ...item, brand:titleCase(item.brand), model_description:titleCase(item.model_description),
-      category:titleCase(item.category) || "", sub_category:titleCase(item.sub_category) || "",
-    })) : liveData.products;
+    const productRows = products ? normalizeProductRows(checkResult(products, "Unable to reload received products")) : liveData.products;
     liveData = { ...liveData, ...inventory, inventoryError:null, products:productRows,
       branches:checkResult(branches, "Unable to reload inventory branches").map(item => ({...item,name:titleCase(item.name)})) };
     renderConnected();
@@ -336,6 +342,16 @@
 
   function uppercaseEntry(text) {
     return String(text ?? "").trim().toUpperCase();
+  }
+
+  function normalizeProductRows(rows) {
+    const labels = new Map();
+    const normalize = value => {
+      if (!labels.has(value)) labels.set(value, titleCase(value));
+      return labels.get(value);
+    };
+    return rows.map(item => ({ ...item, brand: normalize(item.brand), model_description: normalize(item.model_description),
+      category: normalize(item.category) || "", sub_category: normalize(item.sub_category) || "" }));
   }
 
   // Numeric barcodes are always 8 digits (32690 -> 00032690); other codes are kept as typed.
@@ -421,6 +437,9 @@
         return;
       }
       const isPsUser = profile.role === "ps";
+      const inventoryRequest = loadInventoryData(client).then(
+        data => ({ data, error: null }),
+        error => ({ data: null, error }));
       const psDashboardMonth = ui.period === "day"
         ? periodDay().slice(0, 7)
         : ui.month || currentMonth();
@@ -483,15 +502,13 @@
       const visibleDistricts = checkResult(districts, "Unable to load accessible districts").map(item => ({ ...item, name: titleCase(item.name) }));
       const visibleTargets = checkResult(targets, "Unable to load accessible targets");
       const visibleSales = checkResult(sales, "Unable to load accessible sales").map(item => ({ ...item, customer_name: titleCase(item.customer_name) }));
-      const visibleProducts = checkResult(products, "Unable to load the product catalog")
-        .map(item => ({ ...item, brand: titleCase(item.brand), model_description: titleCase(item.model_description), category: titleCase(item.category) || "", sub_category: titleCase(item.sub_category) || "" }));
+      const visibleProducts = normalizeProductRows(checkResult(products, "Unable to load the product catalog"));
       const visibleProfiles = checkResult(profiles, "Unable to load accessible staff profiles")
         .map(item => ({ ...item, full_name: titleCase(item.full_name), assigned_brand: titleCase(item.assigned_brand) }));
       if (brandTargets.error) console.warn("Brand targets are unavailable.", brandTargets.error);
       if (psDashboard.error) console.warn("The personal target summary is unavailable.", psDashboard.error);
 
-      const lines = checkResult(saleLines, "Unable to load sale details")
-        .map(item => ({ ...item, brand: titleCase(item.brand), model_description: titleCase(item.model_description), category: titleCase(item.category) || "", sub_category: titleCase(item.sub_category) || "" }));
+      const lines = normalizeProductRows(checkResult(saleLines, "Unable to load sale details"));
       if (managerLinks.error) console.warn("Manager branches are unavailable.", managerLinks.error);
       if (brandSales.error) console.warn("Brand sales are unavailable.", brandSales.error);
 
@@ -554,7 +571,14 @@
           ...(profile.role === "admin" ? [["Push messages", pushMessages], ["Push schedules", pushSchedules]] : []),
         ].filter(([, result]) => result.error).map(([label]) => label),
       };
-      try { Object.assign(liveData, await loadInventoryData(client, fraction => loading.update(70 + fraction * 25, "Loading inventory..."))); }
+      loading.update(70, "Loading inventory...");
+      try {
+        const inventory = await inventoryRequest;
+        if (sequence !== loadSequence || !currentSession) return;
+        if (inventory.error) throw inventory.error;
+        Object.assign(liveData, inventory.data);
+        loading.update(95, "Preparing workspace...");
+      }
       catch (error) {
         console.error("Unable to load inventory.", error);
         const advice = ["PGRST202", "42883"].includes(error.code)
@@ -2386,7 +2410,9 @@
           const table = panel(ui.invView === "aging" ? "Stock aging" : "Available serials",
             `${ui.invView === "aging" ? "Current: under 30 days; 30 days: 30–59; 60 days: 60–89; 90 days: 90 or more. Unknown receipt dates are excluded. " : ""}Serial identity is branch + barcode + serial. Original receipt dates survive branch transfers.`, tableBlock("inventory-serials",
             ["Branch", "Barcode", "Product", "Serial", "Received", "Age (days)"], rows,
-            item => `<tr><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(productIndex.get(`${item.branch_id}\0${item.barcode}`)?.model_description)}</td><td>${escapeHTML(item.serial)}</td><td>${escapeHTML(item.received_on || "Unknown")}</td><td>${window.BranchlineInventory.ageDays(item.received_on, today) ?? "Unknown"}</td></tr>`, "No matching available serials."), ageFilter);
+            item => `<tr><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(productIndex.get(`${item.branch_id}\0${item.barcode}`)?.model_description)}</td><td>${escapeHTML(item.serial)}</td><td>${escapeHTML(item.received_on || "Unknown")}</td><td>${window.BranchlineInventory.ageDays(item.received_on, today) ?? "Unknown"}</td></tr>`, "No matching available serials.", PAGE_SIZE,
+            (item,col) => [branchName(item.branch_id),item.barcode,productIndex.get(`${item.branch_id}\0${item.barcode}`)?.model_description,
+              item.serial,item.received_on || "Unknown",window.BranchlineInventory.ageDays(item.received_on,today) ?? "Unknown"][col]), ageFilter);
           if (ui.invView === "aging") return dates + table;
           return dates + inventoryMasterTable(items, "inventory-brand", "Brand inventory") + table;
         }
@@ -2550,7 +2576,7 @@
             const [stock, serials] = await Promise.all([read(form.elements.stock.files[0]), read(form.elements.serials.files[0])]);
             preview = window.BranchlineInventory.parseReports(stock, serials, liveData.inventoryCatalog.filter(item => item.branch_id === form.elements.branch.value), window.BranchlineDemo.philippineDate());
             result.innerHTML = `<p><strong>${preview.items.length} products · ${preview.quantity} units</strong> (${preview.serialQuantity} serialized; these are included, not added). Report location: <strong>${escapeHTML(preview.location)}</strong>. Confirm this matches your selected branch. ${preview.newProducts} new catalog items; ${preview.sharedSerials.length} serial value(s) shared across different barcodes.</p>
-              <p>Import stock now; Admin can complete Brand, Category and optional Subcategory afterward in Inventory → Needs classification. Missing brands are saved as “Unclassified”; existing classifications and SRPs are preserved. New products have no SRP.</p>`;
+              <p>Admin imports apply nonblank Category/Subcategory columns; blanks and non-Admin imports preserve existing classifications. Brand is retained. New products with blank/absent SRP stay in Missing SRP for Admin completion; supplied SRP is used. Existing products with blank/absent SRP become 0, except non-Admin imports leave an Admin-pending SRP untouched.</p>`;
           } catch (error) { preview = null; result.innerHTML = `<p class="connected-error">${escapeHTML(error.message)}</p>`; }
         });
       },
@@ -2558,7 +2584,8 @@
         if (!preview) throw new Error("Preview and validate both reports before replacing inventory.");
         const result = await client.rpc("import_inventory", { p_branch: form.elements.branch.value, p_reported_at: `${form.elements.reported.value}:00+08:00`,
           p_files: `${form.elements.stock.files[0].name} + ${form.elements.serials.files[0].name}`,
-          p_items: preview.items.map(item => ({ ...item, description: uppercaseEntry(item.description) })) });
+          p_items: preview.items.map(item => ({ ...item, description: uppercaseEntry(item.description),
+            category: uppercaseEntry(item.category), sub_category: uppercaseEntry(item.sub_category) })) });
         if (result.error?.code === "57014" || /statement timeout/i.test(result.error?.message || "")) {
           throw new Error("The inventory import timed out and was rolled back; no changes from this attempt were saved. Ask your administrator to apply the inventory import performance update (20261111000000), then retry both reports.");
         }
@@ -3651,6 +3678,8 @@
           products,
           product => `<tr>${isAdminUser ? `<td class="select-cell"><input type="checkbox" data-product-select="${escapeHTML(product.barcode.trim().toLowerCase())}" ${productSelection.has(product.barcode.trim().toLowerCase()) ? "checked" : ""} aria-label="Select ${escapeHTML(product.model_description)}"></td>` : ""}<td><strong>${escapeHTML(product.brand)}</strong></td><td>${escapeHTML(product.category || "—")}</td><td>${escapeHTML(product.sub_category || "—")}</td><td>${escapeHTML(product.model_description)}</td><td>${escapeHTML(product.barcode)}</td><td>${product.srp == null ? "—" : formatMoney(product.srp)}</td><td class="manage-cell"><button class="button button-outline button-small" type="button" data-edit-product="${escapeHTML(product.barcode)}">Edit</button></td></tr>`,
           "No products match your search.",
+          PAGE_SIZE, (product,col) => [product.brand,product.category || "—",product.sub_category || "—",
+            product.model_description,product.barcode,product.srp == null ? "—" : product.srp][col - (isAdminUser ? 1 : 0)],
         ), deleteButton);
       },
     );
@@ -4450,11 +4479,12 @@
   function openProductModal(existing) {
     const categories = knownCategories();
     const adminClassification = existing && currentProfile.role !== "admin" && window.BranchlineInventory.needsClassification(existing);
+    const adminSrp = existing && currentProfile.role !== "admin" && existing.srp == null;
     const subOptions = category => [...(categories.get(titleCase(category)) || [])].sort(natural)
       .map(sub => `<option value="${escapeHTML(sub)}"></option>`).join("");
     openModal({
       title: existing ? "Edit product" : "Add product",
-      intro: existing ? `Changes apply to the shared catalog and historical product details for every branch, never recorded sale prices or quantities.${adminClassification ? " Only Admin can complete this product's missing classification in Inventory → Needs classification; you can still update SRP and description." : ""}` : "Adds the product to the shared catalog for every branch.",
+      intro: existing ? `Changes apply to the shared catalog and historical product details for every branch, never recorded sale prices or quantities. Blank SRP clears an existing price to 0; an unset price stays pending.${adminSrp ? " Only Admin can complete this product's missing SRP." : ""}${adminClassification ? " Only Admin can complete missing classification in Inventory → Needs classification." : ""}` : "Adds or updates this barcode in every branch. Nonblank classifications replace existing fields; blanks preserve them. A new product with blank SRP stays pending for Admin; a blank SRP replaces an existing price with 0.",
       submitLabel: existing ? "Save changes" : "Add product",
       body: `${fieldHTML("Brand", "brand", `<input name="brand" list="brand-options" required autocomplete="off" value="${escapeHTML(existing?.brand || "")}">`)}
         <datalist id="brand-options">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>
@@ -4466,6 +4496,10 @@
         ${fieldHTML("Barcode (numbers are padded to 8 digits)", "barcode", `<input name="barcode" required autocomplete="off" value="${escapeHTML(existing?.barcode || "")}">`)}
         ${fieldHTML("SRP (₱, suggested retail price)", "srp", `<input name="srp" type="number" min="0" step="0.01" value="${existing?.srp ?? ""}">`)}`,
       onReady: form => {
+        if (adminSrp) {
+          form.elements.srp.disabled = true;
+          form.elements.srp.title = "Only Admin can complete this product's missing SRP.";
+        }
         if (adminClassification) for (const name of ["brand", "category", "subcategory"]) {
           form.elements[name].disabled = true;
           form.elements[name].required = false;
@@ -4481,7 +4515,7 @@
           p_barcode: normBarcode(form.elements.barcode.value),
           p_category: adminClassification ? existing.category || null : uppercaseEntry(form.elements.category.value),
           p_sub_category: adminClassification ? existing.sub_category || null : uppercaseEntry(form.elements.subcategory.value) || null,
-          p_srp: form.elements.srp.value === "" ? null : Number(form.elements.srp.value),
+          p_srp: adminSrp ? null : form.elements.srp.value === "" ? null : Number(form.elements.srp.value),
         };
         if (existing) mustRpc(await client.rpc("update_product", { p_old_barcode: existing.barcode, ...values }));
         else mustRpc(await client.rpc("add_product", values));
@@ -4549,8 +4583,9 @@
         barcode: normBarcode(row[codeAt]),
         category: categoryAt >= 0 ? uppercaseEntry(row[categoryAt]) : "",
         sub_category: subAt >= 0 ? uppercaseEntry(row[subAt]) : "",
-        srp: srpAt >= 0 && Number.isFinite(parseFloat(String(row[srpAt] ?? "").replace(/[^0-9.]/g, ""))) ? parseFloat(String(row[srpAt]).replace(/[^0-9.]/g, "")) : null,
+        srp: srpAt < 0 || !String(row[srpAt] ?? "").trim() ? null : Number(String(row[srpAt]).replace(/[₱,\s]/g, "")),
       };
+      if (item.srp !== null && (!Number.isFinite(item.srp) || item.srp < 0)) throw new Error("SRP must be a non-negative number.");
       if (item.brand && item.description && item.barcode) items.push(item);
       else skipped += 1;
     });
@@ -4580,7 +4615,7 @@
     let parsed = null;
     openModal({
       title: "Import products",
-      intro: "Admin only. Upload .xlsx, .xls or .csv with columns Brand, Category, Sub-category (both optional), Description and Barcode. Existing barcodes are updated; new ones are added to every branch.",
+      intro: "Admin only. Upload .xlsx, .xls or .csv with Brand, Description and Barcode; Category, Sub-category and SRP are optional. Nonblank classifications replace existing values; blank fields preserve them. Supplied SRP is used. Blank/absent SRP stays pending for new products and becomes 0 for existing products. New items are added to every branch.",
       submitLabel: "Import",
       body: `<input name="file" type="file" accept=".xlsx,.xls,.csv" required>
         <p class="dlg-preview" id="import-preview">No file chosen.</p>

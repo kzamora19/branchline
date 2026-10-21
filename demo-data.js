@@ -488,6 +488,10 @@
           barcode: p.p_barcode, description: p.p_description, brand: p.p_brand, category: p.p_category, sub_category: p.p_sub_category, srp: p.p_srp,
         }];
         const products = catalogOnly(items);
+        if (actor.role !== "admin" && products.some(product => tables.products.some(row =>
+          row.barcode === (p.p_old_barcode || product.barcode) && row.srp == null && product.srp != null))) {
+          throw new Error("Only Admin can complete a product missing SRP.");
+        }
         if (products.some(product => !knownBrand(product.brand) && !tables.products.some(row =>
           row.barcode === (p.p_old_barcode || product.barcode) && row.brand === product.brand))) throw new Error(`Demo products must use one of: ${BRANDS.join(", ")}.`);
         if (actor.role !== "admin" && products.some(product => tables.products.some(row =>
@@ -500,17 +504,26 @@
         const existingProducts = [...tables.products];
         if (name === "update_product") tables.products = tables.products.filter(row => row.barcode !== p.p_old_barcode);
         for (const branch of tables.branches) {
-          upsert("products", products.map(product => ({
-            ...product, dealer_id: actor.dealer_id, srp: name === "update_product" ? product.srp : product.srp ?? existingProducts.find(item =>
-              item.branch_id === branch.id && item.barcode === product.barcode)?.srp ?? null, branch_id: branch.id, active: true,
-          })), ["branch_id", "barcode"]);
+          upsert("products", products.map(product => {
+            const previous = existingProducts.find(item => item.branch_id === branch.id &&
+              item.barcode === (p.p_old_barcode || product.barcode));
+            const blankSrp = previous && (name === "import_products" || previous.srp != null) ? 0 : null;
+            return {
+              ...product, dealer_id: actor.dealer_id, srp: product.srp ?? blankSrp,
+              category: name !== "update_product" ? product.category.trim() || previous?.category || "" : product.category,
+              sub_category: name !== "update_product" ? product.sub_category.trim() || previous?.sub_category || "" : product.sub_category,
+              branch_id: branch.id, active: true,
+            };
+          }), ["branch_id", "barcode"]);
           const snapshot = tables.inventory_snapshots.filter(row => row.branch_id === branch.id).sort((a,b)=>b.imported_at.localeCompare(a.imported_at))[0];
           if (snapshot) for (const product of products) if (!tables.inventory_stock.some(row => row.branch_id === branch.id && row.barcode === product.barcode)) {
             tables.inventory_stock.push({branch_id:branch.id,barcode:product.barcode,quantity:0,serialized:false,snapshot_id:snapshot.id});
           }
         }
         for (const product of products) tables.sale_lines.filter(line => line.barcode === (p.p_old_barcode || product.barcode)).forEach(line => {
-          Object.assign(line, { brand: product.brand, model_description: product.model_description, category: product.category, sub_category: product.sub_category });
+          const updated = tables.products.find(row => row.branch_id === line.branch_id && row.barcode === product.barcode) ||
+            tables.products.find(row => row.barcode === product.barcode);
+          Object.assign(line, { brand: product.brand, model_description: product.model_description, category: updated.category, sub_category: updated.sub_category });
         });
         return { products: products.length };
       }

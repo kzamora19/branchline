@@ -59,7 +59,7 @@
     const event = (branch, kind, barcode, quantity, note) => t.inventory_events.push({ id: uid(), branch_id: branch, actor_id: actor.id, kind, barcode, quantity, note, created_at: now() });
     if (name === "inventory_catalog") return t.products.filter(item => item.active && ids.includes(item.branch_id)).map(item => ({
       branch_id: item.branch_id, barcode: item.barcode, model_description: item.model_description, brand: item.brand,
-      category: item.category, sub_category: item.sub_category, missing_srp: !roles.includes(actor.role) && actor.role !== "ps" && item.srp == null,
+      category: item.category, sub_category: item.sub_category, missing_srp: !roles.includes(actor.role) && actor.role !== "ps" && (item.srp == null || Number(item.srp) === 0),
     }));
     if (name === "inventory_destinations") {
       if (actor.role === "ps") return [];
@@ -102,11 +102,16 @@
         const barcode = I.code(item.barcode);
         if (!barcode || !item.description || !Number.isInteger(item.quantity) || item.quantity < 0 || (item.serialized ? item.serials.length !== item.quantity : item.serials.length !== 0)) throw new Error("Invalid stock quantity or serial count.");
         const known = t.products.find(row => row.barcode === barcode);
-        const details = { barcode, model_description: item.description, brand: known?.brand || "Unclassified", category: known?.category || "", sub_category: known?.sub_category || "" };
+        const incomingSrp = known?.srp == null && known && actor.role !== "admin" ? null :
+          item.srp == null || String(item.srp).trim() === "" ? known ? 0 : null : Number(item.srp);
+        if (incomingSrp !== null && (!Number.isFinite(incomingSrp) || incomingSrp < 0)) throw new Error("SRP must be a non-negative number.");
+        const details = { barcode, model_description: item.description, brand: known?.brand || "Unclassified",
+          category: actor.role === "admin" && String(item.category || "").trim() ? item.category.trim() : known?.category || "",
+          sub_category: actor.role === "admin" && String(item.sub_category || "").trim() ? item.sub_category.trim() : known?.sub_category || "" };
         for (const branch of t.branches) {
           const product = t.products.find(row => row.branch_id === branch.id && row.barcode === barcode);
-          if (product) Object.assign(product, details, { active: true });
-          else t.products.push({ id: uid(), dealer_id: actor.dealer_id, branch_id: branch.id, ...details, srp: known?.srp ?? null, active: true });
+          if (product) Object.assign(product, details, { srp: incomingSrp, active: true });
+          else t.products.push({ id: uid(), dealer_id: actor.dealer_id, branch_id: branch.id, ...details, srp: incomingSrp, active: true });
         }
         t.sale_lines.filter(line => line.barcode === barcode).forEach(line => Object.assign(line, details));
         const stock = stockFor(p.p_branch, barcode);
