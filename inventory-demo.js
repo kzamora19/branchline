@@ -12,6 +12,20 @@
   function initialize(tables, today, uid) {
     const fresh = !tables.inventory_stock;
     tablesList.forEach(table => { tables[table] ||= []; });
+    const codes = { cauayan: "CAU", ilagan: "ILA", santiago: "STG", tuguegarao: "TUG" };
+    for (const branch of tables.branches) {
+      branch.code ||= codes[branch.name.replace(/\s*\(Demo\)$/i, "").trim().toLowerCase()] || null;
+      branch.transfer_sequence ||= 0;
+      const transfers = tables.inventory_transfers.filter(item => item.from_branch === branch.id)
+        .sort((a,b) => a.dispatched_at.localeCompare(b.dispatched_at) || a.id.localeCompare(b.id));
+      if (branch.code) for (const transfer of transfers) {
+        if (!transfer.reference) {
+          transfer.transfer_number = ++branch.transfer_sequence;
+          transfer.reference = `${branch.code}-${String(transfer.transfer_number).padStart(6, "0")}`;
+        }
+        branch.transfer_sequence = Math.max(branch.transfer_sequence,transfer.transfer_number || 0);
+      }
+    }
     for (const role of roles) {
       if (!tables.profiles.some(person => person.role === role)) {
         const person = { id: `demo-${role}`, dealer_id: "demo-dealer", role, full_name: role === "inventory_controller" ? "Demo Inventory Controller" : "Demo Stock Custodian", active: true, branch_id: null, district_id: null };
@@ -145,13 +159,18 @@
       const stock = stockFor(p.p_from, p.p_barcode);
       if (!stock || !Number.isInteger(p.p_quantity) || p.p_quantity < 1 || stock.quantity < p.p_quantity) throw new Error("Insufficient source stock.");
       if (!Array.isArray(p.p_serials)) throw new Error("Serials must be an array.");
+      if (new Set(p.p_serials.map(item => serialKey(item.serial))).size !== p.p_serials.length) throw new Error("Choose a different serial number for each unit.");
       if (stock.serialized ? p.p_serials.length !== p.p_quantity : p.p_serials.length !== 0) throw new Error("Select one serial per unit.");
       const serials = p.p_serials.map(item => {
         const unit = unitFor(p.p_from, p.p_barcode, item.serial);
         if (!unit || unit.status !== "available") throw new Error("Serial is not available for this barcode.");
         unit.status = "transit"; return { serial: unit.serial, received_on: unit.received_on };
       });
-      const transfer = { id: uid(), from_branch: p.p_from, to_branch: p.p_to, barcode: p.p_barcode, quantity: p.p_quantity, serialized: stock.serialized, serials, status: "transit", dispatched_by: actor.id, dispatched_at: now(), note: p.p_note };
+      const branch = t.branches.find(item => item.id === p.p_from);
+      if (!branch.code) throw new Error("Ask Admin to set a branch code for the source branch before transferring stock.");
+      const transferNumber = ++branch.transfer_sequence;
+      const reference = `${branch.code}-${String(transferNumber).padStart(6, "0")}`;
+      const transfer = { id: uid(), reference, transfer_number: transferNumber, from_branch: p.p_from, to_branch: p.p_to, barcode: p.p_barcode, quantity: p.p_quantity, serialized: stock.serialized, serials, status: "transit", dispatched_by: actor.id, dispatched_at: now(), note: p.p_note || "" };
       stock.quantity -= p.p_quantity; t.inventory_transfers.push(transfer);
       event(p.p_from, "dispatch", p.p_barcode, -p.p_quantity, transfer.id); return transfer.id;
     }

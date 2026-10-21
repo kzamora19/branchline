@@ -24,8 +24,9 @@
   color: var(--ink);
 }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; min-height: 100vh; }
-button, input, select { font: inherit; }
+body { margin: 0; min-width: 320px; min-height: 100vh; text-transform: uppercase; }
+button, input, select, textarea { font: inherit; text-transform: inherit; }
+input[type="password"], input[autocomplete="current-password"], input[autocomplete="new-password"], input[name="password"], input[type="email"], input[type="url"], input[name="email"], input[name="login"], input[name="contact"], input[name="invoice"], input[name="barcode"], input[name="serials"], [data-serial], [data-transfer-serial], .temp-password, code { text-transform: none; }
 button { cursor: pointer; }
 select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed; }
 .app-shell { min-height: 100vh; }
@@ -222,6 +223,7 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .inventory-tab.is-active { background: #3157ed; border-color: #3157ed; color: #fff; }
 .inventory-tab:focus-visible { outline: 2px solid #3157ed; outline-offset: 2px; }
 .inventory-total { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.inventory-availability { display: flex; flex-wrap: wrap; gap: 6px; }
 .inventory-form-panel .dlg { width: 100%; max-width: none; max-height: none; margin: 0; box-shadow: none; overflow: visible; }
 .inventory-form-panel .dlg-body { min-width: 0; }
 .inventory-form-success { padding: 12px 16px; border: 1px solid #a7d7be; border-radius: 8px; background: #effaf3; color: #176239; }
@@ -528,3 +530,38 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .insight-medium { border-left-color: #f59e0b; }.insight-medium .insight-level { color: #b45309; }
 .insight-low { border-left-color: #3b82f6; }.insight-low .insight-level { color: #1d4ed8; }
 .insight-good { border-left-color: #16a34a; }.insight-good .insight-level { color: #15803d; }
+
+.field, .dlg-body, .dlg-form, .connected-main, .connected-panel, .connected-panel-heading > div, .panel-heading-row > div { min-width: 0; }
+.field input, .field select, .field textarea { min-width: 0; max-width: 100%; }
+.button { height: auto; padding-top: 8px; padding-bottom: 8px; line-height: 1.35; text-align: center; }
+.connected-heading, .connected-panel-heading, .dlg-intro, .an-note, .inventory-total, .inventory-form-success { overflow-wrap: anywhere; }
+.panel-heading-row, .dlg-actions, .filter-actions, .connected-pager > div { flex-wrap: wrap; }
+.panel-heading-row > div:first-child { flex: 1 1 180px; }
+.table-tools { max-width: 100%; flex-wrap: wrap; }
+.pie-tip { max-width: calc(100vw - 20px); white-space: normal; overflow-wrap: anywhere; }
+.insight-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+
+@media (max-width: 760px) {
+  .connected-heading h1 { font-size: 22px; }
+  .connected-panel { padding: 14px; }
+  .connected-panel-heading h2 { font-size: 12px; }
+  .inventory-tab { padding: 10px 12px; font-size: 11px; }
+  .connected-panel-heading p, .dlg-intro, .an-note { line-height: 1.55; }
+  .dlg-head { gap: 10px; align-items: flex-start; }
+  .dlg-head h2 { min-width: 0; font-size: 15px; overflow-wrap: anywhere; }
+  .dlg-close { flex: 0 0 auto; }
+  .dlg-backdrop, .serial-pop { padding: 10px; }
+  .dlg { max-height: calc(100dvh - 20px); }
+  .dlg-form { padding: 12px; }
+  .field input, .field select, .field textarea, .auth-card input { font-size: 16px; }
+  .field > span { font-size: 10px; line-height: 1.4; }
+  .dlg-grid, .connected-form-grid { grid-template-columns: minmax(0,1fr); }
+  .sale-row { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
+  .sale-row > .field { min-width: 0; }
+  .sale-row .sale-product, .sale-row .sale-inventory-serials { grid-column: 1 / -1; }
+  .sale-row[data-outdoor-of] { margin-left: 0; }
+  .connected-metric, .personal-target-details { min-width: 0; overflow-wrap: anywhere; }
+  .connected-pager > div { gap: 6px; }
+  .demo-workspace-controls { padding: 12px 16px; }
+  .demo-workspace-controls > div, .demo-workspace-controls .field { min-width: 0; max-width: 100%; }
+}

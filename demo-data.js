@@ -482,7 +482,6 @@
         const products = catalogOnly(items);
         if (products.some(product => !knownBrand(product.brand) && !tables.products.some(row =>
           row.barcode === (p.p_old_barcode || product.barcode) && row.brand === product.brand))) throw new Error(`Demo products must use one of: ${BRANDS.join(", ")}.`);
-        products.forEach(product => { product.brand = knownBrand(product.brand) || product.brand; });
         if (actor.role !== "admin" && products.some(product => tables.products.some(row =>
           row.barcode === (p.p_old_barcode || product.barcode) && I.needsClassification(row) &&
           ["brand", "category", "sub_category"].some(key => (row[key] || "") !== (product[key] || ""))))) {
@@ -602,7 +601,15 @@
               table === "districts" && tables.branches.some(b => b.district_id === p.p_id)) throw new Error("This demo location still has records. Remove them first.");
           tables[table] = tables[table].filter(row => row.id !== p.p_id);
         } else {
-          const row = { name: p.p_name, ...(table === "branches" ? { district_id: p.p_district_id } : {}) };
+          const row = { name: p.p_name, ...(table === "branches" ? { district_id: p.p_district_id, dealer_id: actor.dealer_id } : {}) };
+          if (table === "branches") {
+            const code = String(p.p_code || "").trim().toUpperCase();
+            if (!/^[A-Z][A-Z0-9]{1,9}$/.test(code)) throw new Error("Branch code must be 2-10 letters/numbers, starting with a letter.");
+            if (tables.branches.some(branch => branch.id !== p.p_id && branch.code === code)) throw new Error("That branch code is already used in this company.");
+            const existing = tables.branches.find(branch => branch.id === p.p_id);
+            if (existing?.transfer_sequence > 0 && existing.code !== code) throw new Error("A branch code cannot change after a numbered transfer.");
+            Object.assign(row,{code,...(name.startsWith("create")?{transfer_sequence:0}:{})});
+          }
           if (name.startsWith("create")) {
             const added = insert(table, row);
             if (table === "branches") {

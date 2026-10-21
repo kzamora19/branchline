@@ -138,6 +138,7 @@
     ui.dsBranch = "";
     ui.invView = "";
     ui.invBrand = "";
+    ui.invAvailable = false;
     ui.pages = {};
     ui.sort = {};
     productSelection.clear();
@@ -282,6 +283,10 @@
     }).join(" ");
   }
 
+  function uppercaseEntry(text) {
+    return String(text ?? "").trim().toUpperCase();
+  }
+
   // Numeric barcodes are always 8 digits (32690 -> 00032690); other codes are kept as typed.
   function normBarcode(text) {
     const value = String(text ?? "").trim();
@@ -321,7 +326,7 @@
       currentProfile = { ...profile, full_name: titleCase(profile.full_name), assigned_brand: titleCase(profile.assigned_brand) };
       if (inventoryOnly()) {
         const [branches, districts, inventory] = await Promise.all([
-          fetchAll("branches", "id,name,district_id", [["id", true]]),
+          fetchAll("branches", "id,name,district_id,code,transfer_sequence", [["id", true]]),
           fetchAll("districts", "id,name", [["id", true]]), loadInventoryData(client),
         ]);
         if (sequence !== loadSequence || !currentSession) return;
@@ -346,7 +351,7 @@
         catalogBranch = probe.data?.[0]?.branch_id || null;
       }
       const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, pushSchedules, paymentTargets, importBatches, dailyHistory, saleSerials] = await Promise.all([
-        fetchAll("branches", "id,name,district_id", [["name", true], ["id", true]]),
+        fetchAll("branches", "id,name,district_id,code,transfer_sequence", [["name", true], ["id", true]]),
         fetchAll("districts", "id,name", [["name", true], ["id", true]]),
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
         fetchAll("sales",         "id,branch_id,ps_id,ps_name,customer_name,invoice_number,sold_on,payment_mode,city,barangay,created_at,updated_at", [["sold_on", false], ["id", true]]),
@@ -2155,10 +2160,15 @@
       })];
     const units = [["Branch", "Barcode", "Serial", "Received date", "Age (days)", "Status"], ...(liveData.inventorySerials || []).map(item =>
       [branchName(item.branch_id), item.barcode, item.serial, item.received_on || "", window.BranchlineInventory.ageDays(item.received_on, window.BranchlineDemo.philippineDate()) ?? "Unknown", item.status])];
-    const transfers = [["ID", "From", "To", "Barcode", "Qty", "Serials", "Status", "Dispatched", "Resolved", "Note"],
-      ...(liveData.inventoryTransfers || []).map(item => [item.id, inventoryBranchName(item.from_branch), inventoryBranchName(item.to_branch), item.barcode, item.quantity, item.serials.map(unit => unit.serial).join(", "), item.status, item.dispatched_at, item.resolved_at || "", item.note])];
+    const transfers = [["ID", "Reference", "From", "To", "Barcode", "Qty", "Serials", "Status", "Dispatched", "Resolved", "Remarks"],
+      ...(liveData.inventoryTransfers || []).map(item => [item.id, item.reference || "Legacy (no reference)", inventoryBranchName(item.from_branch), inventoryBranchName(item.to_branch), item.barcode, item.quantity, item.serials.map(unit => unit.serial).join(", "), item.status, item.dispatched_at, item.resolved_at || "", item.note])];
     return [{ name: "Item Master", rows: items }, { name: "Inventory serials", rows: units }, { name: "Stock transfers", rows: transfers },
-      { name: "Inventory history", rows: [["Date", "Branch", "Action", "Barcode", "Qty change", "Note"], ...(liveData.inventoryEvents || []).map(item => [item.created_at, branchName(item.branch_id), item.kind, item.barcode || "", item.quantity ?? "", item.note])] }];
+      { name: "Inventory history", rows: [["Date", "Branch", "Action", "Barcode", "Qty change", "Note"], ...(liveData.inventoryEvents || []).map(item => [item.created_at, branchName(item.branch_id), item.kind, item.barcode || "", item.quantity ?? "", inventoryEventNote(item)])] }];
+  }
+
+  function inventoryEventNote(item) {
+    return (["dispatch", "receive", "cancel"].includes(item.kind)
+      ? liveData.inventoryTransfers?.find(transfer => transfer.id === item.note)?.reference : null) || item.note;
   }
 
   function inventoryBranchName(id) {
@@ -2170,6 +2180,7 @@
     const ids = scopeBranchIds();
     return (liveData.inventoryCatalog || []).filter(item => ids.has(item.branch_id) &&
       (!["brand", "aging"].includes(ui.invView) || currentProfile.role !== "ps" || window.BranchlineInventory.brandMatches(item, currentProfile, liveData.profiles, liveData.inventoryCatalog)) &&
+      (!(ui.invAvailable && ["master", "brand"].includes(ui.invView)) || inventoryStockFor(item.branch_id, item.barcode)?.quantity > 0) &&
       (!ui.invBrand || item.brand === ui.invBrand) && matches(searchQuery(), item.barcode, item.model_description, item.brand, item.category, item.sub_category));
   }
 
@@ -2206,17 +2217,17 @@
         }).join("<br>")}</p>`;
         if (ui.invView === "transfers") {
           const transfers = liveData.inventoryTransfers.filter(item => (ids.has(item.from_branch) || ids.has(item.to_branch)) &&
-            matches(searchQuery(), item.barcode, item.note, item.status, inventoryBranchName(item.from_branch), inventoryBranchName(item.to_branch)))
+            matches(searchQuery(), item.reference, item.barcode, item.note, item.status, inventoryBranchName(item.from_branch), inventoryBranchName(item.to_branch)))
             .sort((a, b) => String(b.dispatched_at).localeCompare(String(a.dispatched_at)) || natural(b.id, a.id));
           return panel("Stock transfers", "Only destination-authorized users may receive. Source-authorized users may cancel an unreceived transfer.", tableBlock("inventory-transfers",
-            ["From", "To", "Barcode", "Qty", "Serials", "Status", "Dispatched", ""], transfers,
-            item => `<tr><td>${escapeHTML(inventoryBranchName(item.from_branch))}</td><td>${escapeHTML(inventoryBranchName(item.to_branch))}</td><td>${escapeHTML(item.barcode)}</td><td>${item.quantity}</td><td>${escapeHTML(item.serials.map(unit => unit.serial).join(", "))}</td><td>${escapeHTML(item.status)}</td><td>${escapeHTML(item.dispatched_at)}</td><td>${item.status === "transit" && managesInventory() ? `${liveData.branches.some(branch => branch.id === item.to_branch) ? `<button class="button button-small" data-transfer-action="receive" data-id="${escapeHTML(item.id)}">Confirm receipt</button>` : ""}${liveData.branches.some(branch => branch.id === item.from_branch) ? `<button class="button button-small" data-transfer-action="cancel" data-id="${escapeHTML(item.id)}">Cancel / restore</button>` : ""}` : ""}</td></tr>`, "No transfers.")) + dates;
+            ["Reference", "From", "To", "Barcode", "Qty", "Serials", "Status", "Dispatched", "Remarks", ""], transfers,
+            item => `<tr><td>${escapeHTML(item.reference || "Legacy (no reference)")}</td><td>${escapeHTML(inventoryBranchName(item.from_branch))}</td><td>${escapeHTML(inventoryBranchName(item.to_branch))}</td><td>${escapeHTML(item.barcode)}</td><td>${item.quantity}</td><td>${escapeHTML(item.serials.map(unit => unit.serial).join(", "))}</td><td>${escapeHTML(item.status)}</td><td>${escapeHTML(item.dispatched_at)}</td><td>${escapeHTML(item.note)}</td><td>${item.status === "transit" && managesInventory() ? `${liveData.branches.some(branch => branch.id === item.to_branch) ? `<button class="button button-small" data-transfer-action="receive" data-id="${escapeHTML(item.id)}">Confirm receipt</button>` : ""}${liveData.branches.some(branch => branch.id === item.from_branch) ? `<button class="button button-small" data-transfer-action="cancel" data-id="${escapeHTML(item.id)}">Cancel / restore</button>` : ""}` : ""}</td></tr>`, "No transfers.")) + dates;
         }
         if (ui.invView === "history") return panel("Inventory history", "Imports, adjustments and transfers are recorded with the acting account.", tableBlock("inventory-history",
           ["When", "Branch", "Action", "Barcode", "Qty change", "Note"], liveData.inventoryEvents.filter(item => ids.has(item.branch_id) &&
-            matches(searchQuery(), item.barcode, item.kind, item.note, branchName(item.branch_id)))
+            matches(searchQuery(), item.barcode, item.kind, inventoryEventNote(item), branchName(item.branch_id)))
             .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || natural(b.id, a.id)),
-          item => `<tr><td>${escapeHTML(item.created_at)}</td><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.kind)}</td><td>${escapeHTML(item.barcode)}</td><td>${item.quantity ?? ""}</td><td>${escapeHTML(item.note)}</td></tr>`, "No inventory movements."));
+          item => `<tr><td>${escapeHTML(item.created_at)}</td><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.kind)}</td><td>${escapeHTML(item.barcode)}</td><td>${item.quantity ?? ""}</td><td>${escapeHTML(inventoryEventNote(item))}</td></tr>`, "No inventory movements."));
         if (ui.invView === "brand" || ui.invView === "aging") {
           const rows = ui.invView === "aging" ? aged : units;
           const table = panel(ui.invView === "aging" ? "Stock older than 90 days" : "Available serials", "Serial identity is branch + barcode + serial. Original receipt dates survive branch transfers.", tableBlock("inventory-serials",
@@ -2247,12 +2258,15 @@
   }
 
   function inventoryMasterTable(items, key = "inventory-master", title = "Item Master") {
-    return panel(title, `Zero-stock products remain listed. Uninitialized stock is unknown, not zero.${inventoryOnly() ? "" : " Edit product prices using Products → Edit (BM and above)."}`, tableBlock(key,
+    const toggle = ["inventory-master", "inventory-brand"].includes(key) ? `<div class="inventory-availability" role="group" aria-label="Stock availability">
+      <button class="button button-small ${ui.invAvailable ? "button-outline" : "button-primary"}" type="button" data-inventory-available="all" aria-pressed="${!ui.invAvailable}">All products</button>
+      <button class="button button-small ${ui.invAvailable ? "button-primary" : "button-outline"}" type="button" data-inventory-available="available" aria-pressed="${!!ui.invAvailable}">Available only</button></div>` : "";
+    return panel(title, `All products includes zero and uninitialized stock; Available only shows quantity above zero. Uninitialized stock is unknown, not zero.${inventoryOnly() ? "" : " Edit product prices using Products → Edit (BM and above)."}`, tableBlock(key,
       ["Branch", "Barcode", "Product", "Brand", "Category", "Subcategory", "Available qty", "Serialized", ""], items,
       item => {
         const stock = inventoryStockFor(item.branch_id, item.barcode);
         return `<tr><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(item.model_description)}${item.missing_srp ? '<br><span class="an-down">SRP needed — Products → Edit</span>' : ""}</td><td>${escapeHTML(item.brand)}</td><td>${escapeHTML(item.category || "Needs classification")}</td><td>${escapeHTML(item.sub_category || "")}</td><td>${stock ? stock.quantity : "Not initialized"}</td><td>${stock ? stock.serialized ? "Yes" : "No" : "Unknown"}</td><td>${currentProfile.role === "admin" ? `<button class="button button-outline button-small" type="button" data-inventory-classify="${escapeHTML(item.barcode)}" data-branch="${escapeHTML(item.branch_id)}">Classify</button> ` : ""}${managesInventory() && stock ? `<button class="button button-outline button-small" data-inventory-adjust="${escapeHTML(item.barcode)}" data-branch="${escapeHTML(item.branch_id)}">Adjust</button>` : ""}</td></tr>`;
-      }, "No products match this selection."));
+      }, "No products match this selection."), toggle);
   }
 
   function openInventoryClassification(barcode, branch) {
@@ -2271,10 +2285,10 @@
         ${suggestions("inventory-class-categories", catalog.map(item => item.category))}
         ${suggestions("inventory-class-subs", catalog.map(item => item.sub_category))}`,
       onSubmit: async form => {
-        const brand = form.elements.brand.value.trim(), category = form.elements.category.value.trim();
+        const brand = uppercaseEntry(form.elements.brand.value), category = uppercaseEntry(form.elements.category.value);
         if (window.BranchlineInventory.needsClassification({ brand, category })) throw new Error("Enter a confirmed brand and category. Subcategory is optional.");
         mustRpc(await client.rpc("classify_inventory_product", { p_branch: branch, p_barcode: barcode,
-          p_brand: brand, p_category: category, p_sub_category: form.elements.sub_category.value.trim() || null }));
+          p_brand: brand, p_category: category, p_sub_category: uppercaseEntry(form.elements.sub_category.value) || null }));
         await refreshData();
       },
     });
@@ -2343,7 +2357,8 @@
       onSubmit: async form => {
         if (!preview) throw new Error("Preview and validate both reports before replacing inventory.");
         const result = await client.rpc("import_inventory", { p_branch: form.elements.branch.value, p_reported_at: `${form.elements.reported.value}:00+08:00`,
-          p_files: `${form.elements.stock.files[0].name} + ${form.elements.serials.files[0].name}`, p_items: preview.items });
+          p_files: `${form.elements.stock.files[0].name} + ${form.elements.serials.files[0].name}`,
+          p_items: preview.items.map(item => ({ ...item, description: uppercaseEntry(item.description) })) });
         if (result.error?.code === "57014" || /statement timeout/i.test(result.error?.message || "")) {
           throw new Error("The inventory import timed out and was rolled back; no changes from this attempt were saved. Ask your administrator to apply the inventory import performance update (20261111000000), then retry both reports.");
         }
@@ -2368,7 +2383,7 @@
           const parts = line.split("|").map(part => part.trim());
           return { serial: parts[0], received_on: parts[1] ? window.BranchlineInventory.day(parts[1]) : null };
         }) : [];
-        mustRpc(await client.rpc("adjust_inventory", { p_branch: branch, p_barcode: barcode, p_quantity: Number(form.elements.quantity.value), p_serials: serials, p_note: form.elements.reason.value.trim() }));
+        mustRpc(await client.rpc("adjust_inventory", { p_branch: branch, p_barcode: barcode, p_quantity: Number(form.elements.quantity.value), p_serials: serials, p_note: uppercaseEntry(form.elements.reason.value) }));
         await refreshData();
       },
     });
@@ -2380,30 +2395,66 @@
       title: "Transfer inventory", submitLabel: "Dispatch stock",
       intro: "The source loses availability now. The destination gains it only after confirming receipt. Original received dates are preserved.",
       body: `${inventoryBranchField("from", "From branch")}${fieldHTML("To branch", "to", selectHTML("to", liveData.inventoryDestinations.map(item => [item.id, item.name]), ""))}
-        ${fieldHTML("Product", "barcode", '<select name="barcode" required></select>')}
+        ${fieldHTML("Product (search barcode or product info)", "product", '<input name="product" list="transfer-products" required autocomplete="off" placeholder="Type barcode, product, brand or category"><datalist id="transfer-products"></datalist><input name="barcode" type="hidden">')}
         ${fieldHTML("Quantity", "quantity", '<input name="quantity" type="number" min="1" step="1" value="1" required>')}
-        <div data-transfer-serials></div>${fieldHTML("Transfer reference / note", "note", '<input name="note" required maxlength="500">')}`,
+        <div data-transfer-serials></div>
+        ${fieldHTML("Transfer reference (automatic)", "reference", '<input name="reference" readonly aria-describedby="transfer-reference-help"><small id="transfer-reference-help">Preview only. The final unique reference is assigned when stock is dispatched.</small>')}
+        ${fieldHTML("Note / remarks (optional)", "note", '<textarea name="note" rows="3" maxlength="500"></textarea>')}`,
       onReady: form => {
-        const serials = () => {
+        let candidates = [];
+        const productLabel = item => [item.barcode, item.model_description, item.brand, item.category, item.sub_category].filter(Boolean).join(" · ");
+        const serials = (preserve = false) => {
           const stock = inventoryStockFor(form.elements.from.value, form.elements.barcode.value);
-          form.querySelector("[data-transfer-serials]").innerHTML = stock?.serialized ? fieldHTML("Available serials (select one per unit)", "serials",
-            `<select name="serials" multiple size="8">${inventoryUnitsFor(form.elements.from.value, form.elements.barcode.value).map(item => `<option value="${escapeHTML(item.serial)}">${escapeHTML(item.serial)} · ${escapeHTML(item.received_on || "date unknown")}</option>`).join("")}</select>`) : "";
+          const quantity = Number(form.elements.quantity.value);
+          const previous = preserve ? [...form.querySelectorAll("[data-transfer-serial]")].map(input => input.value) : [];
+          form.elements.quantity.max = stock ? String(stock.quantity) : "";
+          form.querySelector("[data-transfer-serials]").innerHTML = stock?.serialized && Number.isInteger(quantity) && quantity > 0 && quantity <= stock.quantity
+            ? Array.from({ length: quantity }, (_,index) => fieldHTML(`Serial number ${index + 1}`, `transfer_serial_${index}`,
+              `<input name="transfer_serial_${index}" data-transfer-serial list="transfer-serial-options" required autocomplete="off" placeholder="Choose or search an available serial" value="${escapeHTML(previous[index] || "")}">`)).join("") +
+              `<datalist id="transfer-serial-options">${inventoryUnitsFor(form.elements.from.value, form.elements.barcode.value).map(item =>
+                `<option value="${escapeHTML(item.serial)}">${escapeHTML(item.received_on || "date unknown")}</option>`).join("")}</datalist>`
+            : stock && !stock.serialized ? '<p class="an-note">This product has no serial numbers. Transfer uses quantity only.</p>' : "";
         };
         const products = () => {
-          form.elements.barcode.innerHTML = liveData.inventoryCatalog.filter(item => item.branch_id === form.elements.from.value && inventoryStockFor(item.branch_id, item.barcode)?.quantity > 0)
-            .map(item => `<option value="${escapeHTML(item.barcode)}">${escapeHTML(item.barcode)} · ${escapeHTML(item.model_description)}</option>`).join("");
+          candidates = liveData.inventoryCatalog.filter(item => item.branch_id === form.elements.from.value && inventoryStockFor(item.branch_id, item.barcode)?.quantity > 0);
+          form.querySelector("#transfer-products").innerHTML = candidates.map(item => `<option value="${escapeHTML(productLabel(item))}"></option>`).join("");
+          form.elements.product.value = ""; form.elements.barcode.value = ""; form.elements.quantity.value = "1";
+          form.elements.product.setCustomValidity("");
+          const branch = liveData.branches.find(item => item.id === form.elements.from.value);
+          form.elements.reference.value = branch?.code ? `${branch.code}-${String(Number(branch.transfer_sequence || 0) + 1).padStart(6, "0")} (preview)` : "Branch code needed — ask Admin";
           serials();
         };
+        const chooseProduct = () => {
+          const value = form.elements.product.value.trim().toLowerCase();
+          const item = candidates.find(item => item.barcode.toLowerCase() === value || productLabel(item).toLowerCase() === value);
+          const changed = form.elements.barcode.value !== (item?.barcode || "");
+          form.elements.barcode.value = item?.barcode || "";
+          form.elements.product.setCustomValidity(item ? "" : "Choose an available product from the suggestions, or enter its exact barcode.");
+          if (changed) serials();
+        };
         form.elements.from.addEventListener("change", products);
-        form.elements.barcode.addEventListener("change", serials);
+        form.elements.product.addEventListener("input", chooseProduct);
+        form.elements.product.addEventListener("change", chooseProduct);
+        form.elements.quantity.addEventListener("input", () => serials(true));
         products();
       },
       onSubmit: async form => {
-        mustRpc(await client.rpc("dispatch_inventory", {
-          p_from: form.elements.from.value, p_to: form.elements.to.value, p_barcode: form.elements.barcode.value,
-          p_quantity: Number(form.elements.quantity.value), p_serials: [...(form.elements.serials?.selectedOptions || [])].map(option => ({ serial: option.value })), p_note: form.elements.note.value.trim(),
+        const barcode = form.elements.barcode.value;
+        if (!barcode) throw new Error("Choose an available product using its barcode or product suggestions.");
+        const available = inventoryUnitsFor(form.elements.from.value, barcode);
+        const serials = [...form.querySelectorAll("[data-transfer-serial]")].map(input => {
+          const unit = available.find(item => item.serial.toLowerCase() === input.value.trim().toLowerCase());
+          if (!unit) throw new Error("Choose serial numbers available for this source branch and barcode.");
+          return { serial: unit.serial };
+        });
+        if (new Set(serials.map(item => item.serial.toLowerCase())).size !== serials.length) throw new Error("Choose a different serial number for each unit.");
+        const transferId = mustRpc(await client.rpc("dispatch_inventory", {
+          p_from: form.elements.from.value, p_to: form.elements.to.value, p_barcode: barcode,
+          p_quantity: Number(form.elements.quantity.value), p_serials: serials, p_note: uppercaseEntry(form.elements.note.value),
         }));
         await refreshData();
+        const transfer = liveData.inventoryTransfers.find(item => item.id === transferId);
+        return `Stock dispatched. Transfer reference: ${escapeHTML(transfer?.reference || transferId)}.`;
       },
     });
   }
@@ -2412,7 +2463,7 @@
     const transfer = liveData.inventoryTransfers.find(item => item.id === id);
     openModal({
       title: action === "receive" ? "Confirm transfer receipt" : "Cancel transfer and restore source stock",
-      intro: `${transfer.barcode} · ${transfer.quantity} unit(s). ${action === "receive" ? "Confirm these goods physically arrived. Do not receive twice if your external stock report already includes them; receipt must be resolved before importing that report." : "Confirm the goods remain at / have returned to the source branch."}`,
+      intro: `${transfer.reference || "Legacy transfer"} · ${transfer.barcode} · ${transfer.quantity} unit(s). ${action === "receive" ? "Confirm these goods physically arrived. Do not receive twice if your external stock report already includes them; receipt must be resolved before importing that report." : "Confirm the goods remain at / have returned to the source branch."}`,
       body: "", submitLabel: "Confirm",
       onSubmit: async () => {
         mustRpc(await client.rpc("resolve_inventory_transfer", { p_transfer: id, p_action: action }));
@@ -3176,14 +3227,14 @@
         if (new Set(rows.map(row => row.barcode)).size !== rows.length) throw new Error("Use one item line per barcode and increase its quantity instead of repeating the product.");
         if (liveData.inventoryError) throw new Error(liveData.inventoryError);
         mustRpc(await client.rpc("save_inventory_sale", {
-          p_customer_name: titleCase(form.elements.customer.value),
+          p_customer_name: uppercaseEntry(form.elements.customer.value),
           p_invoice_number: form.elements.invoice.value.trim(),
           p_sold_on: form.elements.date.value,
           p_lines: rows,
           p_sale_id: sale ? sale.id : null,
           p_payment_mode: form.elements.payment.value,
-          p_city: form.elements.city.value.trim(),
-          p_barangay: form.elements.barangay.value.trim(),
+          p_city: uppercaseEntry(form.elements.city.value),
+          p_barangay: uppercaseEntry(form.elements.barangay.value),
           p_serials: form.serialPayload(),
           p_reconcile: Boolean(form.elements.reconcile?.checked),
         }));
@@ -3316,8 +3367,8 @@
             || natural(a.profile.full_name, b.profile.full_name));
         const branchRows = liveData.branches
           .filter(branch => !ui.district || branch.district_id === ui.district)
-          .map(branch => ({ id: branch.id, district: districtName(branch.district_id), branch: branch.name }))
-          .filter(row => matches(query, row.district, row.branch))
+          .map(branch => ({ id: branch.id, district: districtName(branch.district_id), branch: branch.name, code: branch.code || "Not set" }))
+          .filter(row => matches(query, row.district, row.branch, row.code))
           .sort((a, b) => natural(a.district, b.district) || natural(a.branch, b.branch));
         const geoButtons = (kind, id) => `<button class="button button-outline button-small" type="button" data-geo="edit-${kind}" data-id="${escapeHTML(id)}">Update</button> <button class="button button-outline button-small" type="button" data-geo="delete-${kind}" data-id="${escapeHTML(id)}">Delete</button>`;
         const districtRows = liveData.districts
@@ -3335,9 +3386,9 @@
         ));
         const branchesPanel = panel("Branches", `${branchRows.length} branch${branchRows.length === 1 ? "" : "es"}, grouped by district.`, tableBlock(
           "branchlist",
-          ["District", "Branch", ""],
+          ["District", "Branch", "Code", ""],
           branchRows,
-          row => `<tr><td>${escapeHTML(row.district)}</td><td><strong>${escapeHTML(row.branch)}</strong></td><td class="manage-cell">${geoButtons("branch", row.id)}</td></tr>`,
+          row => `<tr><td>${escapeHTML(row.district)}</td><td><strong>${escapeHTML(row.branch)}</strong></td><td>${escapeHTML(row.code)}</td><td class="manage-cell">${geoButtons("branch", row.id)}</td></tr>`,
           "No branches yet. Use + Branch to create one.",
         ));
         return districtsPanel + branchesPanel + panel("Staff profiles", "Highest role first; Product Specialists are grouped by brand.", tableBlock(
@@ -3406,7 +3457,7 @@
       submitLabel: "Add message",
       body: fieldHTML("Message", "message", '<textarea name="message" rows="3" maxlength="240" required></textarea>') + PLACEHOLDER_LEGEND,
       onSubmit: async form => {
-        mustRpc(await client.rpc("save_push_message", { p_status: status, p_message: form.elements.message.value.trim() }));
+        mustRpc(await client.rpc("save_push_message", { p_status: status, p_message: uppercaseEntry(form.elements.message.value) }));
         await refreshData();
       },
     });
@@ -3565,7 +3616,7 @@
         if (!sales.length) throw new Error("Match at least one branch code to a branch.");
         if (!window.confirm(`Import ${sales.length} sales into ${demoStore ? "this local demo" : "the live data"}? You can remove the whole import afterwards.`)) throw new Error("Import cancelled.");
         batchId ||= crypto.randomUUID();
-        const label = form.elements.label.value.trim() || fileName || "Sales history";
+        const label = uppercaseEntry(form.elements.label.value || fileName || "Sales history");
         const progress = form.querySelector("#history-progress");
         progress.hidden = false;
         const totals = { sales: 0, lines: 0, skipped_existing: 0, matched_ps: 0 };
@@ -3574,7 +3625,10 @@
           progress.textContent = `Importing… ${Math.min(index * 200, sales.length)} of ${sales.length} sales`;
           const part = mustRpc(await client.rpc("import_sales_history", {
             p_batch: batchId, p_label: label, p_file: fileName,
-            p_sales: chunks[index].map(sale => ({ branch_id: sale.branch_id, invoice: sale.invoice, sold_on: sale.sold_on, customer: sale.customer, ps_name: sale.ps_name, payment_mode: sale.payment_mode, lines: sale.lines })),
+            p_sales: chunks[index].map(sale => ({ branch_id: sale.branch_id, invoice: sale.invoice, sold_on: sale.sold_on,
+              customer: uppercaseEntry(sale.customer), ps_name: uppercaseEntry(sale.ps_name), payment_mode: sale.payment_mode,
+              lines: sale.lines.map(line => ({ ...line, description: uppercaseEntry(line.description), brand: uppercaseEntry(line.brand),
+                category: uppercaseEntry(line.category), sub_category: uppercaseEntry(line.sub_category) })) })),
           }));
           Object.keys(totals).forEach(key => { totals[key] += Number(part[key]) || 0; });
         }
@@ -3714,7 +3768,7 @@
       submitLabel: "Add date",
       body: fieldHTML("Date", "date", '<input name="date" type="date" required>') + fieldHTML("Label (optional)", "label", '<input name="label" maxlength="80" placeholder="e.g. Christmas Day">'),
       onSubmit: async form => {
-        mustRpc(await client.rpc("save_company_holiday", { p_date: form.elements.date.value, p_label: form.elements.label.value.trim() || null }));
+        mustRpc(await client.rpc("save_company_holiday", { p_date: form.elements.date.value, p_label: uppercaseEntry(form.elements.label.value) || null }));
         await refreshData();
       },
     });
@@ -3944,7 +3998,7 @@
       try {
         const result = await onSubmit(form);
         if (inline) {
-          document.querySelector("#live-results")?.insertAdjacentHTML("afterbegin", `<p class="inventory-form-success" role="status">${escapeHTML(title)} saved successfully.</p>`);
+          document.querySelector("#live-results")?.insertAdjacentHTML("afterbegin", `<p class="inventory-form-success" role="status">${result || `${escapeHTML(title)} saved successfully.`}</p>`);
           return;
         }
         if (result) {
@@ -4043,11 +4097,11 @@
       },
       onSubmit: async form => {
         const values = {
-          p_brand: adminClassification ? existing.brand : titleCase(form.elements.brand.value),
-          p_description: titleCase(form.elements.description.value),
+          p_brand: adminClassification ? existing.brand : uppercaseEntry(form.elements.brand.value),
+          p_description: uppercaseEntry(form.elements.description.value),
           p_barcode: normBarcode(form.elements.barcode.value),
-          p_category: adminClassification ? existing.category || null : titleCase(form.elements.category.value),
-          p_sub_category: adminClassification ? existing.sub_category || null : titleCase(form.elements.subcategory.value) || null,
+          p_category: adminClassification ? existing.category || null : uppercaseEntry(form.elements.category.value),
+          p_sub_category: adminClassification ? existing.sub_category || null : uppercaseEntry(form.elements.subcategory.value) || null,
           p_srp: form.elements.srp.value === "" ? null : Number(form.elements.srp.value),
         };
         if (existing) mustRpc(await client.rpc("update_product", { p_old_barcode: existing.barcode, ...values }));
@@ -4111,11 +4165,11 @@
     rows.slice(headerIndex + 1).forEach(row => {
       if (row.every(cell => !String(cell ?? "").trim())) return;
       const item = {
-        brand: titleCase(String(row[brandAt] ?? "")),
-        description: titleCase(String(row[descAt] ?? "")),
+        brand: uppercaseEntry(row[brandAt]),
+        description: uppercaseEntry(row[descAt]),
         barcode: normBarcode(row[codeAt]),
-        category: categoryAt >= 0 ? titleCase(String(row[categoryAt] ?? "")) : "",
-        sub_category: subAt >= 0 ? titleCase(String(row[subAt] ?? "")) : "",
+        category: categoryAt >= 0 ? uppercaseEntry(row[categoryAt]) : "",
+        sub_category: subAt >= 0 ? uppercaseEntry(row[subAt]) : "",
         srp: srpAt >= 0 && Number.isFinite(parseFloat(String(row[srpAt] ?? "").replace(/[^0-9.]/g, ""))) ? parseFloat(String(row[srpAt]).replace(/[^0-9.]/g, "")) : null,
       };
       if (item.brand && item.description && item.barcode) items.push(item);
@@ -4201,7 +4255,7 @@
       },
       onSubmit: async form => {
         const type = form.elements.type.value;
-        const brand = titleCase(form.elements.brand.value);
+        const brand = uppercaseEntry(form.elements.brand.value);
         if (type === "brand" && !brand) throw new Error("Enter the brand for this target.");
         const amount = Number(form.elements.amount.value);
         if (!Number.isFinite(amount) || amount < 0) throw new Error("Enter a valid target amount.");
@@ -4302,7 +4356,7 @@
       submitLabel: "Create district",
       body: fieldHTML("District name", "name", '<input name="name" required autocomplete="off">'),
       onSubmit: async form => {
-        mustRpc(await client.rpc("create_district", { p_name: titleCase(form.elements.name.value) }));
+        mustRpc(await client.rpc("create_district", { p_name: uppercaseEntry(form.elements.name.value) }));
         await refreshData();
       },
     });
@@ -4318,9 +4372,10 @@
       intro: "The new branch starts with the shared product catalog.",
       submitLabel: "Create branch",
       body: `${fieldHTML("District", "district", selectHTML("district", liveData.districts.map(item => [item.id, item.name]), ui.district))}
-        ${fieldHTML("Branch name", "name", '<input name="name" required autocomplete="off">')}`,
+        ${fieldHTML("Branch name", "name", '<input name="name" required autocomplete="off">')}
+        ${fieldHTML("Branch code (e.g. STG)", "code", '<input name="code" required pattern="[A-Za-z][A-Za-z0-9]{1,9}" minlength="2" maxlength="10" autocomplete="off" placeholder="2–10 letters/numbers, starting with a letter">')}`,
       onSubmit: async form => {
-        mustRpc(await client.rpc("create_branch", { p_district_id: form.elements.district.value, p_name: titleCase(form.elements.name.value) }));
+        mustRpc(await client.rpc("create_branch", { p_district_id: form.elements.district.value, p_name: uppercaseEntry(form.elements.name.value), p_code: form.elements.code.value.trim().toUpperCase() }));
         await refreshData();
       },
     });
@@ -4335,7 +4390,7 @@
         submitLabel: "Save changes",
         body: fieldHTML("District name", "name", `<input name="name" required autocomplete="off" value="${escapeHTML(item.name)}">`),
         onSubmit: async form => {
-          mustRpc(await client.rpc("update_district", { p_id: id, p_name: titleCase(form.elements.name.value) }));
+          mustRpc(await client.rpc("update_district", { p_id: id, p_name: uppercaseEntry(form.elements.name.value) }));
           await refreshData();
         },
       });
@@ -4348,9 +4403,11 @@
       intro: "Moving a branch to another district also moves its staff.",
       submitLabel: "Save changes",
       body: `${fieldHTML("District", "district", selectHTML("district", liveData.districts.map(entry => [entry.id, entry.name]), item.district_id))}
-        ${fieldHTML("Branch name", "name", `<input name="name" required autocomplete="off" value="${escapeHTML(item.name)}">`)}`,
+        ${fieldHTML("Branch name", "name", `<input name="name" required autocomplete="off" value="${escapeHTML(item.name)}">`)}
+        ${fieldHTML("Branch code", "code", `<input name="code" required pattern="[A-Za-z][A-Za-z0-9]{1,9}" minlength="2" maxlength="10" autocomplete="off" value="${escapeHTML(item.code || "")}" ${item.transfer_sequence > 0 ? "readonly" : ""}>`)}
+        <p class="an-note">Branch codes must be unique in your company. After a numbered transfer, its source code is locked to preserve references.</p>`,
       onSubmit: async form => {
-        mustRpc(await client.rpc("update_branch", { p_id: id, p_district_id: form.elements.district.value, p_name: titleCase(form.elements.name.value) }));
+        mustRpc(await client.rpc("update_branch", { p_id: id, p_district_id: form.elements.district.value, p_name: uppercaseEntry(form.elements.name.value), p_code: form.elements.code.value.trim().toUpperCase() }));
         await refreshData();
       },
     });
@@ -4413,7 +4470,7 @@
         if (!loginId) throw new Error("Enter a login ID (username or mobile number) or an email address.");
         const body = {
           role,
-          full_name: titleCase(form.elements.name.value),
+          full_name: uppercaseEntry(form.elements.name.value),
           login: loginId,
           email: contactEmail,
           app_url: location.origin + location.pathname,
@@ -4428,7 +4485,7 @@
           body.branch_id = form.elements.branch.value;
         }
         if (role === "ps") {
-          body.brand = titleCase(form.elements.brand.value);
+          body.brand = uppercaseEntry(form.elements.brand.value);
           if (!body.brand) throw new Error("Enter the brand this Product Specialist represents.");
         }
         const { data, error } = await client.functions.invoke("admin-create-user", { body });
@@ -4527,11 +4584,11 @@
             const loginId = entry.login || contactEmail;
             if (!entry.name) throw new Error("Missing full name.");
             if (!loginId) throw new Error("Missing login ID or email.");
-            const body = { role, full_name: titleCase(entry.name), login: loginId, email: contactEmail, app_url: location.origin + location.pathname, district_id: onlyInventory ? null : form.elements.district.value };
+            const body = { role, full_name: uppercaseEntry(entry.name), login: loginId, email: contactEmail, app_url: location.origin + location.pathname, district_id: onlyInventory ? null : form.elements.district.value };
             if (onlyInventory) body.branch_ids = branchIds;
             else if (role !== "district_manager") body.branch_id = form.elements.branch.value;
             if (role === "ps") {
-              body.brand = titleCase(entry.brand);
+              body.brand = uppercaseEntry(entry.brand);
               if (!body.brand) throw new Error("Missing brand.");
             }
             const data = await invokeAdminFunction(body);
@@ -4671,11 +4728,11 @@
       onSubmit: async form => {
         mustRpc(await client.rpc("admin_update_profile", {
           p_user_id: person.id,
-          p_full_name: form.elements.name.value.trim(),
+          p_full_name: uppercaseEntry(form.elements.name.value),
           p_role: role,
           p_district_id: person.district_id,
           p_branch_id: isPs ? person.branch_id : null,
-          p_assigned_brand: isPs ? form.elements.brand.value.trim() : null,
+          p_assigned_brand: isPs ? uppercaseEntry(form.elements.brand.value) : null,
         }));
         {
           const login = form.elements.login.value.trim();
@@ -5175,7 +5232,7 @@
         });
       },
       onSubmit: async form => {
-        mustRpc(await client.rpc("add_payment_mode", { p_name: titleCase(form.elements.mode.value) }));
+        mustRpc(await client.rpc("add_payment_mode", { p_name: uppercaseEntry(form.elements.mode.value) }));
         await refreshData();
         setTimeout(openPaymentModesModal, 0);
       },
@@ -5197,6 +5254,13 @@
       ui.search = ""; ui.invBrand = ""; ui.pages = {};
       renderConnected();
       connectedContent.querySelector(`[data-inventory-tab="${ui.invView}"]`)?.focus({ preventScroll: true });
+      return;
+    }
+    const availability = event.target.closest("[data-inventory-available]");
+    if (availability) {
+      ui.invAvailable = availability.dataset.inventoryAvailable === "available";
+      ui.pages = {};
+      refreshResults();
       return;
     }
     const adjust = event.target.closest("[data-inventory-adjust]");
