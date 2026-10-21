@@ -46,7 +46,7 @@
   let activePage = "overview";
   let loadSequence = 0;
   let resultsView = null;
-  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", rankBranch: "", brandBranch: "", bpMix: "", bpYear: "", dsMonth: "", dsYear: "", pages: {}, sort: {}, colf: {} };
+  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", rankBranch: "", brandBranch: "", bpMix: "", bpYear: "", dsMonth: "", dsYear: "", dsBranch: "", pages: {}, sort: {}, colf: {} };
   const productSelection = new Set();
   let productsFiltered = [];
   let salesLogExport = null;
@@ -127,6 +127,7 @@
     ui.logBranch = "";
     ui.logFrom = "";
     ui.logTo = "";
+    ui.dsBranch = "";
     ui.pages = {};
     ui.sort = {};
     productSelection.clear();
@@ -746,7 +747,6 @@
 
   function pieChart(title, subtitle, entries, options = {}) {
     const tableKey = options.tableKey || "brands";
-    const tableAction = `<button class="pie-table-link" type="button" data-pie-table="${escapeHTML(tableKey)}" aria-label="${escapeHTML(`View table for ${title}`)}">View table</button>`;
     const pieAction = `role="button" tabindex="0" data-pie-table="${escapeHTML(tableKey)}" aria-label="${escapeHTML(`View table for ${title}`)}"`;
     const showLegend = options.legend !== false;
     const showAmounts = options.amounts !== false;
@@ -758,7 +758,7 @@
     const total = shown.reduce((sum, entry) => sum + entry.value, 0);
     const heading = `<div class="connected-panel-heading"><h2>${escapeHTML(title)}</h2><p>${escapeHTML(subtitle)}</p>${options.controls || ""}</div>`;
     if (!total) {
-      return `<section class="connected-panel pie-card">${heading}<div class="empty-state" ${pieAction}>No sales recorded for this selection.</div>${options.footer || ""}${tableAction}</section>`;
+      return `<section class="connected-panel pie-card">${heading}<div class="empty-state" ${pieAction}>No sales recorded for this selection.</div>${options.footer || ""}</section>`;
     }
 
     shown.forEach(entry => {
@@ -795,7 +795,7 @@
     const description = shown.filter(entry => !entry.muted).map(entry => showAmounts ? `${entry.label} ${formatMoney(entry.value)}` : `${entry.label} ${entry.percentText}`).join("; ");
     return `<section class="connected-panel pie-card">${heading}
       <div class="pie-body${showLegend ? "" : " pie-body-solo"}" ${pieAction}><svg viewBox="-1.03 -1.03 2.06 2.06" role="img" aria-label="${escapeHTML(`${title}: ${description}`)}">${slices.map(slice => slice.shape).join("")}${slices.map(slice => slice.label).join("")}</svg>
-      ${legend}</div>${options.footer || ""}${tableAction}</section>`;
+      ${legend}</div>${options.footer || ""}</section>`;
   }
 
   // Share of the target that should be reached by today: 1 for finished months, 0 for future ones,
@@ -835,7 +835,7 @@
     options = { tableKey: currentProfile.role === "ps" ? "sales" : "branches", ...options };
     const title = options.title || "Target progress";
     if (!(target > 0)) {
-      return `<section class="connected-panel pie-card"><div class="connected-panel-heading"><h2>${escapeHTML(title)}</h2><p>${escapeHTML(subtitle)}</p></div><button class="pie-table-link" type="button" data-pie-table="${escapeHTML(options.tableKey)}">${escapeHTML(options.emptyText || "No target is set for this selection.")} View table</button></section>`;
+      return `<section class="connected-panel pie-card"><div class="connected-panel-heading"><h2>${escapeHTML(title)}</h2><p>${escapeHTML(subtitle)}</p></div><div class="empty-state" role="button" tabindex="0" data-pie-table="${escapeHTML(options.tableKey)}" aria-label="${escapeHTML(`View table for ${title}`)}">${escapeHTML(options.emptyText || "No target is set for this selection.")}</div></section>`;
     }
     const showAmounts = options.amounts !== false;
     const status = paceStatus(actual, target);
@@ -926,29 +926,25 @@
     return `<button class="button button-outline button-small" type="button" data-export-table="${key}">Export</button>`;
   }
 
-  // A table with a filter box (or dropdown) under every heading. cols[i].get(row) is the text to filter on.
+  // Only categorical filters are shown; numeric columns remain sortable.
   function columnFilterTable(key, head, rows, rowHtml, cols) {
     const state = ui.colf[key] || (ui.colf[key] = {});
     const kept = rows.filter(row => cols.every((col, index) => {
       const wanted = state[index];
       if (!wanted) return true;
       const value = String(col.get(row) ?? "");
-      return col.select ? value === wanted : value.toLowerCase().includes(wanted.toLowerCase());
+      return value === wanted;
     }));
     const controls = cols.map((col, index) => {
       const wanted = state[index] || "";
-      if (col.select) {
-        const values = [...new Set(rows.map(row => String(col.get(row) ?? "")))];
-        return `<th><select data-colfilter="${key}|${index}" aria-label="Filter ${escapeHTML(head[index])}"><option value="">All</option>${values.map(value =>
-          `<option value="${escapeHTML(value)}" ${value === wanted ? "selected" : ""}>${escapeHTML(value)}</option>`).join("")}</select></th>`;
-      }
-      return `<th><input type="search" data-colfilter="${key}|${index}" value="${escapeHTML(wanted)}" placeholder="Filter" autocomplete="off" aria-label="Filter ${escapeHTML(head[index])}"></th>`;
+      const values = [...new Set(rows.map(row => String(col.get(row) ?? "")))];
+      return `<label class="field"><span>${escapeHTML(head[index])}</span><select data-colfilter="${key}|${index}" aria-label="Filter ${escapeHTML(head[index])}"><option value="">All</option>${values.map(value =>
+        `<option value="${escapeHTML(value)}" ${value === wanted ? "selected" : ""}>${escapeHTML(value)}</option>`).join("")}</select></label>`;
     }).join("");
-    const body = kept.length ? kept.map(rowHtml).join("") : `<tr><td colspan="${head.length}"><div class="empty-state">No rows match these filters.</div></td></tr>`;
     return {
       kept,
-      active: Object.values(state).some(Boolean),
-      html: `<div class="connected-table-wrap" data-filter-table="${key}"><table class="connected-table"><thead><tr>${head.map(item => `<th>${escapeHTML(item)}</th>`).join("")}</tr><tr class="col-filter-row">${controls}</tr></thead><tbody>${body}</tbody></table></div>`,
+      active: cols.some((_, index) => Boolean(state[index])),
+      html: `<div class="table-category-filters" role="group" aria-label="Table filters">${controls}</div>${sortableTable(key, head, kept, rowHtml, kept.length ? "" : `<tr><td colspan="${head.length}"><div class="empty-state">No rows match these filters.</div></td></tr>`)}`,
     };
   }
 
@@ -958,7 +954,7 @@
       if (tableStore[key]) tableStore[key].title = title;
       action = `${action}<button class="button button-outline button-small" type="button" data-export-table="${key}">Export</button>`;
     }
-    return `<section class="connected-panel"${sourceKey || key ? ` data-pie-source="${escapeHTML(sourceKey || key)}"` : ""}><div class="connected-panel-heading panel-heading-row"><div><h2>${escapeHTML(title)}</h2>${detail ? `<p>${escapeHTML(detail)}</p>` : ""}</div>${action}</div>${content}</section>`;
+    return `<section class="connected-panel"${sourceKey || key ? ` data-pie-source="${escapeHTML(sourceKey || key)}"` : ""}><div class="connected-panel-heading panel-heading-row"><div><h2>${escapeHTML(title)}</h2>${detail ? `<p>${escapeHTML(detail)}</p>` : ""}</div>${action ? `<div class="panel-actions">${action}</div>` : ""}</div>${content}</section>`;
   }
 
   function filterBar(options) {
@@ -1022,12 +1018,13 @@
     let source = resultsView;
     if (!document.querySelector(`#live-results [data-pie-source="${key}"]`)) {
       if (key === "mix") source = () => overviewPaymentPanels("table");
-      else if (!["sales", "brandlog"].includes(key)) {
+      else if (key === "branches" && currentProfile.role !== "ps") source = branchPerformancePanel;
+      else if (!["sales", "brandlog", "dailysum"].includes(key)) {
         alert("The table is not available in this view.");
         return;
       } else {
         capturingPieResults = true;
-        try { source = renderSalesPage(); }
+        try { source = renderSalesPage(key === "dailysum"); }
         finally { capturingPieResults = false; }
       }
     }
@@ -1537,15 +1534,11 @@
     rows.sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
     const head = ["Metric", "Period", "Current", "Prior", "Change"];
     const rowHtml = ([metric, p, current, prior, change]) => `<tr><td><strong>${escapeHTML(metric)}</strong></td><td>${escapeHTML(p.name)}<br><small class="an-muted">${escapeHTML(p.note)}</small></td><td>${current}</td><td>${prior}</td><td>${change}</td></tr>`;
-    const plain = html => String(html).replace(/<[^>]+>/g, "");
     const filtered = columnFilterTable("traffic-compare", head, rows, rowHtml, [
-      { get: row => row[0], select: true },
-      { get: row => row[1].name, select: true },
-      { get: row => plain(row[2]) },
-      { get: row => plain(row[3]) },
-      { get: row => plain(row[4]) },
+      { get: row => row[0] },
+      { get: row => row[1].name },
     ]);
-    const compare = panel("Transactions, walk-ins and conversion: day, week, month, year", "Walk-in change is per counted day so days without a count never distort it. Conversion only uses counted days. Use the boxes under each heading to filter.", filtered.html, `${filtered.active ? '<button class="button button-outline button-small" type="button" data-colfilter-clear="traffic-compare">Clear filters</button>' : ""}${manualExport("traffic-compare", "Traffic comparison", head, filtered.kept, rowHtml)}`);
+    const compare = panel("Transactions, walk-ins and conversion: day, week, month, year", "Walk-in change is per counted day so days without a count never distort it. Conversion only uses counted days. Filter by metric or period above the table; click a heading to sort.", filtered.html, `${filtered.active ? '<button class="button button-outline button-small" type="button" data-colfilter-clear="traffic-compare">Clear filters</button>' : ""}${manualExport("traffic-compare", "Traffic comparison", head, filtered.kept, rowHtml)}`);
 
     const years = new Set([Number(month.slice(0, 4))]);
     ctx.sales.forEach(sale => years.add(Number(sale.date.slice(0, 4))));
@@ -1581,7 +1574,7 @@
       : '<div class="empty-state">No data for this year yet.</div>';
     const yearSelect = `<label class="field an-inline"><span class="visually-hidden">Year</span><select data-filter="yrYear">${yearList.map(value =>
       `<option value="${value}" ${value === year ? "selected" : ""}>${value}</option>`).join("")}</select></label>`;
-    const trend = panel(`Yearly comparison: ${year} vs ${year - 1}`, "Month by month against the same month last year. Walk-ins show only for months that have counts.", trendTable, `${yearSelect}${yearBranchControl}${manualExport("traffic-monthly", `Yearly comparison ${year}`, trendHead, trendRows, trendRowHtml)}`);
+    const trend = panel(`Yearly comparison: ${year} vs ${year - 1}`, "Month by month against the same month last year. Walk-ins show only for months that have counts.", trendTable, `${yearBranchControl}${yearSelect}${manualExport("traffic-monthly", `Yearly comparison ${year}`, trendHead, trendRows, trendRowHtml)}`);
     return { compare, trend, periods };
   }
 
@@ -1880,18 +1873,21 @@
           </div>
           <div class="connected-charts">${charts.join("")}</div>
           ${overviewPaymentPanels("pies")}
-          ${currentProfile.role === "ps" ? "" : panel("Accessible branch performance", "Ordered by district, then branch.", tableBlock(
-            "branches",
-            ["Branch", "District", "Sales", "Target", "Progress", "YTD sales"],
-            rows,
-            row => `<tr><td><strong>${escapeHTML(row.branch.name)}</strong></td><td>${escapeHTML(row.district)}</td><td>${formatMoney(row.actual)}</td><td>${formatMoney(row.target)}</td><td>${percent(row.actual, row.target)}</td><td>${formatMoney(row.ytd)}</td></tr>`,
-            "No branches match this selection.",
-            5,
-          ))}
           ${panel("Brand performance", "Click a heading to sort. Click a row to see its products.", brandTable(brandRows(panelIds("brandBranch", scopeBranchIds())), "No brand sales for this selection."), brandPanelControl())}
           ${psRankingPanel()}`;
       },
     );
+  }
+
+  function branchPerformancePanel() {
+    return panel("Accessible branch performance", "Ordered by district, then branch.", tableBlock(
+      "branches",
+      ["Branch", "District", "Sales", "Target", "Progress", "YTD sales"],
+      branchRows(),
+      row => `<tr><td><strong>${escapeHTML(row.branch.name)}</strong></td><td>${escapeHTML(row.district)}</td><td>${formatMoney(row.actual)}</td><td>${formatMoney(row.target)}</td><td>${percent(row.actual, row.target)}</td><td>${formatMoney(row.ytd)}</td></tr>`,
+      "No branches match this selection.",
+      5,
+    ));
   }
 
   function serialsFor(saleId, barcode) {
@@ -1902,7 +1898,7 @@
     return [sale.barangay, sale.city].filter(Boolean).join(", ");
   }
 
-  function renderSalesPage() {
+  function renderSalesPage(dailyTable = false) {
     const isPs = currentProfile.role === "ps";
     const canEditSales = isPs || currentProfile.role === "manager";
     return mountPage(
@@ -1970,7 +1966,8 @@
         const dsYear = yearList.includes(ui.dsYear) ? ui.dsYear : (ui.month || currentMonth()).slice(0, 4);
         const dsMonth = /^(0[1-9]|1[0-2])$/.test(ui.dsMonth) ? ui.dsMonth : (ui.month || currentMonth()).slice(5, 7);
         const dsPrefix = `${dsYear}-${dsMonth}`;
-        const monthFacts = allSaleFacts.filter(f => f.date.startsWith(dsPrefix) && f.date <= todayISO);
+        const dailyIds = panelIds("dsBranch", ids);
+        const monthFacts = allSaleFacts.filter(f => dailyIds.has(f.branchId) && f.date.startsWith(dsPrefix) && f.date <= todayISO);
         const dayRows = [];
         for (let day = new Date(Number(dsYear), Number(dsMonth), 0).getDate(); day >= 1; day -= 1) {
           const date = `${dsPrefix}-${String(day).padStart(2, "0")}`;
@@ -1982,10 +1979,16 @@
           const value = String(index + 1).padStart(2, "0");
           return `<option value="${value}" ${value === dsMonth ? "selected" : ""}>${new Date(2000, index, 1).toLocaleString("en-PH", { month: "long" })}</option>`;
         }).join("");
-        const dailyControls = `<label class="field an-inline"><span class="visually-hidden">Month</span><select data-filter="dsMonth">${monthOptions}</select></label><label class="field an-inline"><span class="visually-hidden">Year</span><select data-filter="dsYear">${yearList.map(value =>
+        const dailyControls = `${panelBranchSelect("dsBranch", ids)}<label class="field an-inline"><span class="visually-hidden">Month</span><select data-filter="dsMonth">${monthOptions}</select></label><label class="field an-inline"><span class="visually-hidden">Year</span><select data-filter="dsYear">${yearList.map(value =>
           `<option value="${value}" ${value === dsYear ? "selected" : ""}>${value}</option>`).join("")}</select></label>`;
-        const dailySummary = panel("Daily sales summary", `${isPs ? "Your account's sales only · " : ""}${monthLabel(dsPrefix)} · ${formatMoney(monthTotal.total)} · ${monthTotal.count} sale${monthTotal.count === 1 ? "" : "s"}`,
-          dailySalesChart(dayRows, dsPrefix, todayISO), dailyControls);
+        const dailyContent = dailyTable
+          ? tableBlock("dailysum", ["Date", "Day", "No. of sales", "Total sales"], dayRows,
+            row => `<tr><td>${escapeHTML(row.date)}</td><td>${escapeHTML(new Date(`${row.date}T00:00:00`).toLocaleDateString("en-PH", { weekday: "long" }))}</td><td>${row.count}</td><td>${formatMoney(row.total)}</td></tr>`,
+            "No days to show for this month yet.", 31)
+          : `${dailySalesChart(dayRows, dsPrefix, todayISO)}<div class="daily-table-action"><button class="button button-outline button-small" type="button" data-pie-table="dailysum" aria-label="View daily sales summary table">View table</button></div>`;
+        const dailyBranchNote = dailyIds !== ids ? `${branchName([...dailyIds][0])} · ` : "";
+        const dailySummary = panel("Daily sales summary", `${isPs ? "Your account's sales only · " : ""}${dailyBranchNote}${monthLabel(dsPrefix)} · ${formatMoney(monthTotal.total)} · ${monthTotal.count} sale${monthTotal.count === 1 ? "" : "s"}`,
+          dailyContent, dailyControls);
         return `${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} ·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a column heading to sort.`, totalsCards + tableBlock(
             "sales",
                       ["Invoice", "Customer", "Products", "Serial numbers", "Qty", "Payment", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(canEditSales || isAdmin ? [""] : [])],
@@ -3370,7 +3373,7 @@
     modalRoot.className = "dlg-backdrop";
     const root = modalRoot;
     root.innerHTML = `<div class="dlg dlg-xwide" role="dialog" aria-modal="true" aria-label="${escapeHTML(label)} by day">
-      <div class="dlg-head"><h2>${escapeHTML(label)} · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><div class="dlg-head-actions">
+      <div class="dlg-head"><h2>${escapeHTML(label)} · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><div class="dlg-head-actions walkin-actions">
         <label class="field"><span>From</span><input type="date" data-walkin-from value="${escapeHTML(monthStart)}" required></label>
         <label class="field"><span>To</span><input type="date" data-walkin-to value="${escapeHTML(through)}" required></label>
         ${isPs ? "" : '<button class="button button-outline button-small" type="button" data-walkin-entry>Record store visitors</button>'}<button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div></div>
