@@ -349,7 +349,7 @@
         tables.sale_lines.filter(l => l.sale_id === sale.id && brandMatches(l)).map(line => ({ sale, line })));
     }
     function rpc(name, p) {
-      if (["inventory_catalog", "inventory_destinations", "claim_inventory_reminder", "assign_inventory_branches", "import_inventory", "adjust_inventory", "dispatch_inventory", "resolve_inventory_transfer"].includes(name)) {
+      if (["inventory_catalog", "inventory_destinations", "claim_inventory_reminder", "assign_inventory_branches", "classify_inventory_product", "import_inventory", "adjust_inventory", "dispatch_inventory", "resolve_inventory_transfer"].includes(name)) {
         return Inventory.execute(name, p, { tables, actor, branchIds: inventoryBranchIds, uid, now, today });
       }
       if (name === "save_inventory_sale") {
@@ -480,15 +480,21 @@
           barcode: p.p_barcode, description: p.p_description, brand: p.p_brand, category: p.p_category, sub_category: p.p_sub_category, srp: p.p_srp,
         }];
         const products = catalogOnly(items);
-        if (products.some(product => !knownBrand(product.brand))) throw new Error(`Demo products must use one of: ${BRANDS.join(", ")}.`);
-        products.forEach(product => { product.brand = knownBrand(product.brand); });
+        if (products.some(product => !knownBrand(product.brand) && !tables.products.some(row =>
+          row.barcode === (p.p_old_barcode || product.barcode) && row.brand === product.brand))) throw new Error(`Demo products must use one of: ${BRANDS.join(", ")}.`);
+        products.forEach(product => { product.brand = knownBrand(product.brand) || product.brand; });
+        if (actor.role !== "admin" && products.some(product => tables.products.some(row =>
+          row.barcode === (p.p_old_barcode || product.barcode) && I.needsClassification(row) &&
+          ["brand", "category", "sub_category"].some(key => (row[key] || "") !== (product[key] || ""))))) {
+          throw new Error("Only an administrator can classify products with missing brand or category.");
+        }
         if (name === "update_product" && p.p_old_barcode !== p.p_barcode &&
             tables.inventory_stock.some(row => row.barcode === p.p_old_barcode)) throw new Error("A stocked barcode cannot be renamed. Correct its details without changing its identity.");
         const existingProducts = [...tables.products];
         if (name === "update_product") tables.products = tables.products.filter(row => row.barcode !== p.p_old_barcode);
         for (const branch of tables.branches) {
           upsert("products", products.map(product => ({
-            ...product, srp: name === "update_product" ? product.srp : product.srp ?? existingProducts.find(item =>
+            ...product, dealer_id: actor.dealer_id, srp: name === "update_product" ? product.srp : product.srp ?? existingProducts.find(item =>
               item.branch_id === branch.id && item.barcode === product.barcode)?.srp ?? null, branch_id: branch.id, active: true,
           })), ["branch_id", "barcode"]);
           const snapshot = tables.inventory_snapshots.filter(row => row.branch_id === branch.id).sort((a,b)=>b.imported_at.localeCompare(a.imported_at))[0];

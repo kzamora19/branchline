@@ -94,7 +94,8 @@
       : !profiles.filter(person => person.role === "ps" && person.active && person.branch_id === profile.branch_id && person.id !== profile.id)
         .flatMap(person => parts(person.assigned_brand)).some(other => other.brand === part.brand && other.scope && scopeMatches(other.scope))));
   }
-  const api = { code, day, ageDays, parseReports, brandMatches };
+  const needsClassification = item => !text(item.brand) || text(item.brand).toLowerCase() === "unclassified" || !text(item.category);
+  const api = { code, day, ageDays, parseReports, brandMatches, needsClassification };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.BranchlineInventory = api;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -62,6 +62,19 @@
       t.inventory_branch_users = t.inventory_branch_users.filter(row => row.user_id !== person.id).concat(p.p_branches.map(branch_id => ({ user_id: person.id, branch_id })));
       return null;
     }
+    if (name === "classify_inventory_product") {
+      if (actor.role !== "admin") throw new Error("Only an administrator can classify inventory products.");
+      requireBranch(p.p_branch);
+      const barcode = I.code(p.p_barcode), brand = String(p.p_brand || "").trim();
+      const category = String(p.p_category || "").trim(), sub = String(p.p_sub_category || "").trim() || null;
+      if (I.needsClassification({ brand, category })) throw new Error("A confirmed brand and category are required. Subcategory is optional.");
+      if (!t.products.some(row => row.branch_id === p.p_branch && row.barcode === barcode && row.active)) throw new Error("This product was not found in the selected branch catalog.");
+      t.products.filter(row => row.barcode === barcode && row.dealer_id === actor.dealer_id).forEach(row => Object.assign(row, { brand, category, sub_category: sub }));
+      t.sale_lines.filter(row => row.barcode === barcode && t.sales.some(sale => sale.id === row.sale_id && sale.dealer_id === actor.dealer_id))
+        .forEach(row => Object.assign(row, { brand, category, sub_category: sub }));
+      event(p.p_branch, "classification", barcode, null, `Brand: ${brand}; Category: ${category}; Subcategory: ${sub || "(none)"}`);
+      return null;
+    }
     if (name === "import_inventory") {
       requireBranch(p.p_branch);
       if (!p.p_reported_at || !Number.isFinite(Date.parse(p.p_reported_at)) || Date.parse(p.p_reported_at) > Date.parse(now()) + 300000) throw new Error("A valid report date/time is required.");
@@ -75,7 +88,7 @@
         const barcode = I.code(item.barcode);
         if (!barcode || !item.description || !Number.isInteger(item.quantity) || item.quantity < 0 || (item.serialized ? item.serials.length !== item.quantity : item.serials.length !== 0)) throw new Error("Invalid stock quantity or serial count.");
         const known = t.products.find(row => row.barcode === barcode);
-        const details = { barcode, model_description: item.description, brand: item.brand || known?.brand || "Unclassified", category: item.category || known?.category || "", sub_category: item.sub_category || known?.sub_category || "" };
+        const details = { barcode, model_description: item.description, brand: known?.brand || "Unclassified", category: known?.category || "", sub_category: known?.sub_category || "" };
         for (const branch of t.branches) {
           const product = t.products.find(row => row.branch_id === branch.id && row.barcode === barcode);
           if (product) Object.assign(product, details, { active: true });

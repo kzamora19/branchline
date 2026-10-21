@@ -2151,7 +2151,7 @@
     const items = [["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available qty", "Serialized", "Inventory status"],
       ...catalog.map(item => {
         const stock = inventoryStockFor(item.branch_id, item.barcode);
-        return [branchName(item.branch_id), item.barcode, item.model_description, item.brand, item.category || "", item.sub_category || "", stock?.quantity ?? "", stock?.serialized ? "Yes" : "No", stock ? "Tracked" : "Not initialized"];
+        return [branchName(item.branch_id), item.barcode, item.model_description, item.brand, item.category || "", item.sub_category || "", stock?.quantity ?? "", stock ? stock.serialized ? "Yes" : "No" : "Unknown", stock ? "Tracked" : "Not initialized"];
       })];
     const units = [["Branch", "Barcode", "Serial", "Received date", "Age (days)", "Status"], ...(liveData.inventorySerials || []).map(item =>
       [branchName(item.branch_id), item.barcode, item.serial, item.received_on || "", window.BranchlineInventory.ageDays(item.received_on, window.BranchlineDemo.philippineDate()) ?? "Unknown", item.status])];
@@ -2170,7 +2170,7 @@
     const ids = scopeBranchIds();
     return (liveData.inventoryCatalog || []).filter(item => ids.has(item.branch_id) &&
       (!["brand", "aging"].includes(ui.invView) || currentProfile.role !== "ps" || window.BranchlineInventory.brandMatches(item, currentProfile, liveData.profiles, liveData.inventoryCatalog)) &&
-      (!ui.invBrand || item.brand === ui.invBrand) && matches(searchQuery(), item.barcode, item.model_description, item.brand, item.category));
+      (!ui.invBrand || item.brand === ui.invBrand) && matches(searchQuery(), item.barcode, item.model_description, item.brand, item.category, item.sub_category));
   }
 
   function renderInventoryPage() {
@@ -2180,8 +2180,11 @@
       ? '<button class="button button-primary" type="button" data-open="inventory-import">Import stock reports</button><button class="button button-outline" type="button" data-open="inventory-transfer">Transfer stock</button>'
       : "";
     const brands = uniqueSorted((liveData.inventoryCatalog || []).map(item => item.brand));
+    const pendingClassification = (liveData.inventoryCatalog || []).filter(item => scopeBranchIds().has(item.branch_id) &&
+      window.BranchlineInventory.needsClassification(item)).length;
     const views = [["master", "Item Master"], ["brand", currentProfile.role === "ps" ? "My Brand Inventory" : "Brand Inventory"], ["aging", "Aging stock"], ["transfers", "Transfers"], ["history", "Inventory history"],
-      ...(!inventoryOnly() && managesInventory() ? [["missing", "Missing SRP / classification"]] : [])];
+      ...(currentProfile.role === "admin" ? [["classification", `Needs classification (${pendingClassification})`]] : []),
+      ...(!inventoryOnly() && managesInventory() ? [["missing", "Missing SRP"]] : [])];
     mountPage(pageHeading("Inventory", "Live availability since the latest imported snapshot. Reports reset stock, never the sales log."),
       "", filterBar({ district: true, branch: true, search: "Barcode, product or brand", actions }) +
       `<div class="connected-filters"><label class="field"><span>View</span><select data-filter="invView">${views.map(([key, label]) => `<option value="${key}" ${(ui.invView || "master") === key ? "selected" : ""}>${escapeHTML(label)}</option>`).join("")}</select></label>
@@ -2194,10 +2197,12 @@
         const today = window.BranchlineDemo.philippineDate();
         const units = liveData.inventorySerials.filter(item => item.status === "available" && items.some(product => product.branch_id === item.branch_id && product.barcode === item.barcode));
         const aged = units.filter(item => window.BranchlineInventory.ageDays(item.received_on, today) > 90);
+        const uninitialized = items.filter(item => !inventoryStockFor(item.branch_id, item.barcode)).length;
+        const available = items.reduce((sum, item) => sum + (inventoryStockFor(item.branch_id, item.barcode)?.quantity || 0), 0);
         const metrics = `<div class="connected-metrics">
-          <article class="connected-metric"><span>Available units</span><strong>${items.reduce((sum, item) => sum + (inventoryStockFor(item.branch_id, item.barcode)?.quantity || 0), 0)}</strong></article>
+          <article class="connected-metric"><span>Available units</span><strong>${uninitialized === items.length && uninitialized ? "Not initialized" : available}</strong>${uninitialized ? `<small>${uninitialized} catalog item(s) have unknown stock; totals cover initialized items only</small>` : ""}</article>
           <article class="connected-metric"><span>Products (including zero stock)</span><strong>${items.length}</strong></article>
-          <article class="connected-metric"><span>Serialized units older than 90 days</span><strong>${aged.length}</strong><small>Other units without receipt dates have unknown age</small></article></div>`;
+          <article class="connected-metric"><span>Serialized units older than 90 days</span><strong>${uninitialized === items.length && uninitialized ? "Unknown" : aged.length}</strong><small>Other units without receipt dates have unknown age</small></article></div>`;
         const dates = `<p class="an-note">${liveData.branches.filter(branch => ids.has(branch.id)).map(branch => {
           const latest = snapshots.find(item => item.branch_id === branch.id);
           return `${escapeHTML(branch.name)}: ${latest ? `report ${escapeHTML(new Date(latest.reported_at).toLocaleString("en-PH"))}${latest.reported_at.slice(0, 10) < today ? " — check snapshot freshness" : ""}` : "inventory not initialized"}`;
@@ -2219,18 +2224,51 @@
           if (ui.invView === "aging") return metrics + dates + table;
           return metrics + dates + inventoryMasterTable(items) + table;
         }
-        const displayed = ui.invView === "missing" ? items.filter(item => item.missing_srp || item.brand === "Unclassified" || !item.category) : items;
+        if (ui.invView === "classification" && currentProfile.role === "admin") {
+          const pending = items.filter(item => window.BranchlineInventory.needsClassification(item));
+          return metrics + dates + panel("Needs classification",
+            "Complete Brand and Category after importing. Subcategory is optional. Admin only; these shared catalog details also update matching historical product classifications, never prices or quantities.",
+            tableBlock("inventory-classification", ["Branch", "Barcode", "Product", "Brand", "Category", "Subcategory", ""], pending,
+              item => `<tr><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(item.model_description)}</td><td>${escapeHTML(item.brand || "Unclassified")}</td><td>${escapeHTML(item.category || "Missing")}</td><td>${escapeHTML(item.sub_category || "")}</td><td><button type="button" class="button button-outline button-small" data-inventory-classify="${escapeHTML(item.barcode)}" data-branch="${escapeHTML(item.branch_id)}">Classify</button></td></tr>`,
+              "All matching products have a brand and category. Subcategory is optional."));
+        }
+        const displayed = ui.invView === "missing" ? items.filter(item => item.missing_srp) : items;
         return metrics + dates + inventoryMasterTable(displayed);
       });
   }
 
   function inventoryMasterTable(items) {
     return panel("Item Master", `Zero-stock products remain listed. Uninitialized stock is unknown, not zero.${inventoryOnly() ? "" : " Edit product prices using Products → Edit (BM and above)."}`, tableBlock("inventory-master",
-      ["Branch", "Barcode", "Product", "Brand", "Category", "Available qty", "Serialized", ""], items,
+      ["Branch", "Barcode", "Product", "Brand", "Category", "Subcategory", "Available qty", "Serialized", ""], items,
       item => {
         const stock = inventoryStockFor(item.branch_id, item.barcode);
-        return `<tr><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(item.model_description)}${item.missing_srp ? '<br><span class="an-down">SRP needed — Products → Edit</span>' : ""}</td><td>${escapeHTML(item.brand)}</td><td>${escapeHTML(item.category || "Needs classification")}</td><td>${stock ? stock.quantity : "Not initialized"}</td><td>${stock?.serialized ? "Yes" : "No"}</td><td>${managesInventory() && stock ? `<button class="button button-outline button-small" data-inventory-adjust="${escapeHTML(item.barcode)}" data-branch="${escapeHTML(item.branch_id)}">Adjust</button>` : ""}</td></tr>`;
+        return `<tr><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(item.model_description)}${item.missing_srp ? '<br><span class="an-down">SRP needed — Products → Edit</span>' : ""}</td><td>${escapeHTML(item.brand)}</td><td>${escapeHTML(item.category || "Needs classification")}</td><td>${escapeHTML(item.sub_category || "")}</td><td>${stock ? stock.quantity : "Not initialized"}</td><td>${stock ? stock.serialized ? "Yes" : "No" : "Unknown"}</td><td>${currentProfile.role === "admin" ? `<button class="button button-outline button-small" type="button" data-inventory-classify="${escapeHTML(item.barcode)}" data-branch="${escapeHTML(item.branch_id)}">Classify</button> ` : ""}${managesInventory() && stock ? `<button class="button button-outline button-small" data-inventory-adjust="${escapeHTML(item.barcode)}" data-branch="${escapeHTML(item.branch_id)}">Adjust</button>` : ""}</td></tr>`;
       }, "No products match this selection."));
+  }
+
+  function openInventoryClassification(barcode, branch) {
+    if (currentProfile.role !== "admin") throw new Error("Only an administrator can classify inventory products.");
+    const product = liveData.inventoryCatalog.find(item => item.branch_id === branch && item.barcode === barcode);
+    if (!product) throw new Error("This product is no longer in your inventory catalog. Reload and try again.");
+    const catalog = liveData.inventoryCatalog;
+    const suggestions = (id, values) => `<datalist id="${id}">${uniqueSorted(values).map(value => `<option value="${escapeHTML(value)}"></option>`).join("")}</datalist>`;
+    openModal({
+      title: `Classify product · ${barcode}`, submitLabel: "Save classification",
+      intro: `${product.model_description}. Changes apply to this barcode across your company's catalog and historical product classifications. Stock, serials and recorded prices remain unchanged.`,
+      body: `${fieldHTML("Brand", "brand", `<input name="brand" required list="inventory-class-brands" value="${escapeHTML(product.brand?.toLowerCase() === "unclassified" ? "" : product.brand || "")}" autocomplete="off">`)}
+        ${fieldHTML("Category", "category", `<input name="category" required list="inventory-class-categories" value="${escapeHTML(product.category || "")}" autocomplete="off">`)}
+        ${fieldHTML("Subcategory (optional)", "sub_category", `<input name="sub_category" list="inventory-class-subs" value="${escapeHTML(product.sub_category || "")}" autocomplete="off">`)}
+        ${suggestions("inventory-class-brands", catalog.map(item => item.brand).filter(brand => brand?.toLowerCase() !== "unclassified"))}
+        ${suggestions("inventory-class-categories", catalog.map(item => item.category))}
+        ${suggestions("inventory-class-subs", catalog.map(item => item.sub_category))}`,
+      onSubmit: async form => {
+        const brand = form.elements.brand.value.trim(), category = form.elements.category.value.trim();
+        if (window.BranchlineInventory.needsClassification({ brand, category })) throw new Error("Enter a confirmed brand and category. Subcategory is optional.");
+        mustRpc(await client.rpc("classify_inventory_product", { p_branch: branch, p_barcode: barcode,
+          p_brand: brand, p_category: category, p_sub_category: form.elements.sub_category.value.trim() || null }));
+        await refreshData();
+      },
+    });
   }
 
   async function showInventoryReminder() {
@@ -2288,18 +2326,18 @@
             const [stock, serials] = await Promise.all([read(form.elements.stock.files[0]), read(form.elements.serials.files[0])]);
             preview = window.BranchlineInventory.parseReports(stock, serials, liveData.inventoryCatalog.filter(item => item.branch_id === form.elements.branch.value), window.BranchlineDemo.philippineDate());
             result.innerHTML = `<p><strong>${preview.items.length} products · ${preview.quantity} units</strong> (${preview.serialQuantity} serialized; these are included, not added). Report location: <strong>${escapeHTML(preview.location)}</strong>. Confirm this matches your selected branch. ${preview.newProducts} new catalog items; ${preview.sharedSerials.length} serial value(s) shared across different barcodes.</p>
-              <p>New items need brand/category confirmation; blank brands become “Unclassified” until corrected. Existing SRPs are preserved; new products have no SRP.</p>
-              <div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Barcode</th><th>Product</th><th>Qty</th><th>Brand</th><th>Category</th></tr></thead><tbody>${preview.items.filter(item => item.isNew).map((item, index) => `<tr><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(item.description)}</td><td>${item.quantity}</td><td><input data-new-brand="${index}" aria-label="Brand for ${escapeHTML(item.barcode)}" value=""></td><td><input data-new-category="${index}" aria-label="Category for ${escapeHTML(item.barcode)}" value=""></td></tr>`).join("")}</tbody></table></div>`;
+              <p>Import stock now; Admin can complete Brand, Category and optional Subcategory afterward in Inventory → Needs classification. Missing brands are saved as “Unclassified”; existing classifications and SRPs are preserved. New products have no SRP.</p>`;
           } catch (error) { preview = null; result.innerHTML = `<p class="connected-error">${escapeHTML(error.message)}</p>`; }
         });
       },
       onSubmit: async form => {
         if (!preview) throw new Error("Preview and validate both reports before replacing inventory.");
-        const newItems = preview.items.filter(item => item.isNew);
-        form.querySelectorAll("[data-new-brand]").forEach(input => { newItems[Number(input.dataset.newBrand)].brand = input.value.trim(); });
-        form.querySelectorAll("[data-new-category]").forEach(input => { newItems[Number(input.dataset.newCategory)].category = input.value.trim(); });
-        mustRpc(await client.rpc("import_inventory", { p_branch: form.elements.branch.value, p_reported_at: `${form.elements.reported.value}:00+08:00`,
-          p_files: `${form.elements.stock.files[0].name} + ${form.elements.serials.files[0].name}`, p_items: preview.items }));
+        const result = await client.rpc("import_inventory", { p_branch: form.elements.branch.value, p_reported_at: `${form.elements.reported.value}:00+08:00`,
+          p_files: `${form.elements.stock.files[0].name} + ${form.elements.serials.files[0].name}`, p_items: preview.items });
+        if (result.error?.code === "57014" || /statement timeout/i.test(result.error?.message || "")) {
+          throw new Error("The inventory import timed out and was rolled back; no changes from this attempt were saved. Ask your administrator to apply the inventory import performance update (20261111000000), then retry both reports.");
+        }
+        mustRpc(result);
         await refreshData();
       },
     });
@@ -3963,11 +4001,12 @@
   // ---------- Products ----------
   function openProductModal(existing) {
     const categories = knownCategories();
+    const adminClassification = existing && currentProfile.role !== "admin" && window.BranchlineInventory.needsClassification(existing);
     const subOptions = category => [...(categories.get(titleCase(category)) || [])].sort(natural)
       .map(sub => `<option value="${escapeHTML(sub)}"></option>`).join("");
     openModal({
       title: existing ? "Edit product" : "Add product",
-      intro: existing ? "Changes apply to the shared catalog for every branch. Past sales keep the model name they were recorded with." : "Adds the product to the shared catalog for every branch.",
+      intro: existing ? `Changes apply to the shared catalog and historical product details for every branch, never recorded sale prices or quantities.${adminClassification ? " Only Admin can complete this product's missing classification in Inventory → Needs classification; you can still update SRP and description." : ""}` : "Adds the product to the shared catalog for every branch.",
       submitLabel: existing ? "Save changes" : "Add product",
       body: `${fieldHTML("Brand", "brand", `<input name="brand" list="brand-options" required autocomplete="off" value="${escapeHTML(existing?.brand || "")}">`)}
         <datalist id="brand-options">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>
@@ -3979,17 +4018,21 @@
         ${fieldHTML("Barcode (numbers are padded to 8 digits)", "barcode", `<input name="barcode" required autocomplete="off" value="${escapeHTML(existing?.barcode || "")}">`)}
         ${fieldHTML("SRP (₱, suggested retail price)", "srp", `<input name="srp" type="number" min="0" step="0.01" value="${existing?.srp ?? ""}">`)}`,
       onReady: form => {
+        if (adminClassification) for (const name of ["brand", "category", "subcategory"]) {
+          form.elements[name].disabled = true;
+          form.elements[name].required = false;
+        }
         form.elements.category.addEventListener("input", () => {
           form.querySelector("#sub-options").innerHTML = subOptions(form.elements.category.value);
         });
       },
       onSubmit: async form => {
         const values = {
-          p_brand: titleCase(form.elements.brand.value),
+          p_brand: adminClassification ? existing.brand : titleCase(form.elements.brand.value),
           p_description: titleCase(form.elements.description.value),
           p_barcode: normBarcode(form.elements.barcode.value),
-          p_category: titleCase(form.elements.category.value),
-          p_sub_category: titleCase(form.elements.subcategory.value) || null,
+          p_category: adminClassification ? existing.category || null : titleCase(form.elements.category.value),
+          p_sub_category: adminClassification ? existing.sub_category || null : titleCase(form.elements.subcategory.value) || null,
           p_srp: form.elements.srp.value === "" ? null : Number(form.elements.srp.value),
         };
         if (existing) mustRpc(await client.rpc("update_product", { p_old_barcode: existing.barcode, ...values }));
@@ -5134,6 +5177,8 @@
     }
     const adjust = event.target.closest("[data-inventory-adjust]");
     if (adjust) { openInventoryAdjust(adjust.dataset.inventoryAdjust, adjust.dataset.branch); return; }
+    const classify = event.target.closest("[data-inventory-classify]");
+    if (classify && currentProfile.role === "admin") { openInventoryClassification(classify.dataset.inventoryClassify, classify.dataset.branch); return; }
     const transferAction = event.target.closest("[data-transfer-action]");
     if (transferAction) { openInventoryTransferAction(transferAction.dataset.id, transferAction.dataset.transferAction); return; }
     const chartButton = event.target.closest("[data-chart-download]");
