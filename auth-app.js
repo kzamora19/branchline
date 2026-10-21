@@ -140,6 +140,7 @@
     ui.invView = "";
     ui.invBrand = "";
     ui.invAvailable = false;
+    ui.invAge = "90";
     ui.pages = {};
     ui.sort = {};
     productSelection.clear();
@@ -2374,10 +2375,18 @@
         if (ui.invView === "brand" || ui.invView === "aging") {
           const productIndex = new Map(items.map(item => [`${item.branch_id}\0${item.barcode}`, item]));
           const units = liveData.inventorySerials.filter(item => item.status === "available" && productIndex.has(`${item.branch_id}\0${item.barcode}`));
-          const rows = ui.invView === "aging" ? units.filter(item => window.BranchlineInventory.ageDays(item.received_on, today) > 90) : units;
-          const table = panel(ui.invView === "aging" ? "Stock older than 90 days" : "Available serials", "Serial identity is branch + barcode + serial. Original receipt dates survive branch transfers.", tableBlock("inventory-serials",
+          const ageBands = [["current", "Current", 0, 30], ["30", "30 days", 30, 60], ["60", "60 days", 60, 90], ["90", "90 days", 90, Infinity]];
+          const band = ageBands.find(([key]) => key === (ui.invAge || "90"));
+          const rows = ui.invView === "aging" ? units.filter(item => {
+            const age = window.BranchlineInventory.ageDays(item.received_on, today);
+            return age !== null && age >= band[2] && age < band[3];
+          }) : units;
+          const ageFilter = ui.invView === "aging" ? `<label class="field an-inline"><span>Aging range</span><select data-filter="invAge">${ageBands.map(([key,label]) =>
+            `<option value="${key}" ${key === band[0] ? "selected" : ""}>${label}</option>`).join("")}</select></label>` : "";
+          const table = panel(ui.invView === "aging" ? "Stock aging" : "Available serials",
+            `${ui.invView === "aging" ? "Current: under 30 days; 30 days: 30–59; 60 days: 60–89; 90 days: 90 or more. Unknown receipt dates are excluded. " : ""}Serial identity is branch + barcode + serial. Original receipt dates survive branch transfers.`, tableBlock("inventory-serials",
             ["Branch", "Barcode", "Product", "Serial", "Received", "Age (days)"], rows,
-            item => `<tr><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(productIndex.get(`${item.branch_id}\0${item.barcode}`)?.model_description)}</td><td>${escapeHTML(item.serial)}</td><td>${escapeHTML(item.received_on || "Unknown")}</td><td>${window.BranchlineInventory.ageDays(item.received_on, today) ?? "Unknown"}</td></tr>`, "No matching available serials."));
+            item => `<tr><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(productIndex.get(`${item.branch_id}\0${item.barcode}`)?.model_description)}</td><td>${escapeHTML(item.serial)}</td><td>${escapeHTML(item.received_on || "Unknown")}</td><td>${window.BranchlineInventory.ageDays(item.received_on, today) ?? "Unknown"}</td></tr>`, "No matching available serials."), ageFilter);
           if (ui.invView === "aging") return dates + table;
           return dates + inventoryMasterTable(items, "inventory-brand", "Brand inventory") + table;
         }
@@ -2502,10 +2511,10 @@
       ? window.BranchlineInventory.brandMatcher(currentProfile, liveData.profiles, liveData.inventoryCatalog) : null;
     const assignedProducts = matchesBrand ? new Set(liveData.inventoryCatalog.filter(matchesBrand)
       .map(item => `${item.branch_id}\0${item.barcode}`)) : null;
-    const aged = liveData.inventorySerials.filter(unit => unit.status === "available" && window.BranchlineInventory.ageDays(unit.received_on, today) > 90 &&
+    const aged = liveData.inventorySerials.filter(unit => unit.status === "available" && window.BranchlineInventory.ageDays(unit.received_on, today) >= 90 &&
       (!assignedProducts || assignedProducts.has(`${unit.branch_id}\0${unit.barcode}`)));
     const missing = !inventoryOnly() && managesInventory() ? liveData.inventoryCatalog.filter(item => item.missing_srp).length : 0;
-    if (aged.length || missing) connectedContent.insertAdjacentHTML("afterbegin", `<aside class="inventory-reminder" role="status"><strong>Inventory reminder</strong><p>${aged.length} available serialized unit(s) are older than 90 days.${missing ? ` ${missing} branch/catalog item(s) need SRP — use Products → Edit.` : ""}</p><button class="button button-small" data-inventory-aging>View aging inventory</button><button class="button button-small" data-inventory-dismiss>Dismiss</button></aside>`);
+    if (aged.length || missing) connectedContent.insertAdjacentHTML("afterbegin", `<aside class="inventory-reminder" role="status"><strong>Inventory reminder</strong><p>${aged.length} available serialized unit(s) are 90 days old or more.${missing ? ` ${missing} branch/catalog item(s) need SRP — use Products → Edit.` : ""}</p><button class="button button-small" data-inventory-aging>View aging inventory</button><button class="button button-small" data-inventory-dismiss>Dismiss</button></aside>`);
   }
 
   function inventoryBranchField(name, label, selected) {
@@ -5691,7 +5700,7 @@
       return;
     }
     if (event.target.closest("[data-inventory-aging]")) {
-      ui.invView = "aging"; activePage = "inventory"; renderConnected(); return;
+      ui.invView = "aging"; ui.invAge = "90"; activePage = "inventory"; renderConnected(); return;
     }
     const inventoryTab = event.target.closest("[data-inventory-tab]");
     if (inventoryTab) {
