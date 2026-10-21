@@ -2,7 +2,7 @@
   "use strict";
   const STATE_KEY = "branchline-demo-workspace-v1";
   const CATALOG_KEY = "branchline-demo-catalog-v1";
-  const SAMPLE_REVISION = 3;
+  const SAMPLE_REVISION = 4;
   const BRANDS = ["TCL", "LG", "Samsung", "Panasonic", "Hanabishi", "Camel", "Sharp", "Sony", "Devant", "Skyworth"];
   const roles = ["ps", "manager", "district_manager", "admin"];
   const copy = value => JSON.parse(JSON.stringify(value));
@@ -101,7 +101,8 @@
               if (!person) continue;
               tables.ps_walkins.push({ branch_id: branch.id, ps_id: person.id, counted_on: date, clients_assisted: 4 + (day + j) % 5 });
               if ((day + i + j) % 3 === 0) continue;
-              const product = catalog[(day + j * 2) % catalog.length];
+              const assignedProducts = catalog.filter(product => norm(product.brand) === norm(person.assigned_brand));
+              const product = assignedProducts[day % assignedProducts.length];
               const sale = { id: uid(), branch_id: branch.id, dealer_id: dealer, ps_id: person.id, ps_name: person.full_name,
                 customer_name: ["Sample Customer One", "Sample Customer Two", "Walk-in Customer"][day % 3],
                 invoice_number: `DEMO-${month}-${i}-${j}-${day}`, sold_on: date, payment_mode: tables.payment_modes[day % 5].name,
@@ -159,11 +160,13 @@
     let sampleThrough = today;
     let needsScenario = false;
     const saved = storage.getItem(STATE_KEY);
+    let savedRevision = SAMPLE_REVISION;
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed.version !== 1 || !parsed.tables || !parsed.tables.profiles?.length ||
           Object.values(parsed.tables).some(rows => !Array.isArray(rows))) throw new Error("Demo data is invalid. Reset the demo to start again.");
       tables = parsed.tables;
+      savedRevision = parsed.sampleRevision;
       scenario = parsed.scenario || "behind";
       sampleThrough = parsed.sampleThrough || today;
       needsScenario = !parsed.scenario;
@@ -232,6 +235,19 @@
       tables = seed(clean, today);
       needsScenario = true;
     }
+    if (savedRevision !== SAMPLE_REVISION) {
+      const people = new Map(tables.profiles.map(person => [person.id, person]));
+      const sales = new Map(tables.sales.filter(sale => sale.invoice_number?.startsWith("DEMO-")).map(sale => [sale.id, sale]));
+      for (const line of tables.sale_lines) {
+        const person = people.get(sales.get(line.sale_id)?.ps_id);
+        if (!person || brandMatches(line, person)) continue;
+        const products = clean.filter(product => brandMatches(product, person));
+        if (!products.length) continue;
+        const product = products.find(item => item.category === line.category) || products[0];
+        Object.assign(line, { barcode: product.barcode, brand: product.brand, model_description: product.model_description,
+          category: product.category, sub_category: product.sub_category, srp: product.srp });
+      }
+    }
     let actor = tables.profiles.find(p => p.role === "ps" && p.active) || tables.profiles.find(p => p.role === "admin" && p.active);
     if (!actor) throw new Error("No active demo account. Reset the demo to restore sample accounts.");
     const persist = () => storage.setItem(STATE_KEY, JSON.stringify({ version: 1, sampleRevision: SAMPLE_REVISION, tables, catalogLabel: savedLabel, catalogStamp, scenario, sampleThrough }));
@@ -283,6 +299,7 @@
       if (table === "branches") return tables.branches.filter(b => ids.includes(b.id));
       if (table === "districts") return tables.districts.filter(d => actor.role === "admin" || tables.branches.some(b => ids.includes(b.id) && b.district_id === d.id));
       if (table === "sales") return visibleSales();
+      if (table === "products" && actor.role === "ps") return tables.products.filter(product => ids.includes(product.branch_id) && brandMatches(product));
       if (["sale_lines", "sale_serials", "sale_edit_history"].includes(table)) {
         const sales = new Set(visibleSales().map(s => s.id));
         return tables[table].filter(row => sales.has(row.sale_id));
@@ -303,7 +320,7 @@
       tables.sales = tables.sales.filter(s => s.id !== id);
       for (const table of ["sale_lines", "sale_serials", "sale_edit_history"]) tables[table] = tables[table].filter(row => row.sale_id !== id);
     };
-    function brandMatches(line) {
+    function brandMatches(line, person = actor) {
       const parts = assignment => String(assignment || "").split("/").map(part => {
         const text = norm(part);
         const known = tables.products.some(p => norm(p.brand) === text);
@@ -311,8 +328,8 @@
         return { brand: at < 0 ? text : text.slice(0, at).trim(), scope: at < 0 ? "" : text.slice(at + 1).trim() };
       });
       const inScope = scope => norm(`${line.category} ${line.sub_category} ${line.model_description}`).includes(scope);
-      return parts(actor.assigned_brand).some(part => part.brand === norm(line.brand) &&
-        (part.scope ? inScope(part.scope) : !tables.profiles.filter(p => p.id !== actor.id && p.active && p.role === "ps" && p.branch_id === actor.branch_id)
+      return parts(person.assigned_brand).some(part => part.brand === norm(line.brand) &&
+        (part.scope ? inScope(part.scope) : !tables.profiles.filter(p => p.id !== person.id && p.active && p.role === "ps" && p.branch_id === person.branch_id)
           .flatMap(p => parts(p.assigned_brand)).some(other => other.brand === part.brand && other.scope && inScope(other.scope))));
     }
     function brandLines() {
@@ -369,6 +386,7 @@
           if (!(line.selling_price >= 0) || !Number.isInteger(line.quantity) || line.quantity < 1) throw new Error("Enter a valid price and quantity.");
           const product = tables.products.find(product => product.branch_id === sale.branch_id && product.barcode === line.barcode);
           if (!product) throw new Error("Product not found in the demo catalog.");
+          if (actor.role === "ps" && !brandMatches(product)) throw new Error("Choose a demo product from your assigned brand.");
           return { ...product, ...line, id: uid(), sale_id: sale.id };
         });
         if (p.p_sale_id) insert("sale_edit_history", { sale_id: sale.id, previous_values: copy(sale) });

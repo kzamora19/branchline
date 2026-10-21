@@ -1094,7 +1094,7 @@
     try {
       const catalog = window.BranchlineDemo.sampleCatalog();
       const catalogLabel = "Illustrative products only · no sign-in needed · Philippine calendar";
-      const catalogStamp = "illustrative-v3";
+      const catalogStamp = "illustrative-v4";
       demoStore = window.BranchlineDemo.create({ storage: localStorage, catalog, catalogLabel, catalogStamp });
       client = demoStore.client;
       closeModal();
@@ -1503,6 +1503,20 @@
     return panel("Diagnosis and action plan", "Generated from your numbers. Causes are likely explanations to check on the floor, not proven facts.", `<div class="insight-grid">${cards}</div>`, manualExport("insights", "Diagnosis and action plan", head, insights, rowHtml));
   }
 
+  function dailySalesNeededCard({ target, actual, month, today, rules }) {
+    const A = window.BranchlineAnalytics;
+    const start = month < today.slice(0, 7) ? null : month === today.slice(0, 7) ? today : A.monthStart(month);
+    const days = start ? A.countSellingDays(start, A.monthEnd(month), rules) : 0;
+    const pace = A.requiredPace({ target, actual, paceDays: days });
+    const value = target <= 0 ? "No target" : pace.met ? formatMoney(0)
+      : pace.perDay === null ? "No selling days remain" : formatMoney(pace.perDay);
+    const note = target <= 0 ? "Set a monthly target to calculate the daily requirement."
+      : pace.met ? "Monthly target reached."
+        : days ? `${formatMoney(pace.gap)} remaining ÷ ${days} selling day${days === 1 ? "" : "s"}${start === today ? " (including today if a selling day)" : ""}. Follows the selected branches and selling calendar.`
+          : `${formatMoney(pace.gap)} short of the month's target.`;
+    return `<article class="connected-metric"><span>Daily sales needed</span><strong>${value}</strong><small>${escapeHTML(note)}</small></article>`;
+  }
+
   function renderAnalyticsPage() {
     const A = window.BranchlineAnalytics;
     const isPs = currentProfile.role === "ps";
@@ -1561,7 +1575,8 @@
         const through = refDate > monthEnd ? monthEnd : refDate;
         const actual = A.sumDaily(daily, monthStart, through);
         const forecast = A.forecastMonth({ month, refDate, daily, rules, partialDay: isCurrent });
-        const pace = A.requiredPace({ target, actual, paceDays: forecast.paceDays });
+        const remainingSellingDays = isCurrent ? A.countSellingDays(today, monthEnd, rules) : 0;
+        const pace = A.requiredPace({ target, actual, paceDays: remainingSellingDays });
         const transactions = new Set(allFacts.filter(f => f.date >= monthStart && f.date <= through).map(f => f.saleId)).size;
         const series = A.cumulativeSeries({ month, refDate, daily, rules, rate: forecast.status === "projected" ? forecast.rate : null });
 
@@ -1574,7 +1589,8 @@
         const gapText = target <= 0 ? "No target" : pace.met ? "Target reached" : formatMoney(pace.gap);
         const gapSmall = target <= 0 ? "Set a target to see the gap"
           : pace.met ? `Over target by ${formatMoney(actual - target)}`
-            : pace.perDay != null ? `${formatMoney(pace.perDay)} needed per remaining selling day (${forecast.paceDays})` : "No selling days remain";
+            : pace.perDay != null ? `${formatMoney(pace.perDay)} needed per remaining selling day (${remainingSellingDays})` : "No selling days remain";
+        const dailyNeededCard = isPs ? "" : dailySalesNeededCard({ target, actual, month, today, rules });
         const sharePerPs = isPs || !psProfiles.length ? null : actual / psProfiles.length;
         const walk = A.walkInSummary({
           from: monthStart,
@@ -1591,6 +1607,7 @@
         const cards = `<div class="connected-metrics">
           <article class="connected-metric"><span>Actual sales · ${escapeHTML(monthLabel(month))}${isCurrent ? " (to date)" : ""}</span><strong>${formatMoney(actual)}</strong><small>${escapeHTML(targetNote)}</small></article>
           <article class="connected-metric"><span>Target achievement</span><strong>${target > 0 ? percent(actual, target) : "No target"}</strong><small>Target ${target > 0 ? formatMoney(target) : "not set"}</small></article>
+          ${dailyNeededCard}
           <article class="connected-metric"><span>Remaining gap</span><strong>${gapText}</strong><small>${escapeHTML(gapSmall)}</small></article>
           <article class="connected-metric an-forecast-card"><span>${forecast.status === "final" ? "Month-end result" : `Forecast month-end <em class="an-badge">Forecast</em>`}</span><strong>${forecastText}</strong><small>${escapeHTML(forecastSmall)}</small></article>
           <article class="connected-metric"><span>Transactions</span><strong>${transactions}</strong><small>Average value ${transactions ? formatMoney(A.average(actual, transactions)) : "n/a"}</small><button class="button button-outline button-small wk-daily-btn" type="button" data-open="transactions-daily">View daily</button></article>
@@ -1803,7 +1820,7 @@
       () => {
         const ids = scopeBranchIds();
         const query = searchQuery();
-        const logRange = !isPs && Boolean(ui.logFrom || ui.logTo);
+        const logRange = Boolean(ui.logFrom || ui.logTo);
         const logSource = [...visibleSales(), ...liveData.testSales.filter(sale => !isPs || sale.ps_id === currentProfile.id)];
         const sales = logSource
           .filter(sale => ids.has(sale.branch_id)
@@ -1837,7 +1854,7 @@
         charts.push(brandPie("Sales by brand", isPs ? `${scope} · my sales` : scope, brandRows().map(row => ({ label: row.brand, value: row.actual }))));
         salesLogExport = new Set(sales.map(row => row.sale.id));
         const logBranches = liveData.branches.filter(branch => ids.has(branch.id)).sort((a, b) => natural(a.name, b.name));
-        const logFilters = isPs ? "" : `${logBranches.length > 1 ? `<label class="field log-filter"><span>Branch</span><select data-filter="logBranch"><option value="">All branches</option>${logBranches.map(branch =>
+        const logFilters = `${!isPs && logBranches.length > 1 ? `<label class="field log-filter"><span>Branch</span><select data-filter="logBranch"><option value="">All branches</option>${logBranches.map(branch =>
           `<option value="${escapeHTML(branch.id)}" ${branch.id === ui.logBranch ? "selected" : ""}>${escapeHTML(branch.name)}</option>`).join("")}</select></label>` : ""}<label class="field log-filter"><span>From</span><input type="date" data-filter="logFrom" value="${escapeHTML(ui.logFrom)}"></label><label class="field log-filter"><span>To</span><input type="date" data-filter="logTo" value="${escapeHTML(ui.logTo)}"></label>${ui.logBranch || logRange ? '<button class="button button-outline" type="button" data-log-clear>Clear</button>' : ""}`;
         const tools = `<div class="table-tools log-tools">${logFilters}<label class="field log-filter log-search"><span>Search</span><input type="search" data-filter="search" placeholder="Invoice, customer, product, staff" value="${escapeHTML(ui.search)}" autocomplete="off"></label><button class="button button-outline" type="button" data-export="sales">Export</button></div>`;
         const rangeNote = logRange ? `${ui.logFrom || "start"} to ${ui.logTo || "today"} · ` : ui.period === "day" ? "this day only · " : "";
@@ -1849,7 +1866,8 @@
         const cardTo = logRange ? ui.logTo || "9999-12-31" : dayFocus;
         const cardWhen = logRange ? `${ui.logFrom || "start"} to ${ui.logTo || "today"}` : dayFocus === todayISO ? `today, ${dayFocus}` : dayFocus;
         const cardIds = !isPs && ui.logBranch && ids.has(ui.logBranch) ? new Set([ui.logBranch]) : ids;
-        const allSaleFacts = withHistoryFacts(analyticsFacts(ids), ids, isPs);
+        const allSaleFacts = withHistoryFacts(analyticsFacts(ids), ids, isPs)
+          .filter(fact => !isPs || fact.psId === currentProfile.id);
         const totalOf = (facts) => ({ total: facts.reduce((sum, f) => sum + f.amount, 0), count: new Set(facts.map(f => f.saleId)).size });
         const cardFacts = allSaleFacts.filter(f => f.date >= cardFrom && f.date <= cardTo && cardIds.has(f.branchId));
         const cardList = canPickBranch()
@@ -1880,7 +1898,7 @@
         }).join("");
         const dailyControls = `<label class="field an-inline"><span class="visually-hidden">Month</span><select data-filter="dsMonth">${monthOptions}</select></label><label class="field an-inline"><span class="visually-hidden">Year</span><select data-filter="dsYear">${yearList.map(value =>
           `<option value="${value}" ${value === dsYear ? "selected" : ""}>${value}</option>`).join("")}</select></label>`;
-        const dailySummary = panel("Daily sales summary", `${monthLabel(dsPrefix)} · ${formatMoney(monthTotal.total)} · ${monthTotal.count} sale${monthTotal.count === 1 ? "" : "s"} · totals only, newest day first. Click a heading to sort.`, tableBlock(
+        const dailySummary = panel("Daily sales summary", `${isPs ? "Your account's sales only · " : ""}${monthLabel(dsPrefix)} · ${formatMoney(monthTotal.total)} · ${monthTotal.count} sale${monthTotal.count === 1 ? "" : "s"} · totals only, newest day first. Click a heading to sort.`, tableBlock(
           "dailysum",
           ["Date", "Day", "No. of sales", "Total sales"],
           dayRows,
@@ -4738,6 +4756,15 @@
     const control = event.target.closest("[data-filter]");
     if (!control || !resultsView) return;
     const key = control.dataset.filter;
+    if (key === "logFrom" || key === "logTo") {
+      const from = key === "logFrom" ? control.value : ui.logFrom;
+      const to = key === "logTo" ? control.value : ui.logTo;
+      if (from && to && from > to) {
+        alert("From date must be on or before To date.");
+        control.value = ui[key];
+        return;
+      }
+    }
     ui[key] = control.value;
     ui.pages = {};
     if (key === "rankCategory") ui.rankSub = "";
