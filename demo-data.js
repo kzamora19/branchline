@@ -4,7 +4,9 @@
   const CATALOG_KEY = "branchline-demo-catalog-v1";
   const SAMPLE_REVISION = 4;
   const BRANDS = ["TCL", "LG", "Samsung", "Panasonic", "Hanabishi", "Camel", "Sharp", "Sony", "Devant", "Skyworth"];
-  const roles = ["ps", "manager", "district_manager", "admin"];
+  const Inventory = typeof module !== "undefined" && module.exports ? require("./inventory-demo.js") : root.BranchlineInventoryDemo;
+  const I = typeof module !== "undefined" && module.exports ? require("./inventory.js") : root.BranchlineInventory;
+  const roles = ["ps", "manager", "district_manager", "admin", "inventory_controller", "stock_custodian"];
   const copy = value => JSON.parse(JSON.stringify(value));
   const uid = () => root.crypto.randomUUID();
   const iso = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -248,6 +250,7 @@
           category: product.category, sub_category: product.sub_category, srp: product.srp });
       }
     }
+    Inventory.initialize(tables, today, uid);
     let actor = tables.profiles.find(p => p.role === "ps" && p.active) || tables.profiles.find(p => p.role === "admin" && p.active);
     if (!actor) throw new Error("No active demo account. Reset the demo to restore sample accounts.");
     const persist = () => storage.setItem(STATE_KEY, JSON.stringify({ version: 1, sampleRevision: SAMPLE_REVISION, tables, catalogLabel: savedLabel, catalogStamp, scenario, sampleThrough }));
@@ -288,12 +291,18 @@
       actor.role === "district_manager" && b.district_id === actor.district_id ||
       actor.role === "ps" && b.id === actor.branch_id ||
       actor.role === "manager" && tables.manager_branches.some(link => link.manager_id === actor.id && link.branch_id === b.id)).map(b => b.id);
+    const inventoryBranchIds = () => Inventory.roles.includes(actor.role)
+      ? tables.inventory_branch_users.filter(link => link.user_id === actor.id).map(link => link.branch_id) : branchIds();
     const requireRole = (...allowed) => { if (!allowed.includes(actor.role)) throw new Error("This action is not available to this demo role."); };
     const requireBranch = id => { if (!branchIds().includes(id)) throw new Error("This branch is outside the selected demo role's scope."); };
     const visibleSales = () => tables.sales.filter(s => branchIds().includes(s.branch_id) && (actor.role !== "ps" || s.ps_id === actor.id));
     function visible(table) {
       if (!Object.hasOwn(tables, table)) throw new Error(`The demo does not support table "${table}".`);
-      const ids = branchIds();
+      const ids = inventoryBranchIds();
+      if (Inventory.roles.includes(actor.role) && !["profiles", "branches", "districts", "inventory_branch_users", "inventory_stock", "inventory_serials", "inventory_snapshots", "inventory_transfers", "inventory_events"].includes(table)) return [];
+      if (table === "inventory_branch_users") return tables[table].filter(row => actor.role === "admin" || row.user_id === actor.id);
+      if (table === "inventory_transfers") return tables[table].filter(row => ids.includes(row.from_branch) || ids.includes(row.to_branch));
+      if (table === "profiles" && Inventory.roles.includes(actor.role)) return [actor];
       if (table === "profiles") return tables.profiles.filter(p => actor.role === "admin" || p.id === actor.id ||
         actor.role !== "ps" && (ids.includes(p.branch_id) || p.district_id === actor.district_id && p.role === "district_manager"));
       if (table === "branches") return tables.branches.filter(b => ids.includes(b.id));
@@ -317,6 +326,8 @@
       }
     }
     const removeSale = id => {
+      const sale = tables.sales.find(row => row.id === id);
+      if (sale) Inventory.deleteSale(tables, sale);
       tables.sales = tables.sales.filter(s => s.id !== id);
       for (const table of ["sale_lines", "sale_serials", "sale_edit_history"]) tables[table] = tables[table].filter(row => row.sale_id !== id);
     };
@@ -338,6 +349,32 @@
         tables.sale_lines.filter(l => l.sale_id === sale.id && brandMatches(l)).map(line => ({ sale, line })));
     }
     function rpc(name, p) {
+      if (["inventory_catalog", "inventory_destinations", "claim_inventory_reminder", "assign_inventory_branches", "import_inventory", "adjust_inventory", "dispatch_inventory", "resolve_inventory_transfer"].includes(name)) {
+        return Inventory.execute(name, p, { tables, actor, branchIds: inventoryBranchIds, uid, now, today });
+      }
+      if (name === "save_inventory_sale") {
+        const selectedSerials = p.p_serials === undefined ? [] : p.p_serials;
+        if (!Array.isArray(selectedSerials) || selectedSerials.some(row => !row?.serial?.trim() ||
+            !p.p_lines?.some(line => I.code(line.barcode) === I.code(row.barcode)))) throw new Error("Each serial choice must name a sale product and a nonblank available serial.");
+        const saleBranch = tables.sales.find(row => row.id === p.p_sale_id)?.branch_id || actor.branch_id;
+        if (selectedSerials.length && !tables.inventory_stock.some(row => row.branch_id === saleBranch)) throw new Error("Import branch inventory before selecting sale serials.");
+        const before = [];
+        for (const line of tables.sale_lines.filter(row => row.sale_id === p.p_sale_id)) {
+          let group = before.find(row => row.barcode === line.barcode);
+          if (!group) {
+            group = { barcode: line.barcode, quantity: 0, serials: tables.sale_serials.filter(row => row.sale_id === p.p_sale_id && row.barcode === line.barcode).map(row => ({
+              serial: row.serial, received_on: tables.inventory_serials.find(unit => unit.branch_id === saleBranch && unit.barcode === row.barcode && unit.serial === row.serial)?.received_on || null,
+            })) };
+            before.push(group);
+          }
+          group.quantity += line.quantity;
+        }
+        const id = rpc("save_ps_sale", p);
+        rpc("save_sale_extras", { p_sale_id: id, p_city: p.p_city, p_barangay: p.p_barangay,
+          p_serials: selectedSerials.map(row => ({ barcode: I.code(row.barcode), serial: row.serial.trim() })) });
+        Inventory.applySale(tables, tables.sales.find(sale => sale.id === id), before, p.p_reconcile);
+        return id;
+      }
       if (name === "export_brand_branch_sales") {
         requireRole("ps");
         return brandLines().map(({ sale, line }) => ({
@@ -432,6 +469,10 @@
       if (["add_product", "update_product", "import_products", "delete_products"].includes(name)) {
         requireRole(...(name.includes("import") || name.includes("delete") ? ["admin"] : ["manager", "district_manager", "admin"]));
         if (name === "delete_products") {
+          if (tables.inventory_stock.some(row => row.quantity>0 && p.p_barcodes.some(code=>norm(code)===norm(row.barcode))) ||
+              tables.inventory_transfers.some(row => row.status==="transit" && p.p_barcodes.some(code=>norm(code)===norm(row.barcode)))) {
+            throw new Error("This product has available or in-transit inventory. Reconcile its stock before deleting it.");
+          }
           tables.products = tables.products.filter(row => !p.p_barcodes.some(code => norm(code) === norm(row.barcode)));
           return null;
         }
@@ -441,9 +482,23 @@
         const products = catalogOnly(items);
         if (products.some(product => !knownBrand(product.brand))) throw new Error(`Demo products must use one of: ${BRANDS.join(", ")}.`);
         products.forEach(product => { product.brand = knownBrand(product.brand); });
-        if (name === "add_product" && tables.products.some(row => row.barcode === p.p_barcode)) throw new Error("This barcode already exists.");
+        if (name === "update_product" && p.p_old_barcode !== p.p_barcode &&
+            tables.inventory_stock.some(row => row.barcode === p.p_old_barcode)) throw new Error("A stocked barcode cannot be renamed. Correct its details without changing its identity.");
+        const existingProducts = [...tables.products];
         if (name === "update_product") tables.products = tables.products.filter(row => row.barcode !== p.p_old_barcode);
-        for (const branch of tables.branches) upsert("products", products.map(product => ({ ...product, branch_id: branch.id, active: true })), ["branch_id", "barcode"]);
+        for (const branch of tables.branches) {
+          upsert("products", products.map(product => ({
+            ...product, srp: name === "update_product" ? product.srp : product.srp ?? existingProducts.find(item =>
+              item.branch_id === branch.id && item.barcode === product.barcode)?.srp ?? null, branch_id: branch.id, active: true,
+          })), ["branch_id", "barcode"]);
+          const snapshot = tables.inventory_snapshots.filter(row => row.branch_id === branch.id).sort((a,b)=>b.imported_at.localeCompare(a.imported_at))[0];
+          if (snapshot) for (const product of products) if (!tables.inventory_stock.some(row => row.branch_id === branch.id && row.barcode === product.barcode)) {
+            tables.inventory_stock.push({branch_id:branch.id,barcode:product.barcode,quantity:0,serialized:false,snapshot_id:snapshot.id});
+          }
+        }
+        for (const product of products) tables.sale_lines.filter(line => line.barcode === (p.p_old_barcode || product.barcode)).forEach(line => {
+          Object.assign(line, { brand: product.brand, model_description: product.model_description, category: product.category, sub_category: product.sub_category });
+        });
         return { products: products.length };
       }
       if (name === "sync_sale_categories") {
@@ -594,7 +649,7 @@
         });
       },
       rpc(name, params = {}) {
-        const read = ["brand_branch_sales", "export_brand_branch_sales", "brand_sales_contribution", "get_ps_dashboard"].includes(name);
+        const read = ["brand_branch_sales", "export_brand_branch_sales", "brand_sales_contribution", "get_ps_dashboard", "inventory_catalog", "inventory_destinations"].includes(name);
         return new Query(() => read ? { data: rpc(name, params), error: null } : transaction(() => rpc(name, params)));
       },
       functions: { async invoke(name, { body }) {
@@ -607,8 +662,11 @@
             if (body.action === "reset_password") return { temporary_password: "DemoOnly-NotALogin" };
             if (body.action === "delete_user") {
               if (tables.sales.some(s => s.ps_id === person.id)) throw new Error("This user has sales. Disable instead.");
+              if (tables.inventory_events.some(row => row.actor_id === person.id) || tables.inventory_snapshots.some(row => row.imported_by === person.id) ||
+                  tables.inventory_transfers.some(row => row.dispatched_by === person.id || row.resolved_by === person.id)) throw new Error("This user has inventory history. Disable instead.");
               tables.profiles = tables.profiles.filter(p => p.id !== person.id);
               tables.manager_branches = tables.manager_branches.filter(row => row.manager_id !== person.id);
+              tables.inventory_branch_users = tables.inventory_branch_users.filter(row => row.user_id !== person.id);
             } else if (body.action === "update_contact") Object.assign(person, { login_id: body.login, email: body.contact_email });
             else throw new Error("This demo account action is not supported.");
           } else {
@@ -617,6 +675,10 @@
               district_id: body.district_id, branch_id: body.branch_id || null, assigned_brand: body.brand || null,
               active: true, login_id: body.login, email: body.email || null });
             if (person.role === "manager") tables.manager_branches.push({ manager_id: person.id, branch_id: person.branch_id });
+            if (Inventory.roles.includes(person.role)) {
+              person.branch_id = null; person.district_id = null;
+              Inventory.execute("assign_inventory_branches", { p_user: person.id, p_branches: body.branch_ids }, { tables, actor, branchIds: inventoryBranchIds, uid, now, today });
+            }
           }
           return { temporary_password: "DemoOnly-NotALogin", email_status: "demo_only" };
         });

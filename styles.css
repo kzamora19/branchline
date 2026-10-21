@@ -275,6 +275,10 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .chart-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .chart-download { display: flex; justify-content: flex-end; }
 .chart-heading .chart-download { margin-left: auto; }
+.sale-inventory-serials { grid-column: 1 / -1; }
+.sale-inventory-serials .field { max-width: 480px; }
+.inventory-reminder { padding: 16px; margin-bottom: 16px; border: 1px solid #e5ac38; border-radius: 12px; background: #fff8e7; }
+.inventory-reminder p { margin: 8px 0; }
 .table-category-filters { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
 .table-category-filters .field { width: 180px; max-width: 100%; }
 .daily-table-action { display: flex; justify-content: center; margin-top: 12px; }
