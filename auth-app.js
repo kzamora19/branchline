@@ -253,9 +253,9 @@
     }
   }
 
-  async function loadInventoryData(inventoryClient) {
+  async function loadInventoryData(inventoryClient, onProgress = () => {}) {
     const fetchAll = (...args) => fetchAllFrom(inventoryClient, ...args);
-    const [catalog, stock, serials, snapshots, transfers, events, destinations, assignments, batches] = await Promise.all([
+    const requests = [
       fetchInventoryRpc("inventory_catalog", ["branch_id", "barcode"], inventoryClient),
       fetchAll("inventory_stock", "*", [["branch_id", true], ["barcode", true]]),
       fetchAll("inventory_serials", "*", [["branch_id", true], ["barcode", true], ["serial", true]]),
@@ -265,7 +265,13 @@
       managesInventory() ? fetchInventoryRpc("inventory_destinations", ["id"], inventoryClient) : [],
       currentProfile.role === "admin" ? fetchAll("inventory_branch_users", "*", [["user_id", true], ["branch_id", true]]) : { data: [], error: null },
       fetchAll("inventory_transfer_batches", "*", [["requested_at", false], ["id", true]]),
-    ]);
+    ];
+    let completed = 0;
+    const [catalog, stock, serials, snapshots, transfers, events, destinations, assignments, batches] = await Promise.all(
+      requests.map(request => Promise.resolve(request).then(result => {
+        onProgress(++completed / requests.length);
+        return result;
+      })));
     return {
       inventoryCatalog: catalog, inventoryStock: checkResult(stock, "Unable to load stock"),
       inventorySerials: checkResult(serials, "Unable to load serials"), inventorySnapshots: checkResult(snapshots, "Unable to load snapshots"),
@@ -340,6 +346,30 @@
   const PAYMENT_FALLBACK = ["Cash", "Debit Card", "Credit Card", "Cheque", "Online Payment / Bank Transfer", "Home Credit", "Flexi Deals"];
   const CATEGORY_SEEDS = { Aircon: ["Commercial", "Floor Mounted", "Split Type", "Window Type", "Portable"] };
 
+  function workspaceLoader(sequence) {
+    connectedContent.innerHTML = '<div class="app-loader"><svg viewBox="0 0 512 512" width="84" height="84" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#355ee8"/><g fill="#fff"><rect class="ldr-bar b1" x="124" y="267" width="56" height="133" rx="20"/><rect class="ldr-bar b2" x="228" y="164" width="56" height="236" rx="20"/><rect class="ldr-bar b3" x="332" y="306" width="56" height="94" rx="20"/></g></svg><div class="workspace-progress" role="progressbar" aria-label="Loading workspace" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="workspace-progress-fill"></div></div><strong data-load-percent>0%</strong><span role="status" data-load-stage>Signing in...</span></div>';
+    const bar = connectedContent.querySelector(".workspace-progress");
+    const fill = connectedContent.querySelector(".workspace-progress-fill");
+    const label = connectedContent.querySelector("[data-load-percent]");
+    const stage = connectedContent.querySelector("[data-load-stage]");
+    let value = 0;
+    const update = (percent, message) => {
+      if (sequence !== loadSequence || !bar.isConnected) return;
+      value = Math.max(value, Math.min(100, Math.round(percent)));
+      bar.setAttribute("aria-valuenow", String(value));
+      fill.style.width = `${value}%`;
+      label.textContent = `${value}%`;
+      stage.textContent = message;
+    };
+    return {
+      update,
+      async finish() {
+        update(100, "Workspace ready");
+        await new Promise(resolve => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+      },
+    };
+  }
+
   async function loadLiveWorkspace(session) {
     const client = demoStore ? demoStore.client : liveClient;
     const fetchAll = (...args) => fetchAllFrom(client, ...args);
@@ -347,7 +377,7 @@
     const sequence = ++loadSequence;
     currentSession = session;
     setWorkspaceMode("connected");
-    connectedContent.innerHTML = '<div class="app-loader" role="status" aria-label="Loading"><svg viewBox="0 0 512 512" width="84" height="84" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#355ee8"/><g fill="#fff"><rect class="ldr-bar b1" x="124" y="267" width="56" height="133" rx="20"/><rect class="ldr-bar b2" x="228" y="164" width="56" height="236" rx="20"/><rect class="ldr-bar b3" x="332" y="306" width="56" height="94" rx="20"/></g></svg><span>Loading…</span></div>';
+    const loading = workspaceLoader(sequence);
 
     try {
       const profile = checkResult(await client
@@ -368,10 +398,11 @@
       }
 
       currentProfile = { ...profile, full_name: titleCase(profile.full_name), assigned_brand: titleCase(profile.assigned_brand) };
+      loading.update(10, "Loading your workspace...");
       if (inventoryOnly()) {
         const [branches, districts, inventory] = await Promise.all([
           fetchAll("branches", "id,name,district_id,code,transfer_sequence", [["id", true]]),
-          fetchAll("districts", "id,name", [["id", true]]), loadInventoryData(client),
+          fetchAll("districts", "id,name", [["id", true]]), loadInventoryData(client, fraction => loading.update(10 + fraction * 80, "Loading inventory...")),
         ]);
         if (sequence !== loadSequence || !currentSession) return;
         liveData = { branches: checkResult(branches, "Unable to load inventory branches"), districts: checkResult(districts, "Unable to load districts"), profiles: [currentProfile], products: [], ...inventory };
@@ -380,6 +411,8 @@
         refreshPushButton(false);
         activePage = "inventory";
         if (location.hash === "#inventory") ui.invView = "transfers";
+        await loading.finish();
+        if (sequence !== loadSequence || !currentSession) return;
         renderConnected();
         autoRegisterPush();
         if (passwordRecoveryPending && !demoStore) openPasswordModal(true);
@@ -396,7 +429,7 @@
         const probe = await client.from("products").select("branch_id").eq("active", true).limit(1);
         catalogBranch = probe.data?.[0]?.branch_id || null;
       }
-      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, pushSchedules, paymentTargets, importBatches, dailyHistory, saleSerials] = await Promise.all([
+      const requests = [
         fetchAll("branches", "id,name,district_id,code,transfer_sequence", [["name", true], ["id", true]]),
         fetchAll("districts", "id,name", [["name", true], ["id", true]]),
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
@@ -420,8 +453,16 @@
         isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("sales_import_batches", "id,label,source_file,created_at,sales_count,lines_count,amount,date_from,date_to,kind", [["created_at", false], ["id", true]]),
         isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("branch_daily_history", "branch_id,day,sales,transactions,walkins,remarks", [["day", false], ["branch_id", true]]),
                 fetchAll("sale_serials", "sale_id,barcode,position,serial", [["sale_id", true], ["position", true]]),
-                      ]);
+      ];
+      let completed = 0;
+      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, pushSchedules, paymentTargets, importBatches, dailyHistory, saleSerials] = await Promise.all(
+        requests.map(request => Promise.resolve(request).then(result => {
+          loading.update(10 + (++completed / requests.length) * 55, "Loading sales and account data...");
+          return result;
+        })));
 
+      if (sequence !== loadSequence || !currentSession) return;
+      loading.update(65, "Loading brand summaries...");
       const brandContribution = { data: [], error: null };
       if (isPsUser) {
         for (let offset = 0; ; offset += 1000) {
@@ -435,6 +476,8 @@
         }
       }
       if (brandContribution.error) console.error("Unable to load brand contribution.", brandContribution.error);
+      if (sequence !== loadSequence || !currentSession) return;
+      loading.update(70, "Preparing workspace data...");
       const visibleBranches = checkResult(branches, "Unable to load accessible branches").map(item => ({ ...item, name: titleCase(item.name) }));
       const visibleDistricts = checkResult(districts, "Unable to load accessible districts").map(item => ({ ...item, name: titleCase(item.name) }));
       const visibleTargets = checkResult(targets, "Unable to load accessible targets");
@@ -510,7 +553,7 @@
           ...(profile.role === "admin" ? [["Push messages", pushMessages], ["Push schedules", pushSchedules]] : []),
         ].filter(([, result]) => result.error).map(([label]) => label),
       };
-      try { Object.assign(liveData, await loadInventoryData(client)); }
+      try { Object.assign(liveData, await loadInventoryData(client, fraction => loading.update(70 + fraction * 25, "Loading inventory..."))); }
       catch (error) {
         console.error("Unable to load inventory.", error);
         const advice = ["PGRST202", "42883"].includes(error.code)
@@ -536,6 +579,8 @@
       if (location.hash === "#inventory") { activePage = "inventory"; ui.invView = "transfers"; }
       if (!ui.month) ui.month = currentMonth();
       activePage = rolePageAllowed(activePage) ? activePage : "overview";
+      await loading.finish();
+      if (sequence !== loadSequence || !currentSession) return;
       renderConnected();
       if (passwordRecoveryPending && !demoStore) {
         openPasswordModal(true);
@@ -1142,6 +1187,7 @@
   function mountPage(heading, beforeFilters, filters, results) {
     if (collectingExports) return results();
     if (capturingPieResults) return results;
+    hideInventorySerialTip();
     if (pieTablePopup) closeModal();
     const strip = connectedContent.querySelector(".inventory-tabs");
     if (strip && beforeFilters.startsWith('<nav class="inventory-tabs"')) {
@@ -2373,7 +2419,8 @@
       ["Branch", "Barcode", "Product", "Brand", "Category", "Subcategory", "Available qty", "Serialized", ""], items,
       item => {
         const stock = inventoryStockFor(item.branch_id, item.barcode);
-        return `<tr><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(item.model_description)}${item.missing_srp ? '<br><span class="an-down">SRP needed — Products → Edit</span>' : ""}</td><td>${escapeHTML(item.brand)}</td><td>${escapeHTML(item.category || "Needs classification")}</td><td>${escapeHTML(item.sub_category || "")}</td><td>${stock ? stock.quantity : "Not initialized"}</td><td>${stock ? stock.serialized ? "Yes" : "No" : "Unknown"}</td><td>${currentProfile.role === "admin" ? `<button class="button button-outline button-small" type="button" data-inventory-classify="${escapeHTML(item.barcode)}" data-branch="${escapeHTML(item.branch_id)}">Classify</button> ` : ""}${managesInventory() && stock ? `<button class="button button-outline button-small" data-inventory-adjust="${escapeHTML(item.barcode)}" data-branch="${escapeHTML(item.branch_id)}">Adjust</button>` : ""}</td></tr>`;
+        const serialData = `data-inventory-serials="${escapeHTML(item.barcode)}" data-branch="${escapeHTML(item.branch_id)}"`;
+        return `<tr${stock?.serialized ? ` class="inventory-serialized-row" ${serialData}` : ""}><td>${escapeHTML(branchName(item.branch_id))}</td><td>${escapeHTML(item.barcode)}</td><td>${escapeHTML(item.model_description)}${item.missing_srp ? '<br><span class="an-down">SRP needed — Products → Edit</span>' : ""}</td><td>${escapeHTML(item.brand)}</td><td>${escapeHTML(item.category || "Needs classification")}</td><td>${escapeHTML(item.sub_category || "")}</td><td>${stock ? stock.quantity : "Not initialized"}</td><td>${stock ? stock.serialized ? `<button type="button" class="inventory-serial-trigger" ${serialData} aria-haspopup="dialog" aria-label="View available serial numbers for ${escapeHTML(item.model_description)}">Yes</button>` : "No" : "Unknown"}</td><td>${currentProfile.role === "admin" ? `<button class="button button-outline button-small" type="button" data-inventory-classify="${escapeHTML(item.barcode)}" data-branch="${escapeHTML(item.branch_id)}">Classify</button> ` : ""}${managesInventory() && stock ? `<button class="button button-outline button-small" data-inventory-adjust="${escapeHTML(item.barcode)}" data-branch="${escapeHTML(item.branch_id)}">Adjust</button>` : ""}</td></tr>`;
       }, "No products match this selection.", PAGE_SIZE, (item,col) => {
         const stock = col >= 6 ? inventoryStockFor(item.branch_id,item.barcode) : null;
         return [branchName(item.branch_id),item.barcode,
@@ -2381,6 +2428,33 @@
           item.brand,item.category || "Needs classification",item.sub_category || "",
           stock ? stock.quantity : "Not initialized",stock ? stock.serialized ? "Yes" : "No" : "Unknown"][col];
       }), toggle);
+  }
+
+  function inventorySerialDetails(trigger) {
+    const { branch, inventorySerials: barcode } = trigger.dataset;
+    if (!scopeBranchIds().has(branch) || !inventoryStockFor(branch, barcode)?.serialized) return null;
+    const product = liveData.inventoryCatalog.find(item => item.branch_id === branch && item.barcode === barcode);
+    if (!product) return null;
+    const units = inventoryUnitsFor(branch, barcode);
+    return `<dl class="inventory-item-details"><div><dt>Branch</dt><dd>${escapeHTML(branchName(branch))}</dd></div>
+      <div><dt>Barcode</dt><dd class="inventory-exact">${escapeHTML(barcode)}</dd></div>
+      <div><dt>Product</dt><dd>${escapeHTML(product.model_description)}</dd></div>
+      <div><dt>Brand</dt><dd>${escapeHTML(product.brand)}</dd></div>
+      <div><dt>Category</dt><dd>${escapeHTML(product.category || "Needs classification")}</dd></div>
+      <div><dt>Subcategory</dt><dd>${escapeHTML(product.sub_category || "None")}</dd></div>
+      <div><dt>Available quantity</dt><dd>${inventoryStockFor(branch, barcode).quantity}</dd></div></dl>
+      <h3>Available serial numbers (${units.length})</h3>${units.length
+        ? `<ul class="inventory-serial-list">${units.map(unit => `<li class="inventory-exact">${escapeHTML(unit.serial)}</li>`).join("")}</ul>`
+        : '<p class="an-note">No available serial numbers for this item.</p>'}`;
+  }
+
+  function openInventorySerials(trigger) {
+    if (modalRoot || workspaceWrites) return;
+    const body = inventorySerialDetails(trigger);
+    if (!body) return;
+    hideInventorySerialTip();
+    openModal({ title: "Item information & available serials", body, readOnly: true });
+    inventorySerialReturn = trigger.matches("button") ? trigger : trigger.querySelector(".inventory-serial-trigger");
   }
 
   function openInventoryClassification(barcode, branch) {
@@ -4186,12 +4260,15 @@
 
   // ---------- Modal helper ----------
   let modalRoot = null;
+  let inventorySerialReturn = null;
 
   function closeModal() {
     const popup = pieTablePopup;
     pieTablePopup = null;
     modalRoot?.remove();
     modalRoot = null;
+    if (inventorySerialReturn?.isConnected) inventorySerialReturn.focus({ preventScroll: true });
+    inventorySerialReturn = null;
     if (popup) {
       const trigger = popup.trigger.isConnected ? popup.trigger : [...connectedContent.querySelectorAll("[data-pie-table]")]
         .find(element => element.dataset.pieTable === popup.key && element.getAttribute("aria-label") === popup.label);
@@ -4209,7 +4286,7 @@
   }
 
   // onSubmit(form) may return HTML to show as a result view; returning nothing closes the modal.
-  function openModal({ title, intro = "", body, submitLabel = "Save", wide = false, inline = false, onSubmit, onReady }) {
+  function openModal({ title, intro = "", body, submitLabel = "Save", wide = false, inline = false, readOnly = false, onSubmit, onReady }) {
     if (!inline) closeModal();
     const root = document.createElement("div");
     root.className = inline ? "inventory-form-panel" : "dlg-backdrop";
@@ -4219,7 +4296,7 @@
         ${intro ? `<p class="dlg-intro">${escapeHTML(intro)}</p>` : ""}
         <div class="dlg-body">${body}</div>
         <p class="dlg-error" role="alert" hidden></p>
-        <div class="dlg-actions">${inline ? "" : '<button class="button button-outline" type="button" data-modal-close>Cancel</button>'}<button class="button button-primary" type="submit">${escapeHTML(submitLabel)}</button></div>
+        <div class="dlg-actions">${readOnly ? '<button class="button button-primary" type="button" data-modal-close>Close</button>' : `${inline ? "" : '<button class="button button-outline" type="button" data-modal-close>Cancel</button>'}<button class="button button-primary" type="submit">${escapeHTML(submitLabel)}</button>`}</div>
       </form></div>`;
     if (inline) document.querySelector("#live-results").appendChild(root);
     else { modalRoot = root; document.body.appendChild(root); }
@@ -4228,8 +4305,16 @@
     if (!inline) root.addEventListener("pointerdown", event => {
       if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
     });
+    if (readOnly) root.addEventListener("keydown", event => {
+      if (event.key !== "Tab") return;
+      const buttons = [...root.querySelectorAll("button")];
+      const first = buttons[0], last = buttons[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    });
     form.addEventListener("submit", async event => {
       event.preventDefault();
+      if (readOnly) return;
       const submit = form.querySelector('[type="submit"]');
       error.hidden = true;
       if (!form.checkValidity()) {
@@ -4261,7 +4346,7 @@
       }
     });
     onReady?.(form);
-    if (!inline) form.querySelector("input,select")?.focus();
+    if (!inline) (readOnly ? root.querySelector("[data-modal-close]") : form.querySelector("input,select"))?.focus();
   }
 
   function friendlyError(error) {
@@ -5524,7 +5609,83 @@
     });
   }
 
+  let inventorySerialTip = null;
+  let inventorySerialHoverTimer;
+  let inventorySerialHoldTimer;
+  let inventorySerialTouch = null;
+
+  function hideInventorySerialTip() {
+    clearTimeout(inventorySerialHoverTimer);
+    clearTimeout(inventorySerialHoldTimer);
+    inventorySerialTip?.remove();
+    inventorySerialTip = null;
+  }
+
+  connectedContent.addEventListener("pointerover", event => {
+    if (event.pointerType !== "mouse" || modalRoot) return;
+    const trigger = event.target.closest(".inventory-serial-trigger");
+    if (!trigger || trigger.contains(event.relatedTarget)) return;
+    hideInventorySerialTip();
+    inventorySerialHoverTimer = setTimeout(() => {
+      if (!trigger.isConnected || modalRoot) return;
+      const body = inventorySerialDetails(trigger);
+      if (!body) return;
+      inventorySerialTip = document.createElement("aside");
+      inventorySerialTip.className = "inventory-serial-tip";
+      inventorySerialTip.setAttribute("role", "tooltip");
+      inventorySerialTip.innerHTML = body;
+      document.body.appendChild(inventorySerialTip);
+      const bounds = trigger.getBoundingClientRect();
+      const width = inventorySerialTip.offsetWidth, height = inventorySerialTip.offsetHeight;
+      inventorySerialTip.style.left = `${Math.max(8, Math.min(bounds.right - width, window.innerWidth - width - 8))}px`;
+      inventorySerialTip.style.top = `${Math.max(8, Math.min(bounds.bottom + 6, window.innerHeight - height - 8))}px`;
+      inventorySerialTip.addEventListener("pointerenter", () => clearTimeout(inventorySerialHoverTimer));
+      inventorySerialTip.addEventListener("pointerleave", hideInventorySerialTip);
+    }, 300);
+  });
+  connectedContent.addEventListener("pointerout", event => {
+    const trigger = event.target.closest(".inventory-serial-trigger");
+    if (!trigger || trigger.contains(event.relatedTarget)) return;
+    clearTimeout(inventorySerialHoverTimer);
+    inventorySerialHoverTimer = setTimeout(hideInventorySerialTip, 150);
+  });
+  connectedContent.addEventListener("pointerdown", event => {
+    if (event.pointerType === "mouse") return;
+    hideInventorySerialTip();
+    const trigger = event.target.closest(".inventory-serial-trigger");
+    if (!trigger) return;
+    inventorySerialTouch = { x: event.clientX, y: event.clientY };
+    inventorySerialHoldTimer = setTimeout(() => {
+      inventorySerialTouch = null;
+      if (trigger.isConnected) openInventorySerials(trigger);
+    }, 500);
+  });
+  connectedContent.addEventListener("pointermove", event => {
+    if (inventorySerialTouch && Math.hypot(event.clientX - inventorySerialTouch.x, event.clientY - inventorySerialTouch.y) > 10) {
+      clearTimeout(inventorySerialHoldTimer);
+      inventorySerialTouch = null;
+    }
+  });
+  ["pointerup", "pointercancel"].forEach(name => connectedContent.addEventListener(name, () => {
+    clearTimeout(inventorySerialHoldTimer);
+    inventorySerialTouch = null;
+  }));
+  connectedContent.addEventListener("contextmenu", event => {
+    if (event.target.closest(".inventory-serial-trigger")) event.preventDefault();
+  });
+  connectedContent.addEventListener("scroll", hideInventorySerialTip, { capture: true, passive: true });
+  connectedContent.addEventListener("input", hideInventorySerialTip);
+  window.addEventListener("scroll", hideInventorySerialTip, { passive: true });
+  window.addEventListener("resize", hideInventorySerialTip);
+  document.addEventListener("keydown", event => { if (event.key === "Escape") hideInventorySerialTip(); });
+
   connectedContent.addEventListener("click", event => {
+    hideInventorySerialTip();
+    const serialItem = event.target.closest("[data-inventory-serials]");
+    if (serialItem && (!event.target.closest("button,a,input,select,textarea,label") || event.target.closest(".inventory-serial-trigger"))) {
+      openInventorySerials(serialItem);
+      return;
+    }
     if (event.target.closest("[data-inventory-dismiss]")) {
       event.target.closest(".inventory-reminder").remove();
       return;
