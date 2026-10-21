@@ -405,6 +405,9 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .connected-charts { display: grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap: 18px; }
 .pie-body { display: grid; grid-template-columns: minmax(120px,170px) 1fr; gap: 18px; align-items: center; }
 .pie-body svg { width: 100%; height: auto; }
+.pie-body[data-pie-table], .empty-state[data-pie-table] { cursor: pointer; border-radius: 8px; }
+.pie-body[data-pie-table]:focus-visible, .empty-state[data-pie-table]:focus-visible, .pie-table-link:focus-visible { outline: 3px solid #355ee8; outline-offset: 4px; }
+.pie-table-link { display: block; margin: 12px auto 0; padding: 8px 12px; border: 0; background: transparent; color: #355ee8; font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
 .pie-label { fill: #fff; font: 700 .12px "Manrope","Segoe UI",sans-serif; pointer-events: none; }
 .pie-slice { cursor: pointer; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; transition: opacity .12s; }
 .pie-slice:hover { opacity: .85; }

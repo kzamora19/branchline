@@ -745,6 +745,9 @@
   }
 
   function pieChart(title, subtitle, entries, options = {}) {
+    const tableKey = options.tableKey || "brands";
+    const tableAction = `<button class="pie-table-link" type="button" data-pie-table="${escapeHTML(tableKey)}" aria-label="${escapeHTML(`View table for ${title}`)}">View table</button>`;
+    const pieAction = `role="button" tabindex="0" data-pie-table="${escapeHTML(tableKey)}" aria-label="${escapeHTML(`View table for ${title}`)}"`;
     const showLegend = options.legend !== false;
     const showAmounts = options.amounts !== false;
     const data = entries.filter(entry => entry.value > 0);
@@ -755,7 +758,7 @@
     const total = shown.reduce((sum, entry) => sum + entry.value, 0);
     const heading = `<div class="connected-panel-heading"><h2>${escapeHTML(title)}</h2><p>${escapeHTML(subtitle)}</p>${options.controls || ""}</div>`;
     if (!total) {
-      return `<section class="connected-panel pie-card">${heading}<div class="empty-state">No sales recorded for this selection.</div>${options.footer || ""}</section>`;
+      return `<section class="connected-panel pie-card">${heading}<div class="empty-state" ${pieAction}>No sales recorded for this selection.</div>${options.footer || ""}${tableAction}</section>`;
     }
 
     shown.forEach(entry => {
@@ -791,8 +794,8 @@
     ).join("")}</ul>` : "";
     const description = shown.filter(entry => !entry.muted).map(entry => showAmounts ? `${entry.label} ${formatMoney(entry.value)}` : `${entry.label} ${entry.percentText}`).join("; ");
     return `<section class="connected-panel pie-card">${heading}
-      <div class="pie-body${showLegend ? "" : " pie-body-solo"}"><svg viewBox="-1.03 -1.03 2.06 2.06" role="img" aria-label="${escapeHTML(`${title}: ${description}`)}">${slices.map(slice => slice.shape).join("")}${slices.map(slice => slice.label).join("")}</svg>
-      ${legend}</div>${options.footer || ""}</section>`;
+      <div class="pie-body${showLegend ? "" : " pie-body-solo"}" ${pieAction}><svg viewBox="-1.03 -1.03 2.06 2.06" role="img" aria-label="${escapeHTML(`${title}: ${description}`)}">${slices.map(slice => slice.shape).join("")}${slices.map(slice => slice.label).join("")}</svg>
+      ${legend}</div>${options.footer || ""}${tableAction}</section>`;
   }
 
   // Share of the target that should be reached by today: 1 for finished months, 0 for future ones,
@@ -829,9 +832,10 @@
   }
 
   function progressChart(actual, target, subtitle, options = {}) {
+    options = { tableKey: currentProfile.role === "ps" ? "sales" : "branches", ...options };
     const title = options.title || "Target progress";
     if (!(target > 0)) {
-      return `<section class="connected-panel pie-card"><div class="connected-panel-heading"><h2>${escapeHTML(title)}</h2><p>${escapeHTML(subtitle)}</p></div><div class="empty-state">${escapeHTML(options.emptyText || "No target is set for this selection.")}</div></section>`;
+      return `<section class="connected-panel pie-card"><div class="connected-panel-heading"><h2>${escapeHTML(title)}</h2><p>${escapeHTML(subtitle)}</p></div><button class="pie-table-link" type="button" data-pie-table="${escapeHTML(options.tableKey)}">${escapeHTML(options.emptyText || "No target is set for this selection.")} View table</button></section>`;
     }
     const showAmounts = options.amounts !== false;
     const status = paceStatus(actual, target);
@@ -948,13 +952,13 @@
     };
   }
 
-  function panel(title, detail, content, action = "") {
+  function panel(title, detail, content, action = "", sourceKey = "") {
     const key = /data-table-key="([^"]+)"/.exec(content)?.[1];
     if (key && key !== "sales" && (currentProfile.role !== "ps" || key === "brandlog")) {
       if (tableStore[key]) tableStore[key].title = title;
       action = `${action}<button class="button button-outline button-small" type="button" data-export-table="${key}">Export</button>`;
     }
-    return `<section class="connected-panel"><div class="connected-panel-heading panel-heading-row"><div><h2>${escapeHTML(title)}</h2>${detail ? `<p>${escapeHTML(detail)}</p>` : ""}</div>${action}</div>${content}</section>`;
+    return `<section class="connected-panel"${sourceKey || key ? ` data-pie-source="${escapeHTML(sourceKey || key)}"` : ""}><div class="connected-panel-heading panel-heading-row"><div><h2>${escapeHTML(title)}</h2>${detail ? `<p>${escapeHTML(detail)}</p>` : ""}</div>${action}</div>${content}</section>`;
   }
 
   function filterBar(options) {
@@ -998,6 +1002,8 @@
   }
 
   function mountPage(heading, beforeFilters, filters, results) {
+    if (capturingPieResults) return results;
+    if (pieTablePopup) closeModal();
     connectedContent.innerHTML = `${heading}${beforeFilters}${filters}<div id="live-results"></div>`;
     resultsView = results;
     refreshResults();
@@ -1006,6 +1012,71 @@
   function refreshResults() {
     const container = document.querySelector("#live-results");
     if (container && resultsView) container.innerHTML = resultsView();
+    if (pieTablePopup) renderPieTablePopup();
+  }
+
+  let capturingPieResults = false;
+  let pieTablePopup = null;
+
+  function openPieTable(key, trigger) {
+    let source = resultsView;
+    if (!document.querySelector(`#live-results [data-pie-source="${key}"]`)) {
+      if (key === "mix") source = () => overviewPaymentPanels("table");
+      else if (!["sales", "brandlog"].includes(key)) {
+        alert("The table is not available in this view.");
+        return;
+      } else {
+        capturingPieResults = true;
+        try { source = renderSalesPage(); }
+        finally { capturingPieResults = false; }
+      }
+    }
+    closeModal();
+    modalRoot = document.createElement("div");
+    modalRoot.className = "dlg-backdrop";
+    modalRoot.innerHTML = `<div class="dlg dlg-xwide" role="dialog" aria-modal="true" aria-label="Chart table"><div class="dlg-head"><h2>Chart table</h2><button class="dlg-close" type="button" data-modal-close aria-label="Close">×</button></div><div class="dlg-form" data-pie-table-content></div></div>`;
+    connectedContent.appendChild(modalRoot);
+    pieTablePopup = { key, source, trigger, label: trigger.getAttribute("aria-label") };
+    modalRoot.addEventListener("pointerdown", event => {
+      if (event.target === modalRoot) closeModal();
+    });
+    modalRoot.addEventListener("click", event => {
+      if (event.target.closest("[data-modal-close]")) {
+        event.stopPropagation();
+        closeModal();
+      }
+    });
+    modalRoot.addEventListener("keydown", event => {
+      if (event.key !== "Tab") return;
+      const controls = [...modalRoot.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]')];
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && event.target === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && event.target === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
+    hidePieTip();
+    renderPieTablePopup();
+    modalRoot?.querySelector("[data-modal-close]").focus();
+  }
+
+  function renderPieTablePopup() {
+    const template = document.createElement("template");
+    template.innerHTML = pieTablePopup.source();
+    const source = template.content.querySelector(`[data-pie-source="${pieTablePopup.key}"]`);
+    if (!source) {
+      closeModal();
+      alert("The table is no longer available for this selection.");
+      return;
+    }
+    const title = source.querySelector("h2")?.textContent || "Chart table";
+    modalRoot.querySelector(".dlg-head h2").textContent = title;
+    modalRoot.querySelector('[role="dialog"]').setAttribute("aria-label", title);
+    modalRoot.querySelector("[data-pie-table-content]").replaceChildren(source);
   }
 
   function renderConnected() {
@@ -1287,7 +1358,7 @@
 
   const MIX_STATUS = { above: "Above target", below: "Below target", on: "On target", none: "No target" };
 
-  function paymentMixPanels(month, mix, label, controls = "") {
+  function paymentMixPanels(month, mix, label, controls = "", display = "table") {
     const hasTarget = mix.hasTargets;
     const head = ["Payment mode", "Transactions", "Sales", "Actual mix", "Last year", "Last year mix", "Target mix", "Target (₱)", "Achievement", "Status"];
     const pct = value => (value === null || value === undefined ? "n/a" : `${value.toFixed(1)}%`);
@@ -1300,14 +1371,26 @@
     const editButton = canSetPaymentTargets() ? `<button class="button button-primary button-small" type="button" data-open="payment-targets">Set mix targets</button>` : "";
     const lyLabel = mix.range ? `Same period last year (${mix.range.lyFrom} to ${mix.range.lyTo})` : "Same period last year";
     const pies = [
-      pieChart("Sales by payment mode", label, mix.rows.map(row => ({ label: row.mode, value: row.sales }))),
-      pieChart("Sales by payment mode · last year", lyLabel, mix.rows.map(row => ({ label: row.mode, value: row.lySales || 0 }))),
+      pieChart("Sales by payment mode", label, mix.rows.map(row => ({ label: row.mode, value: row.sales })), { tableKey: "mix" }),
+      pieChart("Sales by payment mode · last year", lyLabel, mix.rows.map(row => ({ label: row.mode, value: row.lySales || 0 })), { tableKey: "mix" }),
     ];
     if (hasTarget) {
       const targetEntries = mix.rows.filter(row => row.targetPct !== null).map(row => ({ label: row.mode, value: row.targetPct }));
-      pies.push(pieChart("Target payment mix", `${label} · share of sales`, targetEntries, { amounts: false }));
+      pies.push(pieChart("Target payment mix", `${label} · share of sales`, targetEntries, { amounts: false, tableKey: "mix" }));
     }
-    return `<div class="connected-charts">${pies.join("")}</div>${panel("Payment mix: this year vs last year vs target", `${label}. Status compares each mode's share of sales with its target share (±2 points counts as on target). Last year only has data for sales that were recorded with a payment mode.`, table, `<div class="mix-tools"><div class="mix-tools-left">${editButton}</div><div class="mix-tools-right">${controls}${exportButton}</div></div>`)}`;
+    if (display === "pies") return `<div class="connected-charts">${pies.join("")}</div>`;
+    return panel("Payment mix: this year vs last year vs target", `${label}. Status compares each mode's share of sales with its target share (±2 points counts as on target). Last year only has data for sales that were recorded with a payment mode.`, table, `<div class="mix-tools"><div class="mix-tools-left">${editButton}</div><div class="mix-tools-right">${controls}${exportButton}</div></div>`, "mix");
+  }
+
+  function overviewPaymentPanels(display) {
+    const A = window.BranchlineAnalytics;
+    const month = anchorMonth();
+    const through = month === currentMonth() ? localISODate() : A.monthEnd(month);
+    const period = ui.period === "day"
+      ? { mode: "day", from: periodDay(), to: periodDay() }
+      : { mode: ui.period === "year" ? "ytd" : "mtd", from: ui.period === "year" ? `${month.slice(0, 4)}-01-01` : A.monthStart(month), to: through };
+    const mix = computePaymentMix(month, scopeBranchIds(), through, period);
+    return paymentMixPanels(month, mix, statusLabel(), "", display);
   }
 
   function openPaymentTargetsModal() {
@@ -1764,7 +1847,7 @@
         const month = anchorMonth();
         const label = statusLabel();
         const rows = branchRows();
-        const brands = brandRows();
+        const brands = brandRows(panelIds("brandBranch", scopeBranchIds()));
         const totalSales = rows.reduce((total, row) => total + row.actual, 0);
         const totalTarget = rows.reduce((total, row) => total + row.target, 0);
         const totalYtd = rows.reduce((total, row) => total + row.ytd, 0);
@@ -1772,8 +1855,9 @@
         const periodTargetLabel = ui.period === "year" ? "Year-to-date target" : "Monthly target";
         const isPs = currentProfile.role === "ps";
         const charts = isPs ? psTargetCharts(label) : [progressChart(totalSales, totalTarget, label)];
+        if (isPs) charts.push(brandProgressChart(label));
         if (rows.length > 1) {
-          charts.push(pieChart("Sales by branch", label, rows.map(row => ({ label: row.branch.name, value: row.actual }))));
+          charts.push(pieChart("Sales by branch", label, rows.map(row => ({ label: row.branch.name, value: row.actual })), { tableKey: "branches" }));
         }
         charts.push(brandPie("Sales by brand", label, brands.map(row => ({ label: row.brand, value: row.actual }))));
         return `<div class="connected-metrics">
@@ -1783,6 +1867,7 @@
             <article class="connected-metric"><span>Year-to-date sales</span><strong>${formatMoney(totalYtd)}</strong><small>YTD target ${formatMoney(totalYtdTarget)} · ${percent(totalYtd, totalYtdTarget)}</small></article>
           </div>
           <div class="connected-charts">${charts.join("")}</div>
+          ${overviewPaymentPanels("pies")}
           ${currentProfile.role === "ps" ? "" : panel("Accessible branch performance", "Ordered by district, then branch.", tableBlock(
             "branches",
             ["Branch", "District", "Sales", "Target", "Progress", "YTD sales"],
@@ -1808,7 +1893,7 @@
   function renderSalesPage() {
     const isPs = currentProfile.role === "ps";
     const canEditSales = isPs || currentProfile.role === "manager";
-    mountPage(
+    return mountPage(
       pageHeading("Sales", isPs ? "Your sales for branches you are assigned to." : "Sales visible to your role and assigned branches."),
       "",
       filterBar({
@@ -1842,16 +1927,6 @@
         const total = sales.filter(row => !row.isTest).reduce((sum, row) => sum + row.total, 0);
         const testCount = sales.filter(row => row.isTest).length;
         const isAdmin = currentProfile.role === "admin";
-        const scope = statusLabel();
-        const rows = branchRows();
-        const charts = isPs
-          ? psTargetCharts(scope)
-          : [progressChart(rows.reduce((sum, row) => sum + row.actual, 0), rows.reduce((sum, row) => sum + row.target, 0), scope)];
-        if (isPs) charts.push(brandProgressChart(scope));
-        if (rows.length > 1) {
-          charts.push(pieChart("Sales by branch", scope, rows.map(row => ({ label: row.branch.name, value: row.actual }))));
-        }
-        charts.push(brandPie("Sales by brand", isPs ? `${scope} · my sales` : scope, brandRows().map(row => ({ label: row.brand, value: row.actual }))));
         salesLogExport = new Set(sales.map(row => row.sale.id));
         const logBranches = liveData.branches.filter(branch => ids.has(branch.id)).sort((a, b) => natural(a.name, b.name));
         const logFilters = `${!isPs && logBranches.length > 1 ? `<label class="field log-filter"><span>Branch</span><select data-filter="logBranch"><option value="">All branches</option>${logBranches.map(branch =>
@@ -1906,8 +1981,7 @@
           "No days to show for this month yet.",
           31,
         ), dailyControls);
-        return `<div class="connected-charts">${charts.join("")}</div>
-          ${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} ·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a column heading to sort.`, totalsCards + tableBlock(
+        return `${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} ·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a column heading to sort.`, totalsCards + tableBlock(
             "sales",
                       ["Invoice", "Customer", "Products", "Serial numbers", "Qty", "Payment", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(canEditSales || isAdmin ? [""] : [])],
             sales,
@@ -1945,7 +2019,7 @@
       { label: "Sold by you", value: own, color: "#355ee8" },
       { label: "Sold by other PS", value: other, color: "#16a34a" },
     ], {
-      controls, footer, amounts: false, legend: false, names: true,
+      controls, footer, amounts: false, legend: false, names: true, tableKey: "brandlog",
     });
   }
 
@@ -2731,11 +2805,7 @@
             actual: actualByBranchMonth.get(`${target.branch_id}|${target.month.slice(0, 7)}`) || 0,
           }))
           .sort((a, b) => natural(a.district, b.district) || natural(a.branch, b.branch) || b.month.localeCompare(a.month));
-        const brands = brandRows();
         const scope = statusLabel();
-        const branchTotals = branchRows();
-        const progress = currentProfile.role === "ps" ? ""
-          : progressChart(branchTotals.reduce((sum, row) => sum + row.actual, 0), branchTotals.reduce((sum, row) => sum + row.target, 0), scope);
         return `${panel("Monthly branch targets", "Ordered by district, then branch.", tableBlock(
           "targets",
           ["District", "Branch", "Month", "Target", "Actual sales", "Progress", ""],
@@ -2743,7 +2813,6 @@
           row => `<tr><td>${escapeHTML(row.district)}</td><td><strong>${escapeHTML(row.branch)}</strong></td><td>${escapeHTML(monthLabel(row.month))}</td><td>${formatMoney(row.amount)}</td><td>${formatMoney(row.actual)}</td><td>${percent(row.actual, row.amount)}</td><td><button class="button button-outline button-small" type="button" data-edit-target="${escapeHTML(row.target.id)}">Edit</button></td></tr>`,
           "No targets match these filters.",
         ))}
-        <div class="connected-charts">${progress}${pieChart("Sales by brand", scope, brands.map(row => ({ label: row.brand, value: row.actual })))}</div>
         ${panel("Brand performance", `${scope} · click a heading to sort.`, brandTable(brandRows(panelIds("brandBranch", scopeBranchIds())), "No brand sales or targets for this selection."), brandPanelControl())}
         ${psRankingPanel()}`;
       },
@@ -3401,8 +3470,15 @@
   let modalRoot = null;
 
   function closeModal() {
+    const popup = pieTablePopup;
+    pieTablePopup = null;
     modalRoot?.remove();
     modalRoot = null;
+    if (popup) {
+      const trigger = popup.trigger.isConnected ? popup.trigger : [...connectedContent.querySelectorAll("[data-pie-table]")]
+        .find(element => element.dataset.pieTable === popup.key && element.getAttribute("aria-label") === popup.label);
+      trigger?.focus();
+    }
   }
 
   function fieldHTML(label, name, control) {
@@ -4385,6 +4461,11 @@
   }
 
   connectedContent.addEventListener("click", event => {
+    const pie = event.target.closest("[data-pie-table]");
+    if (pie) {
+      openPieTable(pie.dataset.pieTable, pie);
+      return;
+    }
     const open = event.target.closest("[data-open]")?.dataset.open;
     if (open === "product") openProductModal();
     else if (open === "payments") openPaymentModesModal();
@@ -4731,13 +4812,14 @@
   connectedContent.addEventListener("input", event => {
     const box = event.target.closest?.("[data-colfilter]");
     if (!box || !resultsView) return;
+    const fieldScope = box.closest("[data-pie-table-content]") ? modalRoot : connectedContent;
     const [key, col] = box.dataset.colfilter.split("|");
     (ui.colf[key] ||= {})[Number(col)] = box.value;
     const caret = box.selectionStart;
     const isText = box.tagName === "INPUT";
     refreshResults();
     if (isText) {
-      const field = document.querySelector(`[data-colfilter="${key}|${col}"]`);
+      const field = fieldScope.querySelector(`[data-colfilter="${key}|${col}"]`);
       if (field) {
         field.focus();
         field.setSelectionRange(caret, caret);
@@ -4755,6 +4837,7 @@
   connectedContent.addEventListener("input", event => {
     const control = event.target.closest("[data-filter]");
     if (!control || !resultsView) return;
+    const fieldScope = control.closest("[data-pie-table-content]") ? modalRoot : connectedContent;
     const key = control.dataset.filter;
     if (key === "logFrom" || key === "logTo") {
       const from = key === "logFrom" ? control.value : ui.logFrom;
@@ -4777,7 +4860,7 @@
       const caret = control.selectionStart;
       refreshResults();
       if (key === "search") {
-        const field = document.querySelector('#live-results [data-filter="search"]');
+        const field = fieldScope.querySelector('[data-filter="search"]');
         if (field) {
           field.focus();
           field.setSelectionRange(caret, caret);
@@ -4827,6 +4910,12 @@
   });
 
   connectedContent.addEventListener("keydown", event => {
+    const pie = event.target.closest("[data-pie-table]");
+    if (pie && !["BUTTON", "SELECT", "INPUT"].includes(event.target.tagName) && ["Enter", " "].includes(event.key)) {
+      event.preventDefault();
+      openPieTable(pie.dataset.pieTable, pie);
+      return;
+    }
     const detailRow = event.target.closest?.("[data-ps-detail]");
     const brandRow = event.target.closest?.("[data-brand-detail]");
     if (brandRow && (event.key === "Enter" || event.key === " ")) {
