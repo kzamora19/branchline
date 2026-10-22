@@ -128,6 +128,7 @@
 
   function resetUi() {
     ui.period = "month";
+    ui.anRange = "month";
     ui.month = "";
     ui.district = "";
     ui.branch = "";
@@ -584,7 +585,9 @@
         const advice = ["PGRST202", "42883"].includes(error.code)
           ? "Apply the inventory database update and reload."
           : error.code === "57014" || /statement timeout/i.test(error.message)
-            ? "The inventory query timed out. Ask your administrator to apply the inventory catalog performance update (20261110000000), then reload."
+            ? /inventory_catalog:/.test(error.message)
+              ? "The inventory catalog query timed out. Ask your administrator to apply the catalog performance update (20261110000000), then reload."
+              : "The inventory data query timed out. Ask your administrator to apply the inventory read performance update (20261117000000), then reload."
             : "Reload to retry. If this continues, share this error with your administrator.";
         liveData.inventoryError = `Inventory is unavailable: ${error.message}. ${advice}`;
       }
@@ -1454,6 +1457,8 @@
           category: (line.category || "").trim(),
           subCategory: (line.sub_category || "").trim(),
           product: (line.model_description || "").trim() || "Unnamed product",
+          barcode: line.barcode,
+          quantity: Number(line.quantity),
           amount: Number(line.selling_price) * Number(line.quantity),
           srpAmount: line.srp != null && Number(line.srp) > 0 && Number(line.selling_price) > 0 ? Number(line.srp) * Number(line.quantity) : 0,
           soldAmount: line.srp != null && Number(line.srp) > 0 && Number(line.selling_price) > 0 ? Number(line.selling_price) * Number(line.quantity) : 0,
@@ -1843,6 +1848,119 @@
     return `<article class="connected-metric"><span>Daily sales needed</span><strong>${value}</strong><small>${escapeHTML(note)}</small></article>`;
   }
 
+  function analyticsDataTable(key, title, detail, headers, rows) {
+    const rowHtml = row => `<tr>${row.map(value => `<td>${escapeHTML(value ?? "Unknown")}</td>`).join("")}</tr>`;
+    return panel(title, detail, tableBlock(key, headers, rows, rowHtml, "No data in this scope.", PAGE_SIZE,
+      (row, index) => row[index]));
+  }
+
+  function inventoryAnalyticsPanels(ids, facts, from, to, today) {
+    if (liveData.inventoryError) return panel("Inventory analysis unavailable", "",
+      `<p class="connected-error" role="alert">${escapeHTML(liveData.inventoryError)}</p>`);
+    const isPs = currentProfile.role === "ps";
+    const I = window.BranchlineInventory;
+    const catalog = liveData.inventoryCatalog || [];
+    const matchesBrand = isPs ? I.brandMatcher(currentProfile, liveData.profiles, catalog) : () => true;
+    const scopedCatalog = catalog.filter(item => ids.has(item.branch_id) && matchesBrand(item));
+    const summary = window.BranchlineAnalytics.inventorySummary({
+      catalog: scopedCatalog, stock: liveData.inventoryStock || [], serials: liveData.inventorySerials || [],
+      facts, branchIds: ids, today, from, to,
+    });
+    const metric = (label, value) => `<article class="connected-metric"><span>${escapeHTML(label)}</span><strong>${value}</strong></article>`;
+    const cards = `<div class="connected-metrics">${metric("Available units now", summary.units)}${metric("Tracked branch / product pairs", summary.tracked)}${metric("Out-of-stock branch / product pairs", summary.stockouts)}${metric("Not initialized", summary.uninitialized)}${metric("Awaiting classification", summary.unclassified)}${metric("Available serials aged 90+ days", summary.days90)}${!isPs ? metric("Missing SRP (unset or zero)", summary.missingSrp) : ""}</div>`;
+    const rangeLabel = from === "0001-01-01" && to === "9999-12-31" ? "all recorded dates" : `${from} to ${to}`;
+    const note = `Current inventory as of ${today}; sales/activity dates: ${rangeLabel}. Stock is not a historical balance. ${isPs ? "Your assigned brand/category stock; sold units and sales are your own, not branch-wide demand." : "Available quantities exclude reserved/in-transit stock."} Uninitialized inventory is unknown, not zero. No cost, profit or historical stock valuation is inferred.`;
+    const products = summary.products.map(row => [branchName(row.branch_id), row.barcode, row.model_description,
+      row.brand, row.category || "Unclassified", row.sub_category || "", row.quantity ?? "Not initialized",
+      row.sold, formatMoney(row.sales), row.days90,
+      row.quantity === null ? "Not initialized" : row.quantity === 0 ? row.sold > 0 ? "Sold in period; currently out of stock" : "Out of stock"
+        : row.sold === 0 ? "Stock available; no recorded sales in period" : "Stock available"]);
+    const productTable = analyticsDataTable("an-inventory-products", "Inventory and product sales", note,
+      ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Units sold", "Sales", "90+ day serials", "Observation"], products);
+    const aging = analyticsDataTable("an-inventory-aging", "Current stock aging", "Available serialized units only. Missing/invalid receipt dates are unknown; nonserialized units have no receipt-age data.",
+      ["Age band", "Available serials"], [["Current (0-29 days)", summary.current], ["30 days (30-59)", summary.days30],
+        ["60 days (60-89)", summary.days60], ["90 days or more", summary.days90], ["Unknown receipt age", summary.unknown]]);
+    const known = new Set(scopedCatalog.map(row => `${row.branch_id}\0${row.barcode}`));
+    const within = date => {
+      const day = date ? localISODate(new Date(date)) : "";
+      return day >= from && day <= to;
+    };
+    const batches = new Map((liveData.inventoryTransferBatches || []).map(row => [row.id, row]));
+    const transferRows = (liveData.inventoryTransfers || []).filter(row =>
+      (ids.has(row.from_branch) || ids.has(row.to_branch)) && within(row.dispatched_at) &&
+      (!isPs || known.has(`${row.from_branch}\0${row.barcode}`) || known.has(`${row.to_branch}\0${row.barcode}`)));
+    const transferGroups = new Map();
+    for (const row of transferRows) {
+      const status = batches.get(row.batch_id)?.status || row.status;
+      if (!transferGroups.has(status)) transferGroups.set(status, { lines: 0, units: 0 });
+      const group = transferGroups.get(status); group.lines++; group.units += Number(row.quantity);
+    }
+    const transfers = analyticsDataTable("an-inventory-transfers", "Transfer activity", "Transfer lines submitted/dispatched in the selected period, grouped by their current status. Each line is counted once, even when both branches are selected. These are not additional available stock.",
+      ["Current status", "Product lines", "Units"], [...transferGroups].map(([status, group]) => [inventoryTransferStatus(status), group.lines, group.units]));
+    const events = (liveData.inventoryEvents || []).filter(row => ids.has(row.branch_id) && within(row.created_at) &&
+      (!isPs || known.has(`${row.branch_id}\0${row.barcode}`)));
+    const history = analyticsDataTable("an-inventory-history", "Inventory movement history", "Recorded events only; snapshot replacements are not purchases or additive receipts. A blank quantity is unknown, not zero.",
+      ["Date", "Branch", "Action", "Barcode", "Quantity change", "Note"],
+      [...events].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(row =>
+        [row.created_at, branchName(row.branch_id), row.kind, row.barcode || "", row.quantity, inventoryEventNote(row)]));
+    const snapshots = isPs ? "" : analyticsDataTable("an-inventory-snapshots", "Inventory report history",
+      "Reports imported in the period. Quantities are replacement snapshot totals and must not be added together as receipts.",
+      ["Imported", "Report date", "Branch", "Products", "Snapshot units"],
+      (liveData.inventorySnapshots || []).filter(row => ids.has(row.branch_id) && within(row.imported_at))
+        .map(row => [row.imported_at, row.reported_at, branchName(row.branch_id), row.products, row.quantity]));
+    return `${panel("Inventory overview", note, cards)}${productTable}${aging}${transfers}${history}${snapshots}`;
+  }
+
+  function allTimeAnalyticsPanels(ids, facts, isPs, today) {
+    const A = window.BranchlineAnalytics;
+    const allFacts = withHistoryFacts(facts, ids, isPs);
+    let from = "", to = "";
+    for (const row of allFacts) {
+      if (!from || row.date < from) from = row.date;
+      if (!to || row.date > to) to = row.date;
+    }
+    from ||= today; to ||= today;
+    const totals = A.salesSummary(allFacts, () => "All")[0] || { sales: 0, transactions: 0, units: 0 };
+    const walk = A.walkInSummary({ from: "0001-01-01", to: "9999-12-31", storeCounts: storeCountsFor(ids, isPs),
+      psCounts: liveData.psWalkins.filter(row => ids.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id)),
+      transactions: [...new Map(allFacts.map(row => [row.saleId, { id: row.saleId, branchId: row.branchId, date: row.date }])).values()] });
+    const cards = `<div class="connected-metrics">
+      <article class="connected-metric"><span>All-time sales</span><strong>${formatMoney(totals.sales)}</strong><small>${escapeHTML(`${from} to ${to}`)}</small></article>
+      <article class="connected-metric"><span>Transactions</span><strong>${totals.transactions}</strong><small>Average ${totals.transactions ? formatMoney(totals.sales / totals.transactions) : "n/a"}</small></article>
+      <article class="connected-metric"><span>Recorded product units sold</span><strong>${totals.units}</strong><small>Daily summary imports do not provide unit quantities</small></article>
+      <article class="connected-metric"><span>${isPs ? "Clients assisted" : "Walk-in traffic"}</span><strong>${walk.coveredDays ? walk.visitors : "No data"}</strong><small>${walk.coveredDays} counted days</small></article>
+      <article class="connected-metric"><span>Conversion on counted days</span><strong>${walk.conversion === null ? "n/a" : `${(walk.conversion * 100).toFixed(1)}%`}</strong></article></div>`;
+    const summaryTable = (key, title, source, group) => analyticsDataTable(key, title,
+      "All recorded dates in your selected scope. Daily monitoring summaries are included only where live branch/day sales are absent; their product, payment and staff breakdowns are unknown.",
+      ["Group", "Sales", "Transactions", "Recorded units"], A.salesSummary(source, group).map(row =>
+        [row.key, formatMoney(row.sales), row.transactions, row.unknownUnits ? `${row.units} known; summary quantities unknown` : row.units]));
+    const detailed = allFacts.map(row => row.summary ? { ...row, brand: "Unknown (daily summary)", category: "Unknown (daily summary)", subCategory: "Unknown (daily summary)", product: "Unknown (daily summary)" } : row);
+    const dimensions = [["year", "Sales by year", row => row.date.slice(0, 4)], ["month", "Sales by month", row => row.date.slice(0, 7)],
+      ["branch", "Sales by branch", row => branchName(row.branchId)], ["brand", "Sales by brand", row => row.brand || "Unclassified"],
+      ["category", "Sales by category", row => row.category || "Unclassified"],
+      ["subcategory", "Sales by sub-category", row => row.subCategory || "Unclassified"],
+      ["product", "Sales by product", row => row.summary ? row.product : `${row.barcode || ""} · ${row.product}`]];
+    if (!isPs) dimensions.push(["ps", "Sales by Product Specialist", row => row.summary ? "Unknown (daily summary)" :
+      liveData.profiles.find(profile => profile.id === row.psId)?.full_name || row.psName || "Former staff"]);
+    const paymentSales = (isPs ? visibleSales() : liveData.sales).filter(row => ids.has(row.branch_id))
+      .map(row => ({ saleId: row.id, amount: saleTotal(row), payment: row.payment_mode || "Unspecified" }));
+    const payment = analyticsDataTable("an-all-payment", "All-time payment mix", "Recorded transactions only; summary imports have no payment breakdown.",
+      ["Payment mode", "Sales", "Transactions"], A.salesSummary(paymentSales, row => row.payment).map(row => [row.key, formatMoney(row.sales), row.transactions]));
+    const monthlySales = new Map(A.salesSummary(allFacts, row => `${row.branchId}\0${row.date.slice(0, 7)}`).map(row => [row.key, row.sales]));
+    const targets = analyticsDataTable("an-all-targets", "Recorded monthly targets and results", isPs
+      ? "Store targets are not compared with your personal sales. Individual targets remain in Monthly analysis."
+      : "Each recorded branch/month target is compared with that same branch/month's actuals, not lifetime sales.",
+      isPs ? ["Branch", "Month", "Store target"] : ["Branch", "Month", "Store target", "Actual sales", "Achievement"],
+      liveData.targets.filter(row => ids.has(row.branch_id)).map(row => {
+        const actual = monthlySales.get(`${row.branch_id}\0${row.month.slice(0, 7)}`) || 0;
+        const cells = [branchName(row.branch_id), row.month.slice(0, 7), formatMoney(Number(row.amount))];
+        return isPs ? cells : [...cells, formatMoney(actual), Number(row.amount) > 0 ? percent(actual, Number(row.amount)) : "No target"];
+      }));
+    return `${cards}<p class="an-note">All-time includes all loaded historical dates, independent of the month selector. Forecasts and monthly pace are not meaningful across all time and are shown only in Monthly analysis. Product-unit totals exclude summary-only imports. Payment mix excludes summary-only imports because they have no payment details.</p>
+      ${dimensions.map(([key, title, group]) => summaryTable(`an-all-${key}`, title, detailed, group)).join("")}${payment}${targets}
+      ${inventoryAnalyticsPanels(ids, facts, "0001-01-01", "9999-12-31", today)}`;
+  }
+
   function renderAnalyticsPage() {
     const A = window.BranchlineAnalytics;
     const isPs = currentProfile.role === "ps";
@@ -1854,10 +1972,12 @@
     const walkInButton = isPs
       ? '<button class="button button-outline" type="button" data-open="walkin-ps">Log clients assisted</button>'
       : "";
-    const filters = `${filterBar({ district: true, branch: true })}<div class="connected-filters" role="group" aria-label="Analytics options">${monthSelect}${basisSelect}<div class="filter-actions">${walkInButton}</div></div>`;
+    const allTime = ui.anRange === "all";
+    const rangeSelect = `<label class="field"><span>Analysis period</span><select data-filter="anRange"><option value="month" ${!allTime ? "selected" : ""}>Monthly analysis</option><option value="all" ${allTime ? "selected" : ""}>All-time (all recorded dates)</option></select></label>`;
+    const filters = `${filterBar({ district: true, branch: true })}<div class="connected-filters" role="group" aria-label="Analytics options">${rangeSelect}${allTime ? "" : monthSelect + basisSelect}<div class="filter-actions">${walkInButton}</div></div>`;
 
     mountPage(
-      pageHeading("Analytics", "Actual results and forecasts for the selected month. Forecasts are projections and are always labelled."),
+      pageHeading("Analytics", "Sales, traffic and inventory analysis. Current stock is separate from historical activity; forecasts are labelled projections."),
       "",
       filters,
       () => {
@@ -1871,6 +1991,7 @@
         const holidayDates = companyHolidayDates();
         const rules = A.makeRules(ui.anBasis, holidayDates);
         const facts = analyticsFacts(ids);
+        if (allTime) return allTimeAnalyticsPanels(ids, facts, isPs, today);
         const allFacts = withHistoryFacts(facts, ids, isPs);
         const daily = A.dailyTotals(allFacts);
         const warning = "";
@@ -1895,7 +2016,7 @@
         }
 
         if (!refDate) {
-          return `${warning}<div class="empty-state">${escapeHTML(monthLabel(month))} has not started yet, so there are no actual results or forecast to show.</div>`;
+          return `${warning}<div class="empty-state">${escapeHTML(monthLabel(month))} has not started yet, so there are no actual results or forecast to show.</div>${inventoryAnalyticsPanels(ids, facts, monthStart, monthEnd, today)}`;
         }
 
         const through = refDate > monthEnd ? monthEnd : refDate;
@@ -2072,7 +2193,7 @@
         const holidayPanel = panel("Store-closed dates", canEditHolidays ? "Company-wide. These dates are skipped in forecasts." : "Company-wide. Managed by district managers and admins.",
           `${canEditHolidays ? '<p><button class="button" type="button" data-open="holiday">Add date</button></p>' : ""}${holidayTable}`);
         return `${warning}${cards}${insightsPanel(insights)}${panel("Period comparison", "Growth compares like-for-like elapsed days.", comparisonTable, manualExport("an-compare", "Period comparison", ["Period", "Comparison", "Dates", "Actual", "Prior", "Growth"], comparisons,
-          ([name, dates, current, prior, note]) => { const g = A.growth(current, prior); return `<tr><td>${escapeHTML(name)}</td><td>${escapeHTML(note)}</td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${g === null ? "n/a" : (g * 100).toFixed(1) + "%"}</td></tr>`; }))}${traffic.compare}${traffic.trend}${paymentMixPanels(month, mixView, mixLabel, `${panelBranchSelect("bpMix", ids)}${periodControl("pdMix", through)}`)}${trendPanel}${psPanel}${holidayPanel}${missing}`;
+          ([name, dates, current, prior, note]) => { const g = A.growth(current, prior); return `<tr><td>${escapeHTML(name)}</td><td>${escapeHTML(note)}</td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${g === null ? "n/a" : (g * 100).toFixed(1) + "%"}</td></tr>`; }))}${traffic.compare}${traffic.trend}${paymentMixPanels(month, mixView, mixLabel, `${panelBranchSelect("bpMix", ids)}${periodControl("pdMix", through)}`)}${trendPanel}${psPanel}${holidayPanel}${missing}${inventoryAnalyticsPanels(ids, facts, monthStart, through, today)}`;
       },
     );
   }
@@ -6217,7 +6338,7 @@
     if (key === "district") {
       ui.branch = "";
       renderConnected();
-    } else if (key === "period") {
+    } else if (key === "period" || key === "anRange") {
       renderConnected();
     } else {
       const caret = control.selectionStart;

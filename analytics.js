@@ -472,7 +472,57 @@
     return plans;
   }
 
+  function inventorySummary({ catalog, stock, serials, facts, branchIds, today, from, to }) {
+    const key = row => `${row.branch_id}\0${row.barcode}`;
+    const stocks = new Map(stock.map(row => [key(row), row]));
+    const rows = new Map();
+    for (const item of catalog) {
+      if (!branchIds.has(item.branch_id)) continue;
+      const tracked = stocks.get(key(item));
+      rows.set(key(item), { ...item, quantity: tracked ? Number(tracked.quantity) : null,
+        serialized: tracked ? tracked.serialized : null, sold: 0, sales: 0,
+        current: 0, days30: 0, days60: 0, days90: 0, unknown: 0 });
+    }
+    for (const unit of serials) {
+      const row = rows.get(key(unit));
+      if (!row || unit.status !== "available") continue;
+      const age = unit.received_on ? (toMs(today) - toMs(unit.received_on)) / DAY_MS : NaN;
+      const band = !Number.isFinite(age) || age < 0 ? "unknown"
+        : age < 30 ? "current" : age < 60 ? "days30" : age < 90 ? "days60" : "days90";
+      row[band] += 1;
+    }
+    for (const fact of facts) {
+      if (fact.date < from || fact.date > to || fact.summary) continue;
+      const row = rows.get(`${fact.branchId}\0${fact.barcode}`);
+      if (row) { row.sold += Number(fact.quantity) || 0; row.sales += fact.amount; }
+    }
+    const products = [...rows.values()];
+    const total = field => products.reduce((sum, row) => sum + (Number(row[field]) || 0), 0);
+    return { products, units: total("quantity"), tracked: products.filter(row => row.quantity !== null).length,
+      uninitialized: products.filter(row => row.quantity === null).length,
+      stockouts: products.filter(row => row.quantity === 0).length,
+      unclassified: products.filter(row => !String(row.brand || "").trim() || String(row.brand).trim().toLowerCase() === "unclassified" || !String(row.category || "").trim()).length,
+      current: total("current"), days30: total("days30"), days60: total("days60"), days90: total("days90"), unknown: total("unknown"),
+      missingSrp: products.filter(row => row.missing_srp).length };
+  }
+
+  function salesSummary(facts, keyOf) {
+    const groups = new Map();
+    for (const fact of facts) {
+      const key = keyOf(fact);
+      if (!groups.has(key)) groups.set(key, { key, sales: 0, units: 0, unknownUnits: false, transactions: new Set() });
+      const row = groups.get(key);
+      row.sales += fact.amount;
+      row.units += Number(fact.quantity) || 0;
+      if (fact.summary) row.unknownUnits = true;
+      row.transactions.add(fact.saleId);
+    }
+    return [...groups.values()].map(row => ({ ...row, transactions: row.transactions.size }))
+      .sort((a, b) => b.sales - a.sales || a.key.localeCompare(b.key));
+  }
+
   const api = {
+    inventorySummary, salesSummary,
     paymentMix, buildInsights, UNSPECIFIED,
     RULES, addDays, weekday, daysInMonth, monthStart, monthEnd, shiftMonth, weekStart,
     sameDayPriorMonth, sameDayPriorYear, growth, sumDaily, dailyTotals, parseHolidays, makeRules,
