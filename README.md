@@ -81,3 +81,17 @@ Apply
 before deploying the frontend. It requires the unified-import migration. Inventory
 mutations lock within a dealer to protect cross-branch eligibility against races.
 Cache v88 includes this update.
+
+## Sales-history date handling
+
+Excel numeric transaction dates are kept as stored by default. Company-export
+text dates remain DD/MM/YYYY; ISO dates remain YYYY-MM-DD. Both importers offer
+**Repair day/month-swapped Excel dates** for confirmed legacy exports only.
+Leave it unchecked for ordinary workbooks, including the September YTD 2026
+database. Setting changes invalidate previews, and future-dated historical sales
+block import with the invoice and date shown for review.
+
+The previous automatic repair could move valid January-September transactions
+into other months. Previously imported records require a separate source-matched,
+backed-up date-only repair; deploying this parser does not modify existing sales.
+Cache v89 includes these changes.

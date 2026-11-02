@@ -53,7 +53,7 @@ export function inspectWorkbook(book, file, fileId, XLSX) {
         ...mapping, role: daily ? "daily" : mapping.role,
         year: filenameYear(file) || "", forecastYear: filenameYear(file) || "",
         cutoff: "", branch: "", complete: false, blankZero: false,
-        dateOrder: "mdy", ...metadata(rows),
+        dateOrder: "mdy", repairExcelDates: false, ...metadata(rows),
       },
     };
   });
@@ -77,8 +77,8 @@ export function sourceLocations(sheets) {
 }
 
 function validateSalesSheet(sheet, api) {
-  if (sheet.date1904) throw new Error("Sales History date repair supports only the original 1900-date-system export.");
-  const parsed = api.parseSalesHistory(sheet.rows);
+  if (sheet.date1904) throw new Error("Sales History supports only the 1900-date-system export.");
+  const parsed = api.parseSalesHistory(sheet.rows, { repairExcelDates: !!sheet.config.repairExcelDates });
   if (parsed.stats.skipped || parsed.stats.datesBad) {
     throw new Error(`${parsed.stats.skipped} unusable sales row(s). Correct the source rather than silently dropping transactions.`);
   }
@@ -136,7 +136,7 @@ export function prepareImport(sheets, options, apis) {
     sourceSummary.push({ file: sheet.file, sheet: sheet.name, role, original_report_date: sheet.reportDate,
       confirmed_report_date: config.reportDate, forecast_year: config.forecastYear,
       valid_from: config.validFrom, valid_to: config.validTo, memo_number: config.memoNumber,
-      complete: config.complete, blank_stock_zero: config.blankZero });
+      complete: config.complete, blank_stock_zero: config.blankZero, repair_excel_dates: !!config.repairExcelDates });
     if (role === "skip") continue;
     if (role === "unknown" || !TYPES[role]) { issues.push(error(`${sheet.name}: map this layout or explicitly exclude it.`, sheet.file)); continue; }
     try {
@@ -165,6 +165,7 @@ export function prepareImport(sheets, options, apis) {
         const parsed = validateSalesSheet(sheet, apis.sales);
         const mapped = [];
         for (const sale of parsed.sales) {
+          if (sale.sold_on > today) throw new Error(`Invoice ${sale.invoice} has future sale date ${sale.sold_on}. Check the source dates and legacy repair setting.`);
           const branch_id = divisionMap[sale.division];
           if (!allowed.has(branch_id)) throw new Error(`Map sales division "${sale.division}" to an accessible branch.`);
           const id = `${branch_id}\0${normalized(sale.invoice)}`;
@@ -179,7 +180,8 @@ export function prepareImport(sheets, options, apis) {
           }
         }
         if (!mapped.length) throw new Error("No usable sales found.");
-        sales.push({ source: `${sheet.file} :: ${sheet.name}`, sales: mapped });
+        sales.push({ source: `${sheet.file} :: ${sheet.name}`, sales: mapped,
+          dateFrom: parsed.stats.from, dateTo: parsed.stats.to, datesFixed: parsed.stats.datesFixed });
       }
       if (!operations.includes("catalog") && !operations.includes("inventory")) continue;
       const part = extractSheet(sheet, config);

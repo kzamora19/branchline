@@ -4121,6 +4121,7 @@
     if (/\.csv$/i.test(file.name)) return parseCsv(await file.text());
     if (!window.XLSX) throw new Error("The Excel reader could not load. Save the file as CSV and try again.");
     const workbook = window.XLSX.read(await file.arrayBuffer(), { type: "array" });
+    if (workbook.Workbook?.WBProps?.date1904) throw new Error("Sales History supports only the 1900-date-system export.");
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     return window.XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
   }
@@ -4138,11 +4139,12 @@
       : "";
     openModal({
       title: "Import sales history",
-      intro: "Admin only. Upload the company sales database (.xlsx or .csv, one row per item sold). Everything is tagged as one import, so you can remove the whole import later. Dates that Excel scrambled are repaired automatically.",
+      intro: "Admin only. Upload the company sales database (.xlsx or .csv, one row per item sold). Everything is tagged as one import. Excel dates are kept as stored; enable date repair only for a confirmed legacy export.",
       submitLabel: "Import",
       wide: true,
       body: `${batchList}
         ${fieldHTML("Sales database file", "file", '<input name="file" type="file" accept=".xlsx,.xls,.csv" required>')}
+        <label class="check-row"><input name="repairExcelDates" type="checkbox">Repair day/month-swapped Excel dates (confirmed legacy exports only; normally leave unchecked).</label>
         ${fieldHTML("Name for this import", "label", '<input name="label" maxlength="80" placeholder="e.g. Jan–Jun 2026 sales">')}
         <div id="history-preview" class="dlg-preview">No file chosen.</div>
         <div id="history-map"></div>
@@ -4152,7 +4154,9 @@
           const batch = batches.find(item => item.id === button.dataset.historyRemove);
           if (batch) openRemoveHistoryModal(batch);
         }));
-        form.elements.file.addEventListener("change", async () => {
+        let revision = 0;
+        const previewFile = async () => {
+          const currentRevision = ++revision;
           const preview = form.querySelector("#history-preview");
           const map = form.querySelector("#history-map");
           parsed = null;
@@ -4165,7 +4169,11 @@
           preview.textContent = "Reading the file… large files can take up to a minute.";
           try {
             await new Promise(resolve => setTimeout(resolve, 30));
-            parsed = window.BranchlineSalesHistory.parseSalesHistory(await readHistoryRows(file));
+            const rows = await readHistoryRows(file);
+            if (currentRevision !== revision || !form.isConnected) return;
+            parsed = window.BranchlineSalesHistory.parseSalesHistory(rows, { repairExcelDates: form.elements.repairExcelDates.checked });
+            const future = parsed.sales.find(sale => sale.sold_on > window.BranchlineDemo.philippineDate());
+            if (future) throw new Error(`Invoice ${future.invoice} has future sale date ${future.sold_on}. Check the source dates and legacy repair setting.`);
             const { stats } = parsed;
             const months = Object.keys(stats.byMonth).sort().map(month => `<li>${escapeHTML(month)}: ${formatMoney(stats.byMonth[month].amount)} (${stats.byMonth[month].lines} items)</li>`).join("");
             preview.innerHTML = `<strong>${stats.sales}</strong> sales, <strong>${stats.lines}</strong> items, net <strong>${formatMoney(stats.amount)}</strong>, ${escapeHTML(stats.from)} to ${escapeHTML(stats.to)}.<br>${stats.datesFixed} scrambled date(s) repaired${stats.returns ? `, ${stats.returns} return line(s) included as negatives` : ""}${stats.skipped ? `, ${stats.skipped} unusable row(s) skipped` : ""}.<ul>${months}</ul>`;
@@ -4177,10 +4185,13 @@
               return fieldHTML(`${division} → ${entry.sales} sales, ${formatMoney(entry.amount)}`, `div-${division}`, selectHTML(`div-${division}`, options, guess ? guess.id : ""));
             }).join("");
           } catch (error) {
+            if (currentRevision !== revision || !form.isConnected) return;
             parsed = null;
             preview.textContent = error.message;
           }
-        });
+        };
+        form.elements.file.addEventListener("change", previewFile);
+        form.elements.repairExcelDates.addEventListener("change", previewFile);
       },
       onSubmit: async form => {
         if (!parsed || !parsed.sales.length) throw new Error("Choose a valid sales database file first.");

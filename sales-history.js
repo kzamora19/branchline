@@ -1,8 +1,7 @@
 "use strict";
 
 // Parses the company "sales database" export (one row per sold item) into sales ready for import.
-// The export's trandate column is partly corrupted: dates stored as real Excel dates have day and month
-// swapped (1 March shows up as 3 January), while text dates (dd/mm/yyyy) are correct.
+// Excel serial dates are authoritative. Repair swapped dates only for a confirmed legacy export.
 (function (root) {
   const PAYMENT_MAP = {
     "walk-in sales": "Cash",
@@ -31,13 +30,13 @@
   }
 
   // Returns { iso, fixed } or null. fixed = the day/month swap was undone.
-  function resolveDate(value) {
+  function resolveDate(value, { repairExcelDates = false } = {}) {
     if (typeof value === "number" && value > 30000 && value < 80000) {
-      const date = new Date(Date.UTC(1899, 11, 30) + Math.round(value) * 86400000);
+      const date = new Date(Date.UTC(1899, 11, 30) + Math.floor(value) * 86400000);
       const year = date.getUTCFullYear();
       const month = date.getUTCMonth() + 1;
       const day = date.getUTCDate();
-      if (day <= 12) return { iso: `${year}-${pad(day)}-${pad(month)}`, fixed: true };
+      if (repairExcelDates && day <= 12) return { iso: `${year}-${pad(day)}-${pad(month)}`, fixed: day !== month };
       return { iso: `${year}-${pad(month)}-${pad(day)}`, fixed: false };
     }
     const raw = text(value);
@@ -48,7 +47,7 @@
     return null;
   }
 
-  function parseSalesHistory(rows) {
+  function parseSalesHistory(rows, options = {}) {
     const headerIndex = rows.findIndex(row => row.some(cell => norm(cell) === "invoiceno") && row.some(cell => norm(cell) === "trandate"));
     if (headerIndex < 0) throw new Error("Could not find the header row (invoiceno, trandate, ...). Is this the sales database export?");
     const header = rows[headerIndex].map(norm);
@@ -71,7 +70,7 @@
       const division = text(row[col.div]).toUpperCase();
       const invoice = text(row[col.invoice]);
       const qtyRaw = num(row[col.qty]);
-      const date = resolveDate(row[col.date]);
+      const date = resolveDate(row[col.date], options);
       if (!division || !invoice || !Number.isFinite(qtyRaw) || qtyRaw === 0) {
         if (row.some(cell => text(cell))) stats.skipped += 1;
         return;
