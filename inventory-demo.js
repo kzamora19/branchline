@@ -4,6 +4,19 @@
   const roles = ["inventory_controller", "stock_custodian"];
   const tablesList = ["inventory_branch_users", "inventory_snapshots", "inventory_stock", "inventory_serials", "inventory_transfers", "inventory_transfer_batches", "inventory_transfer_notifications", "inventory_events", "inventory_sale_allocations", "inventory_reminder_days"];
   const serialKey = value => String(value).trim().toLowerCase();
+  const salesOnlyCount = units => (units || []).filter(unit => unit.sales_only).length;
+  function saleSerialEligible(t, unit, exclude) {
+    const same = row => row.barcode === unit.barcode && serialKey(row.serial) === serialKey(unit.serial);
+    return ["available", "absent"].includes(unit.status) &&
+      !t.sale_serials.some(row => same(row) && row.sale_id !== exclude) &&
+      !t.inventory_serials.some(row => same(row) && row.branch_id !== unit.branch_id && ["available", "transit"].includes(row.status)) &&
+      !t.inventory_transfers.some(row => row.from_branch === unit.branch_id && row.barcode === unit.barcode &&
+        ["transit", "received"].includes(row.status) && (unit.status === "absent" || row.status === "transit") &&
+        row.serials.some(serial => serialKey(serial.serial) === serialKey(unit.serial)) &&
+        (row.status === "transit" || !t.inventory_transfers.some(back => back.to_branch === unit.branch_id &&
+          back.barcode === unit.barcode && back.status === "received" && back.resolved_at > row.dispatched_at &&
+          back.serials.some(serial => serialKey(serial.serial) === serialKey(unit.serial)))));
+  }
   function reserved(t, branch, barcode, serial, exclude) {
     return t.inventory_sale_allocations.some(row => row.branch_id === branch && row.barcode === barcode && row.sale_id !== exclude &&
       t.inventory_stock.some(stock => stock.branch_id === branch && stock.barcode === barcode && stock.snapshot_id === row.snapshot_id) &&
@@ -61,6 +74,7 @@
       branch_id: item.branch_id, barcode: item.barcode, model_description: item.model_description, brand: item.brand,
       category: item.category, sub_category: item.sub_category, missing_srp: !roles.includes(actor.role) && actor.role !== "ps" && (item.srp == null || Number(item.srp) === 0),
     }));
+    if (name === "inventory_sales_serials") return t.inventory_serials.filter(unit => ids.includes(unit.branch_id) && saleSerialEligible(t, unit));
     if (name === "inventory_destinations") {
       if (actor.role === "ps") return [];
       return t.branches.map(branch => ({ id: branch.id, name: branch.name }));
@@ -279,24 +293,36 @@
       const previous = before.find(row => row.barcode === barcode);
       const baseQty = allocation?.base_quantity ?? previous?.quantity ?? 0;
       const baseSerials = allocation?.base_serials ?? previous?.serials ?? [];
-      const selected = quantity && stock.serialized ? t.sale_serials.filter(row => row.sale_id === sale.id && row.barcode === barcode).map(row => ({ serial: row.serial, received_on: unitFor(barcode, row.serial)?.received_on || null })) : [];
+      const selected = quantity && stock.serialized ? t.sale_serials.filter(row => row.sale_id === sale.id && row.barcode === barcode).map(row => ({
+        serial: row.serial, received_on: unitFor(barcode, row.serial)?.received_on || null,
+        sales_only: (allocation?.serials ?? baseSerials).some(unit => unit.serial === row.serial)
+          ? Boolean((allocation?.serials ?? baseSerials).find(unit => unit.serial === row.serial).sales_only)
+          : unitFor(barcode, row.serial)?.status === "absent",
+      })) : [];
       if (quantity && !stock.serialized && t.sale_serials.some(row => row.sale_id === sale.id && row.barcode === barcode)) throw new Error("This product is not serialized; remove its serial selection.");
       if (stock.serialized && selected.length !== quantity || new Set(selected.map(row => row.serial)).size !== selected.length) throw new Error("Select one different available serial per unit.");
       const same = (a,b) => JSON.stringify(a.map(row => row.serial).sort()) === JSON.stringify(b.map(row => row.serial).sort());
       if (baseQty && !reconcile && (quantity !== (allocation?.quantity ?? baseQty) || !same(selected,allocation?.serials ?? baseSerials))) throw new Error("Confirm applying this correction to current inventory.");
       const has = (items, serial) => items.some(row => row.serial === serial);
-      const current = stock.quantity + (allocation ? allocation.quantity - allocation.base_quantity : 0);
+      const current = stock.quantity + (allocation ? allocation.quantity - salesOnlyCount(allocation.serials) - allocation.base_quantity + salesOnlyCount(allocation.base_serials) : 0);
       for (const row of allocation?.serials || []) if (!has(baseSerials,row.serial)) {
-        const unit = unitFor(barcode,row.serial); if (unit?.status === "sold") unit.status = "available";
+        const unit = unitFor(barcode,row.serial); if (unit?.status === "sold") unit.status = row.sales_only ? "absent" : "available";
       }
       for (const row of baseSerials) if (allocation && !has(allocation.serials,row.serial)) {
-        const unit = unitFor(barcode,row.serial); if (unit?.status !== "available") throw new Error("Restored serial has moved. Resolve inventory first."); unit.status = "sold";
+        const unit = unitFor(barcode,row.serial); if (unit?.status !== (row.sales_only ? "absent" : "available")) throw new Error("Restored serial has moved. Resolve inventory first."); unit.status = "sold";
       }
-      if (current - (quantity-baseQty) < 0) throw new Error("Insufficient available stock.");
+      const delta = quantity - salesOnlyCount(selected) - baseQty + salesOnlyCount(baseSerials);
+      if (current - delta < 0) throw new Error("Insufficient available stock.");
       for (const row of selected) if (!has(baseSerials,row.serial)) {
-        const unit = unitFor(barcode,row.serial); if (unit?.status !== "available") throw new Error("Serial is not available for this barcode."); unit.status = "sold";
+        const unit = unitFor(barcode,row.serial);
+        if (!unit || unit.status !== (row.sales_only ? "absent" : "available") || !saleSerialEligible(t,unit,sale.id)) throw new Error("Serial is not available for this barcode.");
+        unit.status = "sold";
       }
       for (const row of baseSerials) if (!has(selected,row.serial)) {
+        if (row.sales_only) {
+          const unit = unitFor(barcode,row.serial); if (unit?.status === "sold") unit.status = "absent";
+          continue;
+        }
         const snapshot = t.inventory_snapshots.find(item => item.id === stock.snapshot_id);
         if (reserved(t,sale.branch_id,barcode,row.serial,sale.id) || t.inventory_transfers.some(transfer =>
           transfer.from_branch === sale.branch_id && transfer.barcode === barcode && ["transit","received"].includes(transfer.status) &&
@@ -304,7 +330,7 @@
         const unit = unitFor(barcode,row.serial); if (["available","transit"].includes(unit?.status)) throw new Error("Serial already available or in transit.");
         if (unit) unit.status = "available"; else t.inventory_serials.push({ branch_id: sale.branch_id, barcode, ...row, status: "available" });
       }
-      stock.quantity = current - (quantity-baseQty);
+      stock.quantity = current - delta;
       const value = { sale_id: sale.id, branch_id: sale.branch_id, barcode, snapshot_id: stock.snapshot_id, quantity, base_quantity: baseQty, serials: selected, base_serials: baseSerials };
       if (allocation) Object.assign(allocation,value); else t.inventory_sale_allocations.push(value);
     }
@@ -313,13 +339,14 @@
     for (const allocation of t.inventory_sale_allocations.filter(row => row.sale_id === sale.id)) {
       const stock = t.inventory_stock.find(row => row.branch_id === allocation.branch_id && row.barcode === allocation.barcode);
       if (stock?.snapshot_id !== allocation.snapshot_id) continue;
-      stock.quantity += allocation.quantity - allocation.base_quantity;
+      stock.quantity += allocation.quantity - salesOnlyCount(allocation.serials) - allocation.base_quantity + salesOnlyCount(allocation.base_serials);
       if (stock.quantity < 0) throw new Error("Resolve stock discrepancy before deleting this sale.");
       const has = (list, serial) => list.some(row => row.serial === serial);
       for (const unit of t.inventory_serials.filter(row => row.branch_id === allocation.branch_id && row.barcode === allocation.barcode)) {
-        if (has(allocation.serials,unit.serial) && !has(allocation.base_serials,unit.serial) && unit.status === "sold") unit.status = "available";
+        if (has(allocation.serials,unit.serial) && !has(allocation.base_serials,unit.serial) && unit.status === "sold") unit.status = allocation.serials.find(row => row.serial === unit.serial).sales_only ? "absent" : "available";
         if (has(allocation.base_serials,unit.serial) && !has(allocation.serials,unit.serial)) {
-          if (unit.status !== "available") throw new Error("Restored serial has moved."); unit.status = "sold";
+          if (allocation.base_serials.find(row => row.serial === unit.serial).sales_only) continue;
+          if (unit.status !== (allocation.base_serials.find(row => row.serial === unit.serial).sales_only ? "absent" : "available")) throw new Error("Restored serial has moved."); unit.status = "sold";
         }
       }
     }

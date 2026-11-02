@@ -276,9 +276,10 @@
       managesInventory() ? fetchInventoryRpc("inventory_destinations", ["id"], inventoryClient) : [],
       currentProfile.role === "admin" ? fetchAll("inventory_branch_users", "*", [["user_id", true], ["branch_id", true]]) : { data: [], error: null },
       fetchAll("inventory_transfer_batches", "*", [["requested_at", false], ["id", true]]),
+      fetchInventoryRpc("inventory_sales_serials", ["branch_id", "barcode", "serial"], inventoryClient),
     ];
     let completed = 0;
-    const [catalog, stock, serials, snapshots, transfers, events, destinations, assignments, batches] = await Promise.all(
+    const [catalog, stock, serials, snapshots, transfers, events, destinations, assignments, batches, salesSerials] = await Promise.all(
       requests.map(request => Promise.resolve(request).then(result => {
         onProgress(++completed / requests.length);
         return result;
@@ -289,6 +290,7 @@
       inventoryTransfers: checkResult(transfers, "Unable to load transfers"), inventoryEvents: checkResult(events, "Unable to load inventory history"),
       inventoryDestinations: destinations, inventoryAssignments: checkResult(assignments, "Unable to load inventory assignments"),
       inventoryTransferBatches: checkResult(batches, "Unable to load transfer approvals"),
+      inventorySalesSerials: salesSerials,
     };
   }
 
@@ -2425,6 +2427,15 @@
     return (inventoryUnitsFor.index.get(`${branch}\0${barcode}`) || []).filter(item => item.status === "available" || owned.has(item.serial));
   }
 
+  function inventorySaleUnitsFor(branch, barcode, saleId) {
+    const choices = new Map((liveData.inventorySalesSerials || [])
+      .filter(item => item.branch_id === branch && item.barcode === barcode).map(item => [item.serial, item]));
+    for (const item of inventoryUnitsFor(branch, barcode, saleId)) {
+      if (saleId && serialsFor(saleId, barcode).includes(item.serial)) choices.set(item.serial, item);
+    }
+    return [...choices.values()];
+  }
+
   function inventorySheets() {
     const catalog = liveData.inventoryCatalog || [];
     const items = [["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available qty", "Serialized", "Inventory status"],
@@ -3555,8 +3566,8 @@
           ${fieldHTML("Mode of payment", "payment", paymentSelectHTML(sale?.payment_mode))}
         </div>
         <div class="dlg-grid">
-          ${fieldHTML("City / town (optional)", "city", `<input name="city" list="sale-cities" autocomplete="off" placeholder="e.g. Santiago City" value="${escapeHTML(sale?.city || "")}">`)}
-          ${fieldHTML("Barangay (optional)", "barangay", `<input name="barangay" list="sale-barangays" autocomplete="off" placeholder="Pick a city first" value="${escapeHTML(sale?.barangay || "")}">`)}
+          ${fieldHTML("City / municipality", "city", `<input name="city" list="sale-cities" autocomplete="off" required placeholder="e.g. Santiago City" value="${escapeHTML(sale?.city || "")}">`)}
+          ${fieldHTML("Barangay", "barangay", `<input name="barangay" list="sale-barangays" autocomplete="off" required placeholder="Pick a city first" value="${escapeHTML(sale?.barangay || "")}">`)}
         </div>
         <datalist id="sale-customers"></datalist>
         <datalist id="sale-cities"></datalist>
@@ -3607,8 +3618,8 @@
           return [...groups.values()];
         };
         const saleBranch = sale?.branch_id || currentProfile.branch_id;
-        const serialOptions = (barcode, selected) => `<option value="">Select available serial...</option>${inventoryUnitsFor(saleBranch, barcode, sale?.id)
-          .map(item => `<option value="${escapeHTML(item.serial)}" ${item.serial === selected ? "selected" : ""}>${escapeHTML(item.serial)} · ${escapeHTML(item.received_on || "date unknown")}</option>`).join("")}`;
+        const serialOptions = (barcode, selected) => `<option value="">Select serial for this sale...</option>${inventorySaleUnitsFor(saleBranch, barcode, sale?.id)
+          .map(item => `<option value="${escapeHTML(item.serial)}" ${item.serial === selected ? "selected" : ""}>${escapeHTML(item.serial)} · ${escapeHTML(item.received_on || "date unknown")}${item.status === "absent" ? " · Not in latest inventory" : ""}</option>`).join("")}`;
         const showSerialFields = () => {
           form.querySelectorAll(".sale-row").forEach(row => {
             const product = resolve(row.querySelector('[name="product"]').value);
@@ -3769,6 +3780,7 @@
         recalc();
       },
       onSubmit: async form => {
+        if (!form.elements.city.value.trim() || !form.elements.barangay.value.trim()) throw new Error("City / municipality and barangay are required.");
         const rows = [...form.querySelectorAll(".sale-row")].map(row => {
           const product = resolve(row.querySelector('[name="product"]').value);
           if (!product) throw new Error("Pick each product from the suggestions (or type its exact barcode).");

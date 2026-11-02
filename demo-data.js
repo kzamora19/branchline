@@ -377,10 +377,11 @@
         return { ...result, salesperson_codes_preserved: true };
       }
       if (name === "dispatch_inventory") throw new Error("Use the whole-transfer approval/receipt workflow.");
-      if (["inventory_catalog", "inventory_destinations", "claim_inventory_reminder", "assign_inventory_branches", "classify_inventory_product", "import_inventory", "adjust_inventory", "submit_inventory_transfer", "review_inventory_transfer", "resolve_inventory_transfer"].includes(name)) {
+      if (["inventory_catalog", "inventory_destinations", "inventory_sales_serials", "claim_inventory_reminder", "assign_inventory_branches", "classify_inventory_product", "import_inventory", "adjust_inventory", "submit_inventory_transfer", "review_inventory_transfer", "resolve_inventory_transfer"].includes(name)) {
         return Inventory.execute(name, p, { tables, actor, branchIds: inventoryBranchIds, uid, now, today });
       }
       if (name === "save_inventory_sale") {
+        if (!String(p.p_city || "").trim() || !String(p.p_barangay || "").trim()) throw new Error("City / municipality and barangay are required.");
         const selectedSerials = p.p_serials === undefined ? [] : p.p_serials;
         if (!Array.isArray(selectedSerials) || selectedSerials.some(row => !row?.serial?.trim() ||
             !p.p_lines?.some(line => I.code(line.barcode) === I.code(row.barcode)))) throw new Error("Each serial choice must name a sale product and a nonblank available serial.");
@@ -708,7 +709,7 @@
         });
       },
       rpc(name, params = {}) {
-        const read = ["brand_branch_sales", "export_brand_branch_sales", "brand_sales_contribution", "get_ps_dashboard", "inventory_catalog", "inventory_destinations"].includes(name);
+        const read = ["brand_branch_sales", "export_brand_branch_sales", "brand_sales_contribution", "get_ps_dashboard", "inventory_catalog", "inventory_destinations", "inventory_sales_serials"].includes(name);
         return new Query(() => read ? { data: rpc(name, params), error: null } : transaction(() => rpc(name, params)));
       },
       functions: { async invoke(name, { body }) {

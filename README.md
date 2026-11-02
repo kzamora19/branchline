@@ -57,3 +57,27 @@ part of this release.
 The `import-engine/` modules are a first-party snapshot of the standalone Extractor.
 Files are processed locally in the browser. The sample demo stores edits only in
 browser-local storage and does not write to Supabase.
+
+## Required sale address and retained serial choices
+
+Manual sale entry and edits require both City/Municipality and Barangay. The form
+and atomic `save_inventory_sale` API enforce this. Existing records are not
+backfilled; historical-file imports retain their existing address rules.
+
+Previously imported serials missing from the latest inventory report remain in
+sales entry, labeled **Not in latest inventory**, until used on a Branchline sale.
+They do not count as current stock or appear in aging or transfer choices. Selling
+one does not deduct current stock again. Mixed sales deduct only current units;
+edits, deletions and later snapshots preserve that distinction.
+
+Server eligibility excludes serials already sold, in transit, available at another
+branch of the same dealer, or transferred out without a later recorded return.
+A sold serial cannot be reused just because a later report lists it again.
+Identity remains dealer + barcode + serial. Branch access restrictions still
+apply, and an edited sale retains its own original serial choices.
+
+Apply
+[`20261120000000_sales_address_retained_serials.sql`](supabase/migrations/20261120000000_sales_address_retained_serials.sql)
+before deploying the frontend. It requires the unified-import migration. Inventory
+mutations lock within a dealer to protect cross-branch eligibility against races.
+Cache v88 includes this update.
