@@ -56,6 +56,26 @@ requires an exact configured `profiles.salesperson_code` within the same dealer
 and branch. Unknown codes remain unassigned with their source names retained.
 This release does not assign roster codes or provide a roster editor.
 
+### Confirmed historical salesperson name links
+
+`20261122000000_sales_history_name_links.sql` fixes future legacy and unified
+name-based historical imports. Exact normalized names retain priority. Only the
+confirmed Vermont Montalban / Vermont Jay Montalban, Rhyan Jhay Joson / Ryan Joson,
+and Jason Palarca / Jason Everly Palarca aliases may fall back to a unique PS
+account in the same company and branch. Ambiguous or unrelated names remain
+unassigned. Explicit salesperson codes keep their existing precedence: an unknown
+code is not name-guessed. Internal matching helpers are not callable by client
+roles. No frontend or offline-cache update is needed.
+
+The approved November 2 live repair linked 674 previously unassigned imported
+Santiago invoices to those three accounts, without renaming source records or
+changing dates, amounts, SRPs, products, stock or serials. Full sale/function
+backups, the exact mapping/plan and preservation checks are stored privately in
+the restricted `branchline_repair_audit` schema. September account totals verified:
+Vermont: 30 invoices / PHP 1,720,038.35; Ryan: 13 / PHP 211,488.00;
+Jason: 10 / PHP 385,534.49. The migration itself changes future matching only;
+existing-data relinking requires a separately approved, backed-up repair.
+
 Admins can import catalog, sales, daily monitoring, and stock. Other authorized
 stock managers receive inventory-only controls. **Existing import tools / previous
 batches** retains the original workflows.
