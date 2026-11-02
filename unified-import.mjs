@@ -126,6 +126,9 @@ export function prepareImport(sheets, options, apis) {
     const branch = locationMap[source_name];
     if (!operations.includes("inventory")) return [];
     if (!allowed.has(branch)) { issues.push(error(`Map inventory location "${source_name}" to an accessible branch.`)); return []; }
+    try {
+      apis.inventory.assertReportBranch(source_name, branches.find(item => item.id === branch));
+    } catch (failure) { issues.push(error(failure.message)); return []; }
     return [{ source_name, location_name: branch, location_code: branchCodes.get(branch) || `B${branches.findIndex(item => item.id === branch) + 1}` }];
   });
   const saleKeys = new Set(), dayKeys = new Set();
@@ -212,6 +215,7 @@ export function prepareImport(sheets, options, apis) {
       if (!stock.length) continue;
       const sourceSheets = sheets.filter(sheet => ["inventory", "serials"].includes(sheet.config.role)
         && sourceLocations([sheet]).some(location => locationMap[location] === branch));
+      const sourceLocation = sourceLocations(sourceSheets).find(location => locationMap[location] === branch);
       if (!sourceSheets.some(sheet => sheet.config.role === "inventory") || !sourceSheets.some(sheet => sheet.config.role === "serials")) {
         issues.push(error("Inventory replacement requires both quantity and serialized reports for each selected branch."));
       }
@@ -228,6 +232,7 @@ export function prepareImport(sheets, options, apis) {
         if (units.some(unit => !unit.received_on || unit.received_on > today)) issues.push(error(`Barcode ${row.barcode}: every serial needs a valid, nonfuture received date before replacement.`));
         if (!Number.isSafeInteger(row.quantity) || row.quantity < 0) issues.push(error(`Barcode ${row.barcode}: quantity must be a nonnegative integer.`));
         return {
+          source_location: sourceLocation,
           barcode: row.barcode, description: product?.description || "", brand: product?.brand || "",
           category: product?.category || "", sub_category: product?.subcategory || "", srp: product?.srp ?? null,
           quantity: row.quantity, serialized: units.length > 0 || knownSerialized,

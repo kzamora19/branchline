@@ -112,6 +112,10 @@ browser-local storage and does not write to Supabase.
 
 ## Required sale address and retained serial choices
 
+Inventory report locations must match the selected branch name/code in both the paired-report and unified importers. Explicit mappings cannot relabel Santiago reports as another branch. Current clients attach `source_location` to inventory items; apply [`20261123000000_inventory_source_branch.sql`](supabase/migrations/20261123000000_inventory_source_branch.sql) before deploying cache v91. Both backend import APIs atomically validate supplied provenance, including mixed or blank provenance; older clients that omit it remain compatible.
+
+The approved 2026-11-02 correction backed up and voided three Santiago reports saved under Cauayan/Tuguegarao, removing only their incorrect stock/serial copies and marking those branches' inventory uninitialized until correct reports are imported. Original import events remain, with explicit correction events. Santiago inventory, sales, sale allocations, products, prices and profiles are preserved. Private source manifests, full backups and preservation checks remain in the restricted `branchline_repair_audit` schema. The correction is not part of the schema migration.
+
 Manual sale entry and edits require both City/Municipality and Barangay. The form
 and atomic `save_inventory_sale` API enforce this. Existing records are not
 backfilled; historical-file imports retain their existing address rules.

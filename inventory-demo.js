@@ -108,6 +108,9 @@
       if (!p.p_reported_at || !Number.isFinite(Date.parse(p.p_reported_at)) || Date.parse(p.p_reported_at) > Date.parse(now()) + 300000) throw new Error("A valid report date/time is required.");
       if (t.inventory_transfers.some(row => row.status === "transit" && [row.from_branch, row.to_branch].includes(p.p_branch))) throw new Error("Resolve in-transit transfers before importing a replacement snapshot.");
       if (!p.p_items?.length || new Set(p.p_items.map(item => I.code(item.barcode))).size !== p.p_items.length) throw new Error("Inventory items are missing or contain duplicate barcodes.");
+      if (p.p_items.some(item => Object.hasOwn(item, "source_location"))) {
+        for (const item of p.p_items) I.assertReportBranch(item.source_location, t.branches.find(branch => branch.id === p.p_branch));
+      }
       const snapshot = { id: uid(), branch_id: p.p_branch, imported_by: actor.id, imported_at: now(), reported_at: p.p_reported_at, files: p.p_files, products: p.p_items.length, quantity: 0 };
       t.inventory_snapshots.push(snapshot);
       t.inventory_stock.filter(row => row.branch_id === p.p_branch).forEach(row => { row.quantity = 0; row.snapshot_id = snapshot.id; });

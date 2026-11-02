@@ -2734,7 +2734,7 @@
         openModal, escapeHTML, branches: liveData.branches, admin, demo: !!demoStore,
         knownProducts: liveData.products || [], knownStock: liveData.inventoryStock || [],
         today: window.BranchlineDemo.philippineDate(), XLSX: window.XLSX,
-        apis: { sales: window.BranchlineSalesHistory, daily: window.BranchlineDailyHistory },
+        apis: { sales: window.BranchlineSalesHistory, daily: window.BranchlineDailyHistory, inventory: window.BranchlineInventory },
         openLegacy: openLegacyImportCenter, confirm: message => window.confirm(message),
         uuid: () => crypto.randomUUID(), refresh: refreshData,
         checkPermission: operations => {
@@ -2794,6 +2794,7 @@
             };
             const [stock, serials] = await Promise.all([read(form.elements.stock.files[0]), read(form.elements.serials.files[0])]);
             preview = window.BranchlineInventory.parseReports(stock, serials, liveData.inventoryCatalog.filter(item => item.branch_id === form.elements.branch.value), window.BranchlineDemo.philippineDate());
+            window.BranchlineInventory.assertReportBranch(preview.location, liveData.branches.find(branch => branch.id === form.elements.branch.value));
             result.innerHTML = `<p><strong>${preview.items.length} products · ${preview.quantity} units</strong> (${preview.serialQuantity} serialized; these are included, not added). Report location: <strong>${escapeHTML(preview.location)}</strong>. Confirm this matches your selected branch. ${preview.newProducts} new catalog items; ${preview.sharedSerials.length} serial value(s) shared across different barcodes.</p>
               <p>Admin imports apply nonblank Category/Subcategory columns; blanks and non-Admin imports preserve existing classifications. Brand is retained. New products with blank/absent SRP stay in Missing SRP for Admin completion; supplied SRP is used. Existing products with blank/absent SRP become 0, except non-Admin imports leave an Admin-pending SRP untouched.</p>`;
           } catch (error) { preview = null; result.innerHTML = `<p class="connected-error">${escapeHTML(error.message)}</p>`; }
@@ -2801,9 +2802,10 @@
       },
       onSubmit: async form => {
         if (!preview) throw new Error("Preview and validate both reports before replacing inventory.");
+        window.BranchlineInventory.assertReportBranch(preview.location, liveData.branches.find(branch => branch.id === form.elements.branch.value));
         const result = await client.rpc("import_inventory", { p_branch: form.elements.branch.value, p_reported_at: `${form.elements.reported.value}:00+08:00`,
           p_files: `${form.elements.stock.files[0].name} + ${form.elements.serials.files[0].name}`,
-          p_items: preview.items.map(item => ({ ...item, description: uppercaseEntry(item.description),
+          p_items: preview.items.map(item => ({ ...item, source_location: preview.location, description: uppercaseEntry(item.description),
             category: uppercaseEntry(item.category), sub_category: uppercaseEntry(item.sub_category) })) });
         if (result.error?.code === "57014" || /statement timeout/i.test(result.error?.message || "")) {
           throw new Error("The inventory import timed out and was rolled back; no changes from this attempt were saved. Ask your administrator to apply the inventory import performance update (20261111000000), then retry both reports.");

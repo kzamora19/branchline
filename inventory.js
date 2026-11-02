@@ -21,6 +21,18 @@
     const row = rows[index].map(value => text(value).toLowerCase());
     return { index, at: name => row.indexOf(name) };
   }
+  function assertReportBranch(location, branch) {
+    const source = text(location);
+    const normalizeName = value => text(value).toLowerCase().replace(/\s*\(demo\)$/, "").replace(/^(?:1st\s+)?megasaver\s+/, "").replace(/[^a-z0-9]/g, "");
+    const prefix = /^([a-z][a-z0-9]{1,19})\s*-\s*/i.exec(source);
+    const name = source.replace(/^([a-z][a-z0-9]{1,19})\s*-\s*/i, "");
+    const branchCode = text(branch?.code).toUpperCase();
+    const codeOnly = branchCode && source.toUpperCase() === branchCode;
+    if (!source || !branch || !codeOnly && (
+      !normalizeName(name) || normalizeName(name) !== normalizeName(branch.name) ||
+      prefix && branchCode && prefix[1].toUpperCase() !== branchCode
+    )) throw new Error(`Report location "${source || "(blank)"}" does not match selected branch "${branch?.name || "(none)"}". Select the matching branch or correct its name/code before importing.`);
+  }
   function parseReports(stockRows, serialRows, catalog = [], today = new Date().toISOString().slice(0, 10)) {
     const h = headers(stockRows, ["item code", "item name", "total"]);
     const sh = headers(serialRows, ["item code", "item name", "loc code", "serial no", "tran date"]);
@@ -109,7 +121,7 @@
     return brandMatcher(profile, profiles, catalog)(item);
   }
   const needsClassification = item => !text(item.brand) || text(item.brand).toLowerCase() === "unclassified" || !text(item.category);
-  const api = { code, day, ageDays, parseReports, brandMatcher, brandMatches, needsClassification };
+  const api = { code, day, ageDays, parseReports, assertReportBranch, brandMatcher, brandMatches, needsClassification };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.BranchlineInventory = api;
 })(typeof window !== "undefined" ? window : globalThis);

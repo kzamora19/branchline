@@ -83,7 +83,7 @@ export function openUnifiedImporter(env) {
             if (value) divisions.add(value);
           });
         });
-        maps.innerHTML = `<h3>Explicit branch mapping</h3><p>No filename or name guess is used to select a branch.</p>` +
+        maps.innerHTML = `<h3>Explicit branch mapping</h3><p>No filename or name guess is used to select a branch. Inventory locations must match the selected branch name/code; another branch's report is blocked.</p>` +
           locations.map((name, index) => `<label class="field"><span>${esc(name)}</span>${select(`loc-${index}`, branchOptions, selected.get(`loc:${name}`) || "",
             `data-location="${esc(name)}"`)}</label>`).join("") +
           [...divisions].sort().map((name, index) => `<label class="field"><span>Sales division ${esc(name)}</span>${select(`div-${index}`, branchOptions, selected.get(`div:${name}`) || "",
