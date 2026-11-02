@@ -2668,7 +2668,7 @@
     return fieldHTML(label, name, selectHTML(name, liveData.branches.map(item => [item.id, item.name]), selected || ui.branch || liveData.branches[0]?.id));
   }
 
-  function openImportCenter() {
+  function openLegacyImportCenter() {
     if (workspaceWrites) { alert("Please wait for the current save to finish before importing."); return; }
     const routes = [
       ...(currentProfile?.role === "admin" ? [
@@ -2687,7 +2687,7 @@
     ];
     if (!routes.length) { alert("You do not have permission to import these files."); return; }
     openModal({
-      title: "Import Center",
+      title: "Existing import tools",
       intro: "Choose a data type, then use its existing file checks and confirmation. Extractor consolidated workbooks are not supported yet.",
       body: routes.map(([id, label, description]) =>
         `<div class="field"><button class="button button-outline" type="button" data-import-route="${id}">${escapeHTML(label)}</button><span>${escapeHTML(description)}</span></div>`).join(""),
@@ -2709,6 +2709,50 @@
         }
       }),
     });
+  }
+
+  async function openImportCenter() {
+    if (workspaceWrites) { alert("Please wait for the current save to finish before importing."); return; }
+    if (!managesInventory()) { alert("You do not have permission to import these files."); return; }
+    const profileId = currentProfile.id, importClient = client;
+    try {
+      const { openUnifiedImporter } = await import("./unified-import-ui.mjs");
+      if (currentProfile?.id !== profileId || client !== importClient) throw new Error("The active account changed. Open the importer again.");
+      const admin = currentProfile.role === "admin";
+      openUnifiedImporter({
+        openModal, escapeHTML, branches: liveData.branches, admin, demo: !!demoStore,
+        knownProducts: liveData.products || [], knownStock: liveData.inventoryStock || [],
+        today: window.BranchlineDemo.philippineDate(), XLSX: window.XLSX,
+        apis: { sales: window.BranchlineSalesHistory, daily: window.BranchlineDailyHistory },
+        openLegacy: openLegacyImportCenter, confirm: message => window.confirm(message),
+        uuid: () => crypto.randomUUID(), refresh: refreshData,
+        checkPermission: operations => {
+          if (currentProfile?.id !== profileId || client !== importClient || !managesInventory() ||
+              (operations.some(operation => operation !== "inventory") && currentProfile.role !== "admin")) {
+            throw new Error("The active account no longer has permission for this import.");
+          }
+        },
+        rpc: (name, params) => {
+          if (currentProfile?.id !== profileId || client !== importClient || !managesInventory() ||
+              (!["unified_import_capabilities", "import_unified_inventory"].includes(name) && currentProfile.role !== "admin")) {
+            throw new Error("The active account changed or no longer has permission. No further steps were started.");
+          }
+          return importClient.rpc(name, {
+          ...params,
+          ...(params.p_items ? { p_items: params.p_items.map(item => ({ ...item,
+            brand: uppercaseEntry(item.brand), description: uppercaseEntry(item.description),
+            category: uppercaseEntry(item.category), sub_category: uppercaseEntry(item.sub_category) })) } : {}),
+          ...(params.p_sales ? { p_sales: params.p_sales.map(sale => ({ ...sale, customer: uppercaseEntry(sale.customer), ps_name: uppercaseEntry(sale.ps_name),
+            lines: sale.lines.map(line => ({ ...line, description: uppercaseEntry(line.description), brand: uppercaseEntry(line.brand),
+              category: uppercaseEntry(line.category), sub_category: uppercaseEntry(line.sub_category) })) })) } : {}),
+          ...(params.p_label ? { p_label: uppercaseEntry(params.p_label) } : {}),
+          });
+        },
+      });
+    } catch (error) {
+      console.error("Unable to open unified importer.", error);
+      alert(friendlyError(error));
+    }
   }
 
   function openInventoryImport(inline = false) {

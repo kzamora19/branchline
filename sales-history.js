@@ -55,7 +55,7 @@
     const at = (...names) => header.findIndex(name => names.includes(name));
     const col = {
       div: at("divisioncode"), type: at("trantype"), date: at("trandate"), invoice: at("invoiceno"),
-      ps: at("salespersonname"), code: at("itemcode"), brand: at("brand"), name: at("itemname"),
+      ps: at("salespersonname"), psCode: at("salespersoncode"), code: at("itemcode"), brand: at("brand"), name: at("itemname"),
       srp: at("srp"), net: at("net"), qty: at("qty"), total: at("totalnet"), pay: at("salescategoryname"),
       customer: at("acctname"), cat: at("maincateg"), sub: at("subcategory"),
     };
@@ -89,17 +89,19 @@
       const payment = paymentMode(row[col.pay]);
       const customer = text(row[col.customer]) || "Walk-in customer";
       const psName = text(row[col.ps]);
+      const psCode = col.psCode >= 0 ? text(row[col.psCode]) : "";
 
-      const key = [division, invoice, tranType, date.iso, psName, customer, payment].join("\u0001");
+      const key = [division, invoice, tranType, date.iso, psCode || psName, customer, payment].join("\u0001");
       let group = groups.get(key);
       if (!group) {
         const taken = usedInvoices.get(`${division}\u0001${invoice}`) || 0;
         usedInvoices.set(`${division}\u0001${invoice}`, taken + 1);
         let number = invoice;
         if (taken > 0) number = tranType === "SALESRET" ? `${invoice}-R${taken > 1 ? taken : ""}` : `${invoice}-${taken + 1}`;
-        group = { division, invoice: number, sold_on: date.iso, customer, ps_name: psName, payment_mode: payment, tran_type: tranType, lines: [] };
+        group = { division, invoice: number, sold_on: date.iso, customer, ps_name: psName, salespersoncode: psCode, source_ps_names: [], payment_mode: payment, tran_type: tranType, lines: [] };
         groups.set(key, group);
       }
+      if (psName && !group.source_ps_names.includes(psName)) group.source_ps_names.push(psName);
       group.lines.push({
         barcode: text(row[col.code]),
         description: text(row[col.name]),

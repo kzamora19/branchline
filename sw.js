@@ -1,12 +1,16 @@
 ﻿"use strict";
 
-const CACHE_NAME = "branchline-shell-v86";
+const CACHE_NAME = "branchline-shell-v87";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
   "./install.html",
   "./styles.css",
   "./auth-app.js",
+  "./unified-import.mjs",
+  "./unified-import-ui.mjs",
+  "./import-engine/core.mjs",
+  "./import-engine/brand-reference.mjs",
   "./demo-data.js",
   "./inventory.js",
   "./inventory-demo.js",

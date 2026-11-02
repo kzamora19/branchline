@@ -103,7 +103,7 @@
         if (!barcode || !item.description || !Number.isInteger(item.quantity) || item.quantity < 0 || (item.serialized ? item.serials.length !== item.quantity : item.serials.length !== 0)) throw new Error("Invalid stock quantity or serial count.");
         const known = t.products.find(row => row.barcode === barcode);
         const incomingSrp = known?.srp == null && known && actor.role !== "admin" ? null :
-          item.srp == null || String(item.srp).trim() === "" ? known ? 0 : null : Number(item.srp);
+          item.srp == null || String(item.srp).trim() === "" ? env.preserveBlankSrp ? known?.srp ?? null : known ? 0 : null : Number(item.srp);
         if (incomingSrp !== null && (!Number.isFinite(incomingSrp) || incomingSrp < 0)) throw new Error("SRP must be a non-negative number.");
         const details = { barcode, model_description: item.description, brand: known?.brand || "Unclassified",
           category: actor.role === "admin" && String(item.category || "").trim() ? item.category.trim() : known?.category || "",

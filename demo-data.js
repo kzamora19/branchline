@@ -356,6 +356,26 @@
         tables.sale_lines.filter(l => l.sale_id === sale.id && brandMatches(l)).map(line => ({ sale, line })));
     }
     function rpc(name, p) {
+      if (name === "unified_import_capabilities") {
+        requireRole("admin", "manager", "district_manager", "inventory_controller", "stock_custodian");
+        return { version: 1 };
+      }
+      if (name === "import_unified_inventory") {
+        return { snapshot: Inventory.execute("import_inventory", p, { tables, actor, branchIds: inventoryBranchIds, uid, now, today, preserveBlankSrp: true }) };
+      }
+      if (name === "import_unified_sales_history") {
+        const result = rpc("import_sales_history", p);
+        for (const row of p.p_sales) {
+          if (!String(row.salespersoncode || "").trim()) continue;
+          const sale = tables.sales.find(item => item.import_batch_id === p.p_batch && item.branch_id === row.branch_id && item.invoice_number === row.invoice);
+          if (!sale) continue;
+          const code = String(row.salespersoncode).trim();
+          const person = tables.profiles.find(item => item.dealer_id === actor.dealer_id && item.branch_id === row.branch_id && item.role === "ps" && item.salesperson_code === code);
+          sale.salesperson_code = code;
+          sale.ps_id = person?.id || null;
+        }
+        return { ...result, salesperson_codes_preserved: true };
+      }
       if (name === "dispatch_inventory") throw new Error("Use the whole-transfer approval/receipt workflow.");
       if (["inventory_catalog", "inventory_destinations", "claim_inventory_reminder", "assign_inventory_branches", "classify_inventory_product", "import_inventory", "adjust_inventory", "submit_inventory_transfer", "review_inventory_transfer", "resolve_inventory_transfer"].includes(name)) {
         return Inventory.execute(name, p, { tables, actor, branchIds: inventoryBranchIds, uid, now, today });
@@ -474,7 +494,7 @@
         else upsert(table, [row], store ? ["branch_id", "counted_on"] : ["branch_id", "ps_id", "counted_on"]);
         return null;
       }
-      if (["add_product", "update_product", "import_products", "delete_products"].includes(name)) {
+      if (["add_product", "update_product", "import_products", "import_unified_products", "delete_products"].includes(name)) {
         requireRole(...(name.includes("import") || name.includes("delete") ? ["admin"] : ["manager", "district_manager", "admin"]));
         if (name === "delete_products") {
           if (tables.inventory_stock.some(row => row.quantity>0 && p.p_barcodes.some(code=>norm(code)===norm(row.barcode))) ||
@@ -484,7 +504,11 @@
           tables.products = tables.products.filter(row => !p.p_barcodes.some(code => norm(code) === norm(row.barcode)));
           return null;
         }
-        const items = name === "import_products" ? p.p_items : [{
+        const items = name === "import_products" || name === "import_unified_products" ? p.p_items.map(item => {
+          if (name !== "import_unified_products") return item;
+          const previous = tables.products.find(row => row.barcode === I.code(item.barcode));
+          return { ...item, brand: item.brand || previous?.brand || "", description: item.description || previous?.model_description || "" };
+        }) : [{
           barcode: p.p_barcode, description: p.p_description, brand: p.p_brand, category: p.p_category, sub_category: p.p_sub_category, srp: p.p_srp,
         }];
         const products = catalogOnly(items);
@@ -507,7 +531,8 @@
           upsert("products", products.map(product => {
             const previous = existingProducts.find(item => item.branch_id === branch.id &&
               item.barcode === (p.p_old_barcode || product.barcode));
-            const blankSrp = previous && (name === "import_products" || previous.srp != null) ? 0 : null;
+            const blankSrp = name === "import_unified_products" ? previous?.srp ?? null
+              : previous && (name === "import_products" || previous.srp != null) ? 0 : null;
             return {
               ...product, dealer_id: actor.dealer_id, srp: product.srp ?? blankSrp,
               category: name !== "update_product" ? product.category.trim() || previous?.category || "" : product.category,
