@@ -2668,6 +2668,49 @@
     return fieldHTML(label, name, selectHTML(name, liveData.branches.map(item => [item.id, item.name]), selected || ui.branch || liveData.branches[0]?.id));
   }
 
+  function openImportCenter() {
+    if (workspaceWrites) { alert("Please wait for the current save to finish before importing."); return; }
+    const routes = [
+      ...(currentProfile?.role === "admin" ? [
+        ["products", "Product catalog", "Excel / CSV catalog details and SRP.", openImportModal],
+        ["sales-history", "Sales History", "Historical invoices and item-level sales.", openSalesHistoryModal],
+        ["daily-history", "Daily Monitoring", "Monthly workbooks with branch daily totals and walk-ins.", openDailyHistoryModal],
+      ] : []),
+      ...(managesInventory() ? [
+        ["inventory", "Branch inventory", "Paired quantity and serialized reports. Replaces the selected branch's stock snapshot.", () => {
+          ui.invView = "import";
+          ui.search = ""; ui.invBrand = ""; ui.pages = {};
+          activePage = "inventory";
+          renderConnected();
+        }],
+      ] : []),
+    ];
+    if (!routes.length) { alert("You do not have permission to import these files."); return; }
+    openModal({
+      title: "Import Center",
+      intro: "Choose a data type, then use its existing file checks and confirmation. Extractor consolidated workbooks are not supported yet.",
+      body: routes.map(([id, label, description]) =>
+        `<div class="field"><button class="button button-outline" type="button" data-import-route="${id}">${escapeHTML(label)}</button><span>${escapeHTML(description)}</span></div>`).join(""),
+      readOnly: true,
+      onReady: form => form.addEventListener("click", event => {
+        const id = event.target.closest("[data-import-route]")?.dataset.importRoute;
+        if (!id) return;
+        if (workspaceWrites) { alert("Please wait for the current save to finish before importing."); return; }
+        const route = routes.find(([key]) => key === id);
+        if (!route || !(id === "inventory" ? managesInventory() : currentProfile?.role === "admin")) {
+          alert("You do not have permission to use this import route."); return;
+        }
+        try {
+          closeModal();
+          route[3]();
+        } catch (error) {
+          console.error("Unable to open import route.", error);
+          alert(friendlyError(error));
+        }
+      }),
+    });
+  }
+
   function openInventoryImport(inline = false) {
     let preview = null;
     openModal({
@@ -3767,9 +3810,8 @@
         search: "Brand, description or barcode",
         actions: [
           '<button class="button button-primary" type="button" data-open="product">+ Add product</button>',
-          currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="import">Import Excel / CSV</button>' : "",
+          currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="import-center">Import Center</button>' : "",
           currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="sync-categories">Update sales categories</button>' : "",
-          currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="sales-history">Import sales history</button><button class="button button-outline" type="button" data-open="daily-history">Import daily monitoring</button>' : "",
           currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="payments">Payment modes</button>' : "",
         ].join(""),
       }),
@@ -5861,6 +5903,7 @@
     const inventoryTab = event.target.closest("[data-inventory-tab]");
     if (inventoryTab) {
       if (workspaceWrites) { alert("Please wait for the current save to finish before switching tabs."); return; }
+      if (inventoryTab.dataset.inventoryTab === "import") { openImportCenter(); return; }
       if (ui.invView === inventoryTab.dataset.inventoryTab) return;
       ui.invTabScroll = inventoryTab.closest(".inventory-tabs").scrollLeft;
       ui.invView = inventoryTab.dataset.inventoryTab;
@@ -5914,7 +5957,7 @@
       return;
     }
     const open = event.target.closest("[data-open]")?.dataset.open;
-    if (open === "inventory-import") openInventoryImport();
+    if (open === "import-center" || open === "inventory-import") openImportCenter();
     else if (open === "inventory-transfer") openInventoryTransfer();
     else if (open === "product") openProductModal();
     else if (open === "payments") openPaymentModesModal();
