@@ -13,11 +13,43 @@ quantity reports, serialized reports, and monthly Daily Monitoring. Unrecognized
 worksheets must be mapped or explicitly excluded. PDF/OCR and saved Extractor
 workbooks are not supported in this release.
 
-Products consolidate by barcode. Current SRP belongs in the catalog; historical
-SRP stays on sale lines. Conflicting prices, unreadable barcodes, incomplete stock
+Products consolidate by barcode. Catalog SRP follows eligible memos, forecasts,
+other current sources, then historical sales as a warned last resort. Explicit
+zero is a supplied price and never falls through to another source. Historical
+sale-line SRPs remain unchanged. Conflicting prices, unreadable barcodes, incomplete stock
 coverage, and other blocking issues must be resolved before saving. Missing
 catalog values are not invented; new products require brand and description.
 Download the full review workbook to inspect source evidence and all issues.
+
+The review shows the selected price basis and source. Existing memo recency and
+forecast year/timestamp rules still apply. Ended memos remain effective until
+superseded; future/invalid periods are excluded. Equal-ranked conflicting prices,
+including disagreeing historical fallback SRPs, block saving instead of selecting
+an arbitrary value. Historical quantities and sold serials never become stock.
+
+### SRP preservation and source reconciliation
+
+After migrations through `20261120000000_sales_address_retained_serials.sql`,
+back up and apply `20261121000000_srp_source_preservation.sql`. Legacy and unified
+catalog/stock imports preserve an existing SRP when the source is blank. Add product
+also preserves an existing price; an explicit product edit may clear it to NULL.
+Completing an unset SRP still requires Admin. Explicit zero is valid, including
+confirmed free/bundled items, and is not Missing SRP. SRP-only updates skip catalog
+metadata/stock synchronization, preserving historical line metadata as well as
+sale prices, quantities and serial allocations. Publish the matching runtime
+modules and offline shell v90 together.
+
+Existing ambiguous legacy zeros require source reconciliation before switching
+the warning to NULL-only; do not silently treat every old zero as a free item.
+The user-approved November 2 reconciliation restores 665 missing barcode prices
+(540 memo, 122 forecast, 3 consistent imported-history fallbacks), aligns 251
+existing positive barcode prices to authoritative memos, and retains 450
+source-labelled free/outdoor-bundle barcodes as valid zero. Unconfirmed zeros
+remain missing; conflicts, undated memos and unmapped supplemental sheets are not
+guessed. Existing positive prices are never replaced with a historical fallback.
+Full catalog/function backups, the source manifest, the price plan and exact
+sales/stock/serial preservation checks are kept in a restricted, non-exposed
+database audit schema, not this public repository.
 
 Salesperson codes remain text, including leading zeros. Code-based assignment
 requires an exact configured `profiles.salesperson_code` within the same dealer

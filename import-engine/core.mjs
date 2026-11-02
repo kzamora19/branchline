@@ -183,7 +183,9 @@ export function extractSheet(sheet, config = {}) {
     out.sources.push({ ...source, status: "NEEDS_MAPPING", records: 0 });
     return out;
   }
-  if (role === "reference") issue(out.issues, "INFO", "SALES_REFERENCE_ONLY", "Historical sales supplies product descriptions, brands and classifications only. Historical SRP, quantities, serials and transaction dates are excluded from current price/stock.", source);
+  if (role === "reference") issue(out.issues, "INFO", "SALES_REFERENCE_ONLY", config.referenceSrpFallback
+    ? "Historical sales supplies classifications and last-resort SRP evidence only when no memo, forecast or other current price exists. Conflicting fallback prices require review; sales quantities and serials never become stock."
+    : "Historical sales supplies product descriptions, brands and classifications only. Historical SRP, quantities, serials and transaction dates are excluded from current price/stock.", source);
   if (reportDate && (!dateISO(reportDate) || !Number.isFinite(Date.parse(reportDate)))) issue(out.issues, "ERROR", "INVALID_REPORT_DATE", "Source report date is invalid.", source, "", reportDate);
   if (role === "forecast" && (!Number.isInteger(forecastYear) || forecastYear < 2000 || forecastYear > 2099)) {
     issue(out.issues, "ERROR", "MISSING_FORECAST_YEAR", "Set the forecast reference year (for example 2025 or 2026).", source);
@@ -244,7 +246,8 @@ export function extractSheet(sheet, config = {}) {
     const product = {
       barcode: item, description: text(get("description")), model: text(get("model")), brand: text(get("brand")),
       category: text(get("category")).replace(/^\*+\s*/, ""), subcategory: text(get("subcategory")),
-      srp: role === "reference" ? null : readNumber(row, cols.srp, out.issues, origin, item, "SRP"), role, ...origin
+      srp: role === "reference" && !config.referenceSrpFallback ? null : readNumber(row, cols.srp, out.issues, origin, item, "SRP"),
+      reference_srp_fallback: role === "reference" && !!config.referenceSrpFallback, role, ...origin
     };
     if (role !== "serials" || rawCode) out.products.push(product);
     if (role === "inventory") {
@@ -315,8 +318,12 @@ function preference(a, b) {
   return rank(a) - rank(b) || (Number(b.forecast_year) || 0) - (Number(a.forecast_year) || 0)
     || (Date.parse(b.report_date) || 0) - (Date.parse(a.report_date) || 0);
 }
-function leaders(rows) {
-  return rows.filter(row => !rows.some(other => preference(other, row) < 0));
+function leaders(rows, compare = preference) {
+  return rows.filter(row => !rows.some(other => compare(other, row) < 0));
+}
+function pricePreference(a, b) {
+  const rank = row => row.role === "memo" ? 0 : row.role === "forecast" ? 1 : row.role === "reference" ? 3 : 2;
+  return rank(a) - rank(b) || (a.role === "reference" && b.role === "reference" ? 0 : preference(a, b));
 }
 function descriptionScore(value) {
   const tokens = new Set(text(value).toUpperCase().split(/\s+/));
@@ -552,13 +559,13 @@ export function consolidate(parts, mappings = [], now = new Date().toISOString()
         }
       }
     }
-    const suppliedPrices = sorted.filter(row => row.role !== "reference" && row.srp !== null && row.srp !== undefined);
+    const suppliedPrices = sorted.filter(row => (row.role !== "reference" || row.reference_srp_fallback) && row.srp !== null && row.srp !== undefined);
     const applicable = suppliedPrices.filter(row => memoEligible(row, asOf));
-    const topPrices = leaders(applicable);
+    const topPrices = leaders(applicable, pricePreference);
     const prices = [...topPrices, ...applicable.filter(row => !topPrices.includes(row))];
     item.srp = prices[0]?.srp ?? null;
     item.srp_source = prices.length ? references([prices[0]]) : "";
-    item.srp_basis = prices.length ? `${prices[0].role.toUpperCase()}${prices[0].forecast_year ? ` ${prices[0].forecast_year}` : ""}` : "";
+    item.srp_basis = prices.length ? prices[0].role === "reference" ? "HISTORICAL SALES" : `${prices[0].role.toUpperCase()}${prices[0].forecast_year ? ` ${prices[0].forecast_year}` : ""}` : "";
     item.srp_reference_year = prices[0]?.forecast_year ?? null;
     item.srp_report_date = prices[0]?.report_date || "";
     item.srp_valid_from = prices[0]?.valid_from || "";
@@ -580,6 +587,8 @@ export function consolidate(parts, mappings = [], now = new Date().toISOString()
       item.srp_memo_number = "";
       issue(issues, "ERROR", "SRP_ORDER_UNRESOLVED", "Conflicting prices have equal/unknown recency; no price was selected.", prices[0], item.barcode);
     }
+    if (!unresolvedPrice && prices[0]?.role === "reference") issue(issues, "WARNING", "HISTORICAL_SRP_FALLBACK",
+      "No memo, forecast or other current SRP was supplied. Historical sales SRP is a last-resort reference; verify before importing.", prices[0], item.barcode, item.srp_source);
     item.sources = references(records);
     products.push(item);
     if (records.length > 1) audit.push({ barcode: item.barcode, source_records: records.length, preferred_srp: item.srp, srp_conflict: item.srp_conflict, resolution: item.srp_resolution || "Classifications: effective memo then sales reference then forecast; most detailed source description", sources: item.sources });

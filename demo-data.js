@@ -532,8 +532,7 @@
           upsert("products", products.map(product => {
             const previous = existingProducts.find(item => item.branch_id === branch.id &&
               item.barcode === (p.p_old_barcode || product.barcode));
-            const blankSrp = name === "import_unified_products" ? previous?.srp ?? null
-              : previous && (name === "import_products" || previous.srp != null) ? 0 : null;
+            const blankSrp = name === "update_product" ? null : previous?.srp ?? null;
             return {
               ...product, dealer_id: actor.dealer_id, srp: product.srp ?? blankSrp,
               category: name !== "update_product" ? product.category.trim() || previous?.category || "" : product.category,

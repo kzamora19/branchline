@@ -184,7 +184,7 @@ export function prepareImport(sheets, options, apis) {
           dateFrom: parsed.stats.from, dateTo: parsed.stats.to, datesFixed: parsed.stats.datesFixed });
       }
       if (!operations.includes("catalog") && !operations.includes("inventory")) continue;
-      const part = extractSheet(sheet, config);
+      const part = extractSheet(sheet, { ...config, referenceSrpFallback: operations.includes("catalog") });
       if (!operations.includes("inventory")) { part.inventory = []; part.serials = []; }
       parts.push(part);
     } catch (caught) {
