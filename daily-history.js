@@ -7,6 +7,7 @@
   const norm = value => String(value ?? "").toLowerCase().replace(/[^a-z0-9#]/g, "");
   const pad = value => String(value).padStart(2, "0");
   const daysIn = (year, month) => new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const PAYMENT_CHANNELS = ["Store Operations", "Corporate", "Sub Dealer", "Non-Store", "Home Credit", "Credit Card", "Deferred", "Goldmine", "Techzone"];
   const toNumber = value => {
     if (typeof value === "number") return Number.isFinite(value) ? value : 0;
     const parsed = parseFloat(String(value ?? "").replace(/[^0-9.\-]/g, ""));
@@ -34,6 +35,8 @@
       };
       const missing = Object.entries(col).filter(([key, index]) => index < 0 && !/Rem$/.test(key)).map(([key]) => key);
       if (missing.length) { warnings.push(`${name}: missing columns (${missing.join(", ")}), sheet skipped.`); return; }
+      const channelColumns = Object.fromEntries(["ty", "ly"].map(which => [which,
+        PAYMENT_CHANNELS.map(channel => ({ channel, index: find(norm(channel + which)) }))]));
 
       const summary = { month, ty: { sales: 0, transactions: 0, walkins: 0, days: 0 }, ly: { sales: 0, transactions: 0, walkins: 0, days: 0 } };
       for (let at = headerAt + 1; at < data.length; at += 1) {
@@ -50,7 +53,17 @@
           const walkins = Math.max(Math.round(toNumber(row[walkAt])), 0);
           const remarks = remAt >= 0 ? String(row[remAt] ?? "").replace(/\s+/g, " ").trim() : "";
           if (!sales && !transactions && !walkins && !remarks) return;
-          rows.push({ day: date, sales, transactions, walkins: walkins > 0 ? walkins : null, remarks });
+          const record = { day: date, sales, transactions, walkins: walkins > 0 ? walkins : null, remarks };
+          const channels = channelColumns[which];
+          if (channels.every(item => item.index >= 0)) {
+            const breakdown = Object.fromEntries(channels.map(item => [item.channel, Math.max(toNumber(row[item.index]), 0)]));
+            const total = Object.values(breakdown).reduce((sum, amount) => sum + amount, 0);
+            if (Math.abs(total - sales) < 0.01) record.payment_breakdown = breakdown;
+            else warnings.push(`${date}: channel amounts do not match total sales; payment breakdown omitted.`);
+          } else if (channels.some(item => item.index >= 0)) {
+            warnings.push(`${date}: incomplete channel columns; payment breakdown omitted.`);
+          }
+          rows.push(record);
           const bucket = summary[which];
           bucket.sales += sales; bucket.transactions += transactions; bucket.walkins += walkins; bucket.days += 1;
         });
@@ -113,7 +126,7 @@
       .filter(row => !have.has(`${row.branch_id}|${row.counted_on}`));
   }
 
-  const api = { parseMonitoring, historyFacts, reconcileSalesFacts, transactionFacts, historyWalkins, MONTHS, SUMMARY_SALES_MONTHS };
+  const api = { parseMonitoring, historyFacts, reconcileSalesFacts, transactionFacts, historyWalkins, MONTHS, SUMMARY_SALES_MONTHS, PAYMENT_CHANNELS };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.BranchlineDailyHistory = api;
 })(typeof window !== "undefined" ? window : globalThis);

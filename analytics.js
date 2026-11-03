@@ -269,7 +269,34 @@
      Per branch a mode target may be a share (percent of that branch's monthly target) and/or a peso amount.
      A peso amount wins; otherwise the share is turned into pesos using the branch target. */
   const UNSPECIFIED = "Unspecified";
+  function comparisonPaymentMode(value) {
+    const mode = String(value || "").trim();
+    const key = mode.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const groups = {
+      cash: "Store Operations", cod: "Store Operations", cashondelivery: "Store Operations", cashondeliverycod: "Store Operations", storeoperations: "Store Operations",
+      debit: "Credit Card", debitcard: "Credit Card", credit: "Credit Card", creditcard: "Credit Card",
+      nonstore: "Digital Payment", digital: "Digital Payment", digitalpayment: "Digital Payment",
+      deferred: "Flexi Deals", flexi: "Flexi Deals", flexideals: "Flexi Deals",
+      goldmine: "Gold Mine", techzone: "Techzone", subdealer: "Subdealer",
+      corporate: "Corporate", corporateinstitutional: "Corporate", institutionalcorporate: "Corporate", homecredit: "Home Credit",
+    };
+    return groups[key] || mode || UNSPECIFIED;
+  }
   function paymentMix({ sales = [], modes = [], targets = [], branchTargets = new Map(), tolerance = 2 }) {
+    modes = [...new Set(modes.map(comparisonPaymentMode))];
+    const groupedTargets = new Map();
+    targets.forEach(item => {
+      const mode = comparisonPaymentMode(item.mode);
+      const key = `${item.branch_id}|${mode}`;
+      const entry = groupedTargets.get(key) || { ...item, mode, amount: null, share_pct: null };
+      const hasAmount = item.amount !== null && item.amount !== undefined && item.amount !== "";
+      const hasShare = item.share_pct !== null && item.share_pct !== undefined && item.share_pct !== "";
+      const base = Number(branchTargets.get(item.branch_id)) || 0;
+      if (hasAmount || (hasShare && base > 0)) entry.amount = (entry.amount || 0) + (hasAmount ? Number(item.amount) : Number(item.share_pct) / 100 * base);
+      if (hasShare) entry.share_pct = (entry.share_pct || 0) + Number(item.share_pct);
+      groupedTargets.set(key, entry);
+    });
+    targets = [...groupedTargets.values()];
     const rows = new Map();
     const slot = mode => {
       if (!rows.has(mode)) rows.set(mode, { mode, sales: 0, transactions: 0, peso: null, base: 0, pctSum: 0, pctN: 0, hasShare: false });
@@ -279,7 +306,7 @@
     let total = 0;
     let totalTransactions = 0;
     sales.forEach(sale => {
-      const entry = slot(String(sale.mode || "").trim() || UNSPECIFIED);
+      const entry = slot(comparisonPaymentMode(sale.mode));
       entry.sales += Number(sale.amount) || 0;
       entry.transactions += 1;
       total += Number(sale.amount) || 0;
@@ -523,7 +550,7 @@
 
   const api = {
     inventorySummary, salesSummary,
-    paymentMix, buildInsights, UNSPECIFIED,
+    paymentMix, comparisonPaymentMode, buildInsights, UNSPECIFIED,
     RULES, addDays, weekday, daysInMonth, monthStart, monthEnd, shiftMonth, weekStart,
     sameDayPriorMonth, sameDayPriorYear, growth, sumDaily, dailyTotals, parseHolidays, makeRules,
     isSellingDay, countSellingDays, forecastMonth, requiredPace, expectedFraction, cumulativeSeries,

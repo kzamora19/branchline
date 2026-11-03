@@ -626,22 +626,45 @@
         }
         return { lines_checked: checked, lines_updated: updated };
       }
-      if (name === "import_sales_history" || name === "import_daily_history") {
+      if (name === "import_sales_history" || name === "import_daily_history" || name === "import_daily_history_with_payments") {
         requireRole("admin");
-        const daily = name === "import_daily_history";
+        const daily = name !== "import_sales_history";
+        if (name === "import_daily_history_with_payments") {
+          for (const row of p.p_rows) {
+            if (!Object.hasOwn(row, "payment_breakdown")) continue;
+            const breakdown = row.payment_breakdown;
+            const channels = ["Store Operations", "Corporate", "Sub Dealer", "Non-Store", "Home Credit", "Credit Card", "Deferred", "Goldmine", "Techzone"];
+            if (!breakdown || Array.isArray(breakdown) || Object.keys(breakdown).length !== channels.length ||
+                channels.some(channel => !Object.hasOwn(breakdown, channel) || typeof breakdown[channel] !== "number" || !Number.isFinite(breakdown[channel]) || breakdown[channel] < 0))
+              throw new Error("Invalid monitoring payment channels.");
+            if (Math.abs(Object.values(breakdown).reduce((sum, amount) => sum + amount, 0) - Number(row.sales)) >= 0.01)
+              throw new Error("Payment breakdown does not match daily sales.");
+          }
+        }
         let batch = tables.sales_import_batches.find(row => row.id === p.p_batch);
         if (!batch) batch = insert("sales_import_batches", {
           id: p.p_batch, label: p.p_label, source_file: p.p_file, created_at: now(),
           kind: daily ? "daily" : "sales", sales_count: 0, lines_count: 0, amount: 0,
         });
-        const result = { sales: 0, lines: 0, days: 0, skipped_existing: 0, matched_ps: 0 };
+        const result = { sales: 0, lines: 0, days: 0, skipped_existing: 0, matched_ps: 0, payment_days: 0, payment_skipped: 0 };
         if (daily) {
           requireBranch(p.p_branch);
           for (const row of p.p_rows) {
-            if (tables.branch_daily_history.some(item => item.branch_id === p.p_branch && item.day === row.day) ||
+            const existing = tables.branch_daily_history.find(item => item.branch_id === p.p_branch && item.day === row.day);
+            if (name === "import_daily_history_with_payments" && existing && row.payment_breakdown) {
+              if (!existing.payment_breakdown && Number(existing.sales) === Number(row.sales) && Number(existing.transactions) === Number(row.transactions)) {
+                existing.payment_breakdown = copy(row.payment_breakdown);
+                result.payment_days++;
+              } else result.payment_skipped++;
+            }
+            if (existing || name === "import_daily_history" && (
                 tables.sales.some(sale => sale.branch_id === p.p_branch && sale.sold_on === row.day) ||
-                tables.branch_walkins.some(count => count.branch_id === p.p_branch && count.counted_on === row.day)) { result.skipped_existing++; continue; }
+                tables.branch_walkins.some(count => count.branch_id === p.p_branch && count.counted_on === row.day))) {
+              if (!existing && row.payment_breakdown) result.payment_skipped++;
+              result.skipped_existing++; continue;
+            }
             insert("branch_daily_history", { ...row, branch_id: p.p_branch, batch_id: batch.id });
+            if (row.payment_breakdown) result.payment_days++;
             batch.amount += Number(row.sales || 0);
             result.days++;
           }

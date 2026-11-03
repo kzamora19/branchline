@@ -256,7 +256,9 @@ export function openUnifiedImporter(env) {
               progress.textContent = `${jobs.filter(item => item.status === "done").length}/${jobs.length} steps saved. ${job.label}. Keep this dialog open to retain retry progress.`;
             });
             await env.refresh();
-            return `<p>All ${jobs.length} import steps completed. Inspect Products, Sales History, Daily Monitoring and Inventory as applicable. Existing invoices/days skipped by the backend were not overwritten.</p>`;
+            const paymentDays = jobs.reduce((sum, job) => sum + Number(job.result?.payment_days || 0), 0);
+            const paymentSkipped = jobs.reduce((sum, job) => sum + Number(job.result?.payment_skipped || 0), 0);
+            return `<p>All ${jobs.length} import steps completed. Inspect Products, Sales History, Daily Monitoring and Inventory as applicable. Existing invoices/daily totals were not overwritten. Loaded ${paymentDays} payment breakdown(s).${paymentSkipped ? ` ${paymentSkipped} breakdown(s) were not changed because they already exist or their saved totals differ.` : ""}</p>`;
           } catch (caught) {
             progress.textContent = `${jobs.filter(item => item.status === "done").length}/${jobs.length} steps confirmed saved. ${caught.message} Keep this dialog open to resume; completed steps will not run again.`;
             throw caught;

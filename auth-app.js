@@ -538,7 +538,7 @@
         fetchAll("push_alert_schedules", "id,send_at,active,created_at", [["send_at", true], ["created_at", true]]),
         fetchAll("payment_mode_targets", "id,branch_id,month,mode,share_pct,amount", [["month", false], ["id", true]]),
         isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("sales_import_batches", "id,label,source_file,created_at,sales_count,lines_count,amount,date_from,date_to,kind", [["created_at", false], ["id", true]]),
-        isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("branch_daily_history", "branch_id,day,sales,transactions,walkins,remarks", [["day", false], ["branch_id", true]]),
+        isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("branch_daily_history", "branch_id,day,sales,transactions,walkins,remarks,payment_breakdown", [["day", false], ["branch_id", true]]),
                 fetchAll("sale_serials", "sale_id,barcode,position,serial", [["sale_id", true], ["position", true]]),
       ];
       let completed = 0;
@@ -1772,7 +1772,19 @@
       .filter(row => ids.has(row.branch_id) && row.month.slice(0, 7) >= fromMonth && row.month.slice(0, 7) <= toMonth)
       .map(row => ({ ...row, branch_id: `${row.branch_id}|${row.month.slice(0, 7)}`, amount: row.amount === null ? null : row.amount * scale }));
     const mix = A.paymentMix({ sales: within(p.from, p.to), modes, targets, branchTargets });
-    const lastYear = A.paymentMix({ sales: within(A.sameDayPriorYear(p.from), A.sameDayPriorYear(p.to)), modes });
+    const lyFrom = A.sameDayPriorYear(p.from), lyTo = A.sameDayPriorYear(p.to);
+    const databaseMonths = new Set(all.filter(sale => ids.has(sale.branch_id)).map(sale => `${sale.branch_id}|${sale.sold_on.slice(0, 7)}`));
+    const history = isPs ? [] : (liveData.dailyHistory || []).filter(row => ids.has(row.branch_id) &&
+      row.day.startsWith("2025-") && row.day >= lyFrom && row.day <= lyTo && !databaseMonths.has(`${row.branch_id}|${row.day.slice(0, 7)}`));
+    const summaryPayments = history.flatMap(row => Object.entries(row.payment_breakdown || {}).filter(([, amount]) => Number(amount) > 0).map(([mode, amount]) => ({ mode, amount })));
+    const lastYear = A.paymentMix({ sales: [...within(lyFrom, lyTo), ...summaryPayments], modes });
+    mix.missingPaymentDays = history.filter(row => Number(row.sales) > 0 && !row.payment_breakdown).length;
+    for (const row of lastYear.rows) {
+      if (!mix.rows.some(item => item.mode === row.mode)) mix.rows.push({
+        mode: row.mode, sales: 0, transactions: 0, share: mix.total > 0 ? 0 : null,
+        targetPct: null, targetAmount: null, achievement: null, status: "none",
+      });
+    }
     mix.rows.forEach(row => {
       const match = lastYear.rows.find(item => item.mode === row.mode);
       row.lySales = match ? match.sales : 0;
@@ -1805,8 +1817,9 @@
       const targetEntries = mix.rows.filter(row => row.targetPct !== null).map(row => ({ label: row.mode, value: row.targetPct }));
       pies.push(pieChart("Target payment mix", `${label} · share of sales`, targetEntries, { amounts: false, tableKey: "mix" }));
     }
-    if (display === "pies") return `<div class="connected-charts">${pies.join("")}</div>`;
-    return panel("Payment mix: this year vs last year vs target", `${label}. Status compares each mode's share of sales with its target share (±2 points counts as on target). Last year only has data for sales that were recorded with a payment mode.`, table, `<div class="mix-tools"><div class="mix-tools-left">${editButton}</div><div class="mix-tools-right">${controls}${exportButton}</div></div>`, "mix");
+    const missing = mix.missingPaymentDays ? `<p class="an-note">Last-year payment breakdown is missing for ${mix.missingPaymentDays} imported day(s). Re-import the monitoring workbook to load its channels; saved totals are retained.</p>` : "";
+    if (display === "pies") return missing + `<div class="connected-charts">${pies.join("")}</div>`;
+    return panel("Payment mix: this year vs last year vs target", `${label}. Cash + COD are Store Operations; Debit Card is included in Credit Card. Original payment labels remain in transaction records. Last year uses database payments, or verified monitoring channels for empty 2025 branch/months. Status compares actual and target shares (±2 points counts as on target).`, missing + table, `<div class="mix-tools"><div class="mix-tools-left">${editButton}</div><div class="mix-tools-right">${controls}${exportButton}</div></div>`, "mix");
   }
 
   function overviewPaymentPanels(display) {
@@ -1828,7 +1841,7 @@
     const rowsHtml = modes.map((name, index) => `<tr><td>${escapeHTML(name)}</td><td><input name="pct_${index}" type="number" min="0" max="100" step="0.01" placeholder="%"></td><td><input name="amt_${index}" type="number" min="0" step="0.01" placeholder="₱"></td></tr>`).join("");
     openModal({
       title: "Payment mix targets",
-      intro: "Set a share target (%), a peso target, or both for each payment mode. Targets are per branch and per month; a new month starts empty until you set it (or copy last month).",
+      intro: "Set a share target (%), a peso target, or both for each payment mode. In comparisons, Cash + COD are combined as Store Operations and Debit + Credit Card as Credit Card, including their targets. Targets are per branch/month; a new month starts empty until set or copied.",
       submitLabel: "Save targets",
       wide: true,
       body: `${fieldHTML("Branch", "branch", selectHTML("branch", [...(branches.length > 1 ? [["all", `All my branches (${branches.length})`]] : []), ...branches.map(branch => [branch.id, branch.name])], startBranch))}
@@ -2131,8 +2144,8 @@
     if (!isPs) dimensions.push(["ps", "Sales by Product Specialist", row => row.summary ? "Unknown (daily summary)" :
       liveData.profiles.find(profile => profile.id === row.psId)?.full_name || row.psName || "Former staff"]);
     const paymentSales = (isPs ? visibleSales() : liveData.sales).filter(row => ids.has(row.branch_id))
-      .map(row => ({ saleId: row.id, amount: saleTotal(row), payment: row.payment_mode || "Unspecified" }));
-    const payment = analyticsDataTable("an-all-payment", "All-time payment mix", "Recorded transactions only; summary imports have no payment breakdown.",
+      .map(row => ({ saleId: row.id, amount: saleTotal(row), payment: A.comparisonPaymentMode(row.payment_mode) }));
+    const payment = analyticsDataTable("an-all-payment", "All-time payment mix", "Recorded transactions grouped for comparison: Debit + Credit Card; Cash + COD as Store Operations. Monitoring channels are used only for the last-year comparison.",
       ["Payment mode", "Sales", "Transactions"], A.salesSummary(paymentSales, row => row.payment).map(row => [row.key, formatMoney(row.sales), row.transactions]));
     const monthlySales = new Map(A.salesSummary(allFacts, row => `${row.branchId}\0${row.date.slice(0, 7)}`).map(row => [row.key, row.sales]));
     const targets = analyticsDataTable("an-all-targets", "Recorded monthly targets and results", isPs
@@ -4673,17 +4686,17 @@
         const label = `${fileName.replace(/\.[^.]+$/, "").slice(0, 70) || "Daily monitoring"}`;
         const progress = form.querySelector("#history-progress");
         progress.hidden = false;
-        const totals = { days: 0, skipped_existing: 0 };
+        const totals = { days: 0, skipped_existing: 0, payment_days: 0, payment_skipped: 0 };
         for (let index = 0; index < parsed.rows.length; index += 400) {
           progress.textContent = `Importing… ${index} of ${parsed.rows.length} days`;
-          const part = mustRpc(await client.rpc("import_daily_history", {
+          const part = mustRpc(await client.rpc("import_daily_history_with_payments", {
             p_batch: batchId, p_label: label, p_file: fileName, p_branch: branch,
             p_rows: parsed.rows.slice(index, index + 400),
           }));
           Object.keys(totals).forEach(key => { totals[key] += Number(part[key]) || 0; });
         }
         await refreshData();
-        return `<p>Imported <strong>${totals.days}</strong> day(s).${totals.skipped_existing ? ` ${totals.skipped_existing} day(s) already existed and were left alone.` : ""}</p>`;
+        return `<p>Imported <strong>${totals.days}</strong> day(s).${totals.skipped_existing ? ` ${totals.skipped_existing} day(s) already existed; saved totals were retained.` : ""} Loaded payment breakdowns for <strong>${totals.payment_days}</strong> day(s).${totals.payment_skipped ? ` ${totals.payment_skipped} breakdown(s) were not changed because they already exist or their saved totals differ.` : ""}</p>`;
       },
     });
   }
@@ -6016,7 +6029,7 @@
       records("Brand targets", liveData.brandTargets.filter(row => ids.has(row.branch_id)), [["Branch ID", "branch_id"], ["Month", "month"], ["Brand", "brand"], ["Target", "amount"]]);
       records("Payment targets", liveData.paymentTargets.filter(row => ids.has(row.branch_id)), [["Branch ID", "branch_id"], ["Month", "month"], ["Mode", "mode"], ["Share (%)", "share_pct"], ["Amount", "amount"]]);
       records("Products", liveData.products, [["Brand", "brand"], ["Category", "category"], ["Sub-category", "sub_category"], ["Product", "model_description"], ["Barcode", "barcode"], ["SRP", "srp"]]);
-      records("Imported daily history", liveData.dailyHistory.filter(row => ids.has(row.branch_id)), [["Branch ID", "branch_id"], ["Date", "day"], ["Sales", "sales"], ["Transactions", "transactions"], ["Walk-ins", "walkins"], ["Remarks", "remarks"]]);
+      records("Imported daily history", liveData.dailyHistory.filter(row => ids.has(row.branch_id)).map(row => ({ ...row, ...row.payment_breakdown })), [["Branch ID", "branch_id"], ["Date", "day"], ["Sales", "sales"], ["Transactions", "transactions"], ["Walk-ins", "walkins"], ["Remarks", "remarks"], ...window.BranchlineDailyHistory.PAYMENT_CHANNELS.map(channel => [channel, channel])]);
       records("Import batches", liveData.importBatches, [["Label", "label"], ["Source file", "source_file"], ["Kind", "kind"], ["Created", "created_at"], ["From", "date_from"], ["To", "date_to"], ["Sales", "sales_count"], ["Lines", "lines_count"], ["Amount", "amount"]]);
       records("Store walk-ins", liveData.branchWalkins.filter(row => ids.has(row.branch_id)), [["Branch ID", "branch_id"], ["Date", "counted_on"], ["Visitors", "visitors"]]);
     }

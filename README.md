@@ -64,9 +64,22 @@ without summary rows. Walk-in counts retain their existing priority: entered
 store counts, then imported monitoring counts, then PS counts where applicable.
 Average sale and conversion use these transaction counts, independently of
 sales amounts. Yearly/YTD comparisons, Analytics, branch Overview/Targets and
-daily sales summaries share these rules. Invoice logs, product/payment/staff
+daily sales summaries share these rules. Invoice logs and product/staff
 breakdowns and PS personal sales remain database-only; October's summary cannot
 be attributed to individual PSs or products.
+
+Verified monitoring channels can supply the last-year payment comparison for
+empty 2025 database branch/months (never PS personal reports). Comparison groups:
+Cash + COD = Store Operations; Debit Card + Credit Card = Credit Card;
+Non-Store = Digital Payment; Deferred = Flexi Deals; Goldmine = Gold Mine;
+Techzone, Home Credit, Corporate and Subdealer retain their corresponding groups.
+Entry choices and original transaction payment labels are unchanged. Targets
+are summed within each group, counting each branch/month's target base once.
+Apply `20261128000000_monitoring_payment_breakdown.sql` before deploying this UI.
+Re-import the monitoring workbook to load channels omitted by older imports.
+The new admin-only import validates channel totals and fills only missing
+breakdowns whose saved sales and invoice counts match; it never replaces saved
+daily totals or existing breakdowns. Skipped/conflicting breakdowns are reported.
 
 `SUMMARY_SALES_MONTHS` in `daily-history.js` records the approved October 2026
 exception. Remove it only after confirming October's database import is complete;

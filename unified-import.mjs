@@ -267,7 +267,7 @@ export function createImportJobs(preview, uuid) {
   }
   for (const entry of preview.daily) {
     const batch = uuid();
-    chunks(entry.rows, 400, rows => jobs.push({ label: `Daily totals: ${entry.source} (${rows.length} days)`, rpc: "import_daily_history",
+    chunks(entry.rows, 400, rows => jobs.push({ label: `Daily totals: ${entry.source} (${rows.length} days)`, rpc: "import_daily_history_with_payments",
       params: { p_batch: batch, p_label: entry.source.slice(0, 80), p_file: entry.source, p_branch: entry.branch, p_rows: rows } }));
   }
   for (const entry of preview.inventory) jobs.push({ label: `Replace inventory: ${entry.branch}`, rpc: "import_unified_inventory",
@@ -296,7 +296,7 @@ export async function executeImportJobs(jobs, rpc, progress = () => {}) {
       if (/^[0-9A-Z]{5}$/.test(response.error.code || "")) job.status = "pending";
       throw new Error(`${job.label}: ${response.error.message}. Earlier completed steps remain saved.`);
     }
-    const countField = { import_unified_products: "products", import_unified_sales_history: "sales", import_daily_history: "days" }[job.rpc];
+    const countField = { import_unified_products: "products", import_unified_sales_history: "sales", import_daily_history: "days", import_daily_history_with_payments: "days" }[job.rpc];
     const snapshot = typeof response.data === "string" ? response.data : response.data?.snapshot;
     const validResult = countField ? Number.isSafeInteger(response.data?.[countField]) && response.data[countField] >= 0
       : job.rpc === "import_unified_inventory" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(snapshot || "");
