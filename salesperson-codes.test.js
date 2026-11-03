@@ -81,7 +81,7 @@ test("demo create/edit enforces unique codes and code matching overrides a misma
  const data=async q=>{const r=await q;assert.equal(r.error,null,r.error?.message);return r.data;};
  const body={role:"ps",full_name:"Code Person",login:"code.person",district_id:demo.profile.district_id,branch_id:branch,brand:"TCL",salesperson_code:"000aB"};
  await data(demo.client.functions.invoke("admin-create-user",{body}));
- const people=await data(demo.client.from("profiles")),person=people.find(p=>p.login_id===body.login);
+ const people=await data(demo.client.from("profiles")),person=people.find(p=>p.login_id===body.salesperson_code);
  assert.equal(person.salesperson_code,"000aB");
  assert.match((await demo.client.functions.invoke("admin-create-user",{body:{...body,login:"duplicate.person"}})).error.message,/already assigned/);
  await data(demo.client.rpc("admin_update_profile_with_sales_code",{p_user_id:person.id,p_full_name:"Renamed Person",p_role:"ps",p_assigned_brand:"TCL",p_salesperson_code:" 000aB "}));
@@ -92,10 +92,12 @@ test("demo create/edit enforces unique codes and code matching overrides a misma
 
 test("Edge account creation stores PS codes, rejects duplicates before creating logins, and rolls back races",async()=>{
  const source=fs.readFileSync(path.join(__dirname,"supabase","functions","admin-create-user","index.ts"),"utf8");
- for(const scenario of ["success","blank","duplicate","race","non-ps"]) {
+ const frontend=fs.readFileSync(path.join(__dirname,"auth-app.js"),"utf8"),loginContext=vm.createContext({});
+ vm.runInContext(frontend.slice(frontend.indexOf("  function loginEmail("),frontend.indexOf("  async function invokeAdminFunction(")),loginContext);
+ for(const scenario of ["success","blank","missing","string-flag","zeroes","duplicate","race","non-ps"]) {
   let handler;const writes=[],deletes=[];
   const api={auth:{getUser:async()=>({data:{user:{id:"admin"}}}),admin:{
-   createUser:async()=>{writes.push({table:"auth.users"});return {data:{user:{id:"new"}}};},
+   createUser:async input=>{writes.push({table:"auth.users",input});return {data:{user:{id:"new"}}};},
    deleteUser:async()=>{deletes.push("auth.users");return {error:null};},
   }},from:table=>{const filters={};return {
    select(){return this;},eq(k,v){filters[k]=v;return this;},
@@ -107,15 +109,66 @@ test("Edge account creation stores PS codes, rejects duplicates before creating 
    Deno:{env:{get:()=>undefined},serve:fn=>{handler=fn;}},createClient:()=>api,crypto:webcrypto,Request,Response,console,
   });
   const response=await handler(new Request("https://example.invalid/create",{method:"POST",headers:{"Content-Type":"application/json"},
-   body:JSON.stringify({role:scenario==="non-ps"?"manager":"ps",full_name:"Fixture",login:"fixture",district_id:"district",branch_id:"branch",brand:"TCL",salesperson_code:scenario==="blank"?" ":" 000aB "})}));
+   body:JSON.stringify({role:scenario==="non-ps"?"manager":"ps",full_name:"Fixture",login:"fixture",district_id:"district",branch_id:"branch",brand:"TCL",
+    test_account:scenario==="blank"?true:scenario==="string-flag"?"true":false,
+    salesperson_code:["blank","missing","string-flag"].includes(scenario)?" ":scenario==="zeroes"?"000123456":" 000aB "})}));
   const result=await response.json();
-  if(["success","blank"].includes(scenario)) {
+  if(["success","blank","zeroes"].includes(scenario)) {
    assert.equal(response.status,200,JSON.stringify(result));
-   assert.equal(writes.find(w=>w.table==="profiles").input.salesperson_code,scenario==="blank"?null:"000aB");
+   const code=scenario==="blank"?null:scenario==="zeroes"?"000123456":"000aB";
+   assert.equal(writes.find(w=>w.table==="profiles").input.salesperson_code,code);
+   assert.equal(writes.find(w=>w.table==="profiles").input.login_id,code||"fixture");
+   assert.equal(writes.find(w=>w.table==="auth.users").input.user_metadata.test_account,scenario==="blank");
+   const email=writes.find(w=>w.table==="auth.users").input.email;
+   assert.equal(loginContext.loginEmail(code||"fixture"),email,"Typing the displayed username must resolve to the created auth login.");
+   assert.equal(email,scenario==="blank"?"fixture@login.branchline.app":scenario==="zeroes"?"6300123456@login.branchline.app":"000ab@login.branchline.app");
   } else {
    assert.equal(response.status,400);
    if(scenario==="race")assert.ok(deletes.includes("auth.users")&&deletes.includes("profiles"));
    else assert.equal(writes.length,0);
   }
  }
+});
+
+test("new PS codes are required except explicit test accounts; existing usernames and sales survive disabling/restoring",async()=>{
+ const map=new Map(),storage={getItem:k=>map.get(k)||null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k)};
+ const demo=Demo.create({storage,catalog:Demo.sampleCatalog(),today:"2026-11-03"}),branch=demo.profile.branch_id;
+ demo.setRole("admin");
+ const data=async q=>{const r=await q;assert.equal(r.error,null,r.error?.message);return r.data;};
+ const body={role:"ps",full_name:"No Code",login:"separate.login",brand:"TCL",branch_id:branch};
+ for(const flag of [undefined,false,"true"]) {
+  const result=await demo.client.functions.invoke("admin-create-user",{body:{...body,test_account:flag}});
+  assert.match(result.error.message,/Salesperson Code is required/);
+ }
+ await data(demo.client.functions.invoke("admin-create-user",{body:{...body,test_account:true}}));
+ const person=(await data(demo.client.from("profiles"))).find(p=>p.login_id===body.login);
+ assert.equal(person.test_account,true);
+ const before=JSON.stringify(await data(demo.client.from("sales")));
+ await data(demo.client.rpc("admin_set_user_status",{p_user_id:person.id,p_active:false}));
+ assert.equal((await data(demo.client.from("profiles"))).find(p=>p.id===person.id).active,false);
+ await data(demo.client.rpc("admin_set_user_status",{p_user_id:person.id,p_active:true}));
+ const restored=(await data(demo.client.from("profiles"))).find(p=>p.id===person.id);
+ assert.equal(restored.active,true);assert.equal(restored.login_id,body.login);
+ assert.equal(JSON.stringify(await data(demo.client.from("sales"))),before);
+});
+
+test("People page defaults to active staff and offers a separate restorable disabled list",()=>{
+ const source=fs.readFileSync(path.join(__dirname,"auth-app.js"),"utf8");
+ const people=[{id:"a",full_name:"Active Fixture",role:"ps",active:true,assigned_brand:"TCL"},{id:"d",full_name:"Disabled Fixture",role:"ps",active:false,assigned_brand:"TCL"}];
+ let output="",filters="";
+ const context=vm.createContext({
+  ui:{},liveData:{profiles:people,branches:[],districts:[],managerLinks:[],inventoryAssignments:[]},
+  roleLabels:{ps:"PS"},roleRank:{ps:1},districtName:()=>"-",branchName:()=>"-",searchQuery:()=>"",matches:()=>true,
+  natural:(a,b)=>a.localeCompare(b),escapeHTML:String,pageHeading:()=>"",pushMessagesPanel:()=>"",
+  filterBar:args=>{filters=args.actions;return "";},panel:(title,desc,body)=>title+body,
+  tableBlock:(key,heads,rows,render)=>rows.map(render).join(""),
+  mountPage:(a,b,c,render)=>{output=render();},
+ });
+ vm.runInContext(source.slice(source.indexOf("  function renderPeoplePage()"),source.indexOf("  function companyHolidayDates()")),context);
+ context.renderPeoplePage();
+ assert.match(output,/Staff profiles/);assert.match(output,/Active Fixture/);assert.doesNotMatch(output,/Disabled Fixture/);
+ assert.match(filters,/Disabled accounts \(1\)/);
+ context.ui.peopleDisabled=true;context.renderPeoplePage();
+ assert.match(output,/Disabled accounts/);assert.match(output,/Disabled Fixture/);assert.match(output,/>Restore</);
+ assert.doesNotMatch(output,/Active Fixture|Danger zone/);assert.match(filters,/Active accounts/);
 });

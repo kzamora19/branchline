@@ -4060,11 +4060,13 @@
           '<button class="button button-outline" type="button" data-open="users-bulk">+ Add multiple users</button>',
           '<button class="button button-outline" type="button" data-open="district">+ District</button>',
           '<button class="button button-outline" type="button" data-open="branch">+ Branch</button>',
+          `<button class="button button-outline" type="button" data-disabled-accounts>${ui.peopleDisabled ? "Active accounts" : `Disabled accounts (${liveData.profiles.filter(person => !person.active).length})`}</button>`,
         ].join(""),
       }),
       () => {
         const query = searchQuery();
         const people = liveData.profiles
+          .filter(profile => ui.peopleDisabled ? !profile.active : profile.active)
           .filter(profile => !ui.district || profile.district_id === ui.district)
           .map(profile => ({
             profile,
@@ -4109,19 +4111,19 @@
           row => `<tr><td>${escapeHTML(row.district)}</td><td><strong>${escapeHTML(row.branch)}</strong></td><td>${escapeHTML(row.code)}</td><td class="manage-cell">${geoButtons("branch", row.id)}</td></tr>`,
           "No branches yet. Use + Branch to create one.",
         ));
-        return districtsPanel + branchesPanel + panel("Staff profiles", "Highest role first; Product Specialists are grouped by brand.", tableBlock(
-          "people",
+        return (ui.peopleDisabled ? "" : districtsPanel + branchesPanel) + panel(ui.peopleDisabled ? "Disabled accounts" : "Staff profiles", ui.peopleDisabled ? "Records are kept. Restore an account to return it to active Staff Profiles." : "Active accounts only. Highest role first; Product Specialists are grouped by brand.", tableBlock(
+          ui.peopleDisabled ? "disabled-people" : "people",
           ["Name", "Role", "Brand", "Salesperson Code", "District", "Branch", "Status", ""],
           people,
           row => {
             const p = row.profile;
             const buttons = p.role === "admin"
               ? `<button class="button button-outline button-small" type="button" data-person="edit" data-id="${escapeHTML(p.id)}">Update</button>`
-              : `<button class="button button-outline button-small" type="button" data-person="edit" data-id="${escapeHTML(p.id)}">Update</button> <button class="button button-outline button-small" type="button" data-person="transfer" data-id="${escapeHTML(p.id)}">Transfer</button> <button class="button button-outline button-small" type="button" data-person="toggle" data-id="${escapeHTML(p.id)}">${p.active ? "Disable" : "Enable"}</button> <button class="button button-outline button-small" type="button" data-person="delete" data-id="${escapeHTML(p.id)}">Delete</button>`;
+              : `<button class="button button-outline button-small" type="button" data-person="edit" data-id="${escapeHTML(p.id)}">Update</button> <button class="button button-outline button-small" type="button" data-person="transfer" data-id="${escapeHTML(p.id)}">Transfer</button> <button class="button button-outline button-small" type="button" data-person="toggle" data-id="${escapeHTML(p.id)}">${p.active ? "Disable" : "Restore"}</button> <button class="button button-outline button-small" type="button" data-person="delete" data-id="${escapeHTML(p.id)}">Delete</button>`;
             return `<tr><td><strong>${escapeHTML(p.full_name)}</strong></td><td>${escapeHTML(row.role)}</td><td>${escapeHTML(row.brand)}</td><td class="salesperson-code">${escapeHTML(p.salesperson_code || "—")}</td><td>${escapeHTML(row.district)}</td><td>${escapeHTML(row.branch)}</td><td>${p.active ? "Active" : "Disabled"}</td><td class="manage-cell">${buttons}</td></tr>`;
           },
           "No staff profiles match these filters.",
-        )) + pushMessagesPanel() + `<section class="panel danger-zone"><h2>Danger zone</h2><p>Permanently delete all districts, branches, staff logins, products, sales, targets and history. Administrator accounts and payment modes are kept. This cannot be undone.</p><button class="button button-danger" type="button" data-open="wipe">Delete all data</button></section>`;
+        )) + (ui.peopleDisabled ? "" : pushMessagesPanel() + `<section class="panel danger-zone"><h2>Danger zone</h2><p>Permanently delete all districts, branches, staff logins, products, sales, targets and history. Administrator accounts and payment modes are kept. This cannot be undone.</p><button class="button button-danger" type="button" data-open="wipe">Delete all data</button></section>`);
       },
     );
   }
@@ -5232,9 +5234,16 @@
         ${fieldHTML("District", "district", selectHTML("district", liveData.districts.map(item => [item.id, item.name]), ui.district))}
         <div id="branch-field">${fieldHTML("Branch", "branch", '<select name="branch"></select>')}</div>
         <div id="inventory-branches-field" hidden>${inventoryAssignmentFields([])}</div>
-        <div id="user-sales-code-field">${fieldHTML("Salesperson Code (optional)", "salesperson_code", '<input name="salesperson_code" autocomplete="off" placeholder="Exact code from the sales database">')}</div>
+        <div id="user-sales-code-field">${fieldHTML("Salesperson Code / PS username", "salesperson_code", '<input name="salesperson_code" required autocomplete="off" placeholder="Exact code from the sales database">')}
+          <label class="check-row"><input type="checkbox" name="test_account"> Test account (Salesperson Code optional)</label></div>
         <div id="user-brand-field">${fieldHTML("Brand (for brand monitoring)", "brand", `<input name="brand" list="brand-options" autocomplete="off" placeholder="e.g. Lg, Lg - Aircon, or Midea / Toshiba"><datalist id="brand-options">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>`)}</div>`,
       onReady: form => {
+        const syncLogin = () => {
+          const ps = form.elements.role.value === "ps", code = form.elements.salesperson_code.value.trim();
+          form.elements.salesperson_code.required = ps && !form.elements.test_account.checked;
+          form.elements.email.readOnly = ps && (!form.elements.test_account.checked || !!code);
+          if (form.elements.email.readOnly) form.elements.email.value = code;
+        };
         const sync = () => {
           const role = form.elements.role.value;
           const onlyInventory = ["inventory_controller", "stock_custodian"].includes(role);
@@ -5247,7 +5256,10 @@
           form.querySelector("#inventory-branches-field").hidden = !onlyInventory;
           form.querySelector("#user-brand-field").hidden = role !== "ps";
           form.querySelector("#user-sales-code-field").hidden = role !== "ps";
+          syncLogin();
         };
+        form.elements.salesperson_code.addEventListener("input", syncLogin);
+        form.elements.test_account.addEventListener("change", syncLogin);
         form.elements.role.addEventListener("change", sync);
         form.elements.district.addEventListener("change", sync);
         sync();
@@ -5256,7 +5268,10 @@
         const role = form.elements.role.value;
         const onlyInventory = ["inventory_controller", "stock_custodian"].includes(role);
         const contactEmail = form.elements.contact.value.trim().toLowerCase();
-        const loginId = form.elements.email.value.trim() || contactEmail;
+        const salesCode = form.elements.salesperson_code.value.trim();
+        const testAccount = role === "ps" && form.elements.test_account.checked;
+        if (role === "ps" && !salesCode && !testAccount) throw new Error("Salesperson Code is required for a Product Specialist unless marked as a test account.");
+        const loginId = role === "ps" && salesCode ? salesCode : form.elements.email.value.trim() || contactEmail;
         if (!loginId) throw new Error("Enter a login ID (username or mobile number) or an email address.");
         const body = {
           role,
@@ -5276,6 +5291,7 @@
         }
         if (role === "ps") {
           body.salesperson_code = form.elements.salesperson_code.value.trim() || null;
+          body.test_account = testAccount;
           body.brand = uppercaseEntry(form.elements.brand.value);
           if (!body.brand) throw new Error("Enter the brand this Product Specialist represents.");
         }
@@ -5304,11 +5320,11 @@
       openModal({ title: "Add multiple users", body: "<p>Create a district and a branch before adding users.</p>", submitLabel: "OK", onSubmit: async () => {} });
       return;
     }
-    const rowHTML = index => ["Full name", "Login ID", "Email (optional)", "Brand", "Salesperson Code (optional)"].map((label, col) =>
-      `<input name="u${index}_${col}" placeholder="${label}" aria-label="${label}, user ${index + 1}" autocomplete="off"${col === 3 ? ' list="brand-options"' : ""}${col === 1 || col === 2 ? ' autocapitalize="none"' : ""}>`).join("");
+    const rowHTML = index => ["Full name", "Login ID", "Email (optional)", "Brand", "Salesperson Code"].map((label, col) =>
+      `<input name="u${index}_${col}" placeholder="${label}" aria-label="${label}, user ${index + 1}" autocomplete="off"${col === 3 ? ' list="brand-options"' : ""}${col === 1 || col === 2 ? ' autocapitalize="none"' : ""}>`).join("") + `<label class="bulk-test-account"><input type="checkbox" name="u${index}_test" aria-label="Test account, user ${index + 1}">Test account</label>`;
     openModal({
       title: "Add multiple users",
-      intro: "Fill one row per person. Everyone gets the same role, district and branch. Blank rows are ignored. Brand is required for PS accounts. Salesperson Code is optional and must match the source database exactly.",
+      intro: "Fill one row per person. Everyone gets the same role, district and branch. Blank rows are ignored. PS accounts require brand and Salesperson Code; the code becomes their username. Test accounts may leave the code blank and enter a Login ID.",
       submitLabel: "Create users",
       wide: true,
       body: `${fieldHTML("Role", "role", selectHTML("role", [["ps", "Product Specialist (PS)"], ["manager", "Branch Manager (BM)"], ["district_manager", "District Manager (DM)"], ["inventory_controller", "Inventory Controller"], ["stock_custodian", "Stock Custodian"]], "ps"))}
@@ -5318,12 +5334,21 @@
         <div class="bulk-users-head"><strong>Users</strong><button class="button button-outline button-small" type="button" id="bulk-add-rows">+ Add more users</button></div>
         <datalist id="brand-options">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>
         <div class="bulk-grid bulk-grid-sales-code" id="bulk-grid">
-          <span class="bulk-label">Full name</span><span class="bulk-label">Login ID</span><span class="bulk-label">Email (optional)</span><span class="bulk-label">Brand</span><span class="bulk-label">Salesperson Code</span>
+          <span class="bulk-label">Full name</span><span class="bulk-label">Login ID</span><span class="bulk-label">Email (optional)</span><span class="bulk-label">Brand</span><span class="bulk-label">Salesperson Code</span><span class="bulk-label">Test account</span>
           <span id="bulk-rows" style="display:contents">${[0, 1, 2, 3, 4].map(rowHTML).join("")}</span>
         </div>
         <p class="dlg-preview" id="bulk-progress" hidden></p>`,
       onReady: form => {
         let count = 5;
+        const syncLogins = () => {
+          const ps = form.elements.role.value === "ps";
+          for (let index = 0; index < count; index += 1) {
+            const login = form.elements[`u${index}_1`], code = form.elements[`u${index}_4`], test = form.elements[`u${index}_test`];
+            test.disabled = !ps;
+            login.readOnly = ps && (!test.checked || !!code.value.trim());
+            if (login.readOnly) login.value = code.value.trim();
+          }
+        };
         const sync = () => {
           const role = form.elements.role.value;
           const onlyInventory = ["inventory_controller", "stock_custodian"].includes(role);
@@ -5335,7 +5360,10 @@
           form.elements.district.closest(".field").hidden = onlyInventory;
           form.querySelector("#inventory-branches-field").hidden = !onlyInventory;
           form.querySelectorAll('[name$="_3"],[name$="_4"]').forEach(input => { input.disabled = role !== "ps"; });
+          syncLogins();
         };
+        form.querySelector("#bulk-grid").addEventListener("input", syncLogins);
+        form.querySelector("#bulk-grid").addEventListener("change", syncLogins);
         form.elements.role.addEventListener("change", sync);
         form.elements.district.addEventListener("change", sync);
         form.querySelector("#bulk-add-rows").addEventListener("click", () => {
@@ -5356,7 +5384,7 @@
         const rows = [];
         for (let index = 0; index < form.bulkCount(); index += 1) {
           const value = col => (form.elements[`u${index}_${col}`]?.value || "").trim();
-          const entry = { name: value(0), login: value(1), email: value(2), brand: value(3), salesCode: value(4), line: index + 1 };
+          const entry = { name: value(0), login: value(1), email: value(2), brand: value(3), salesCode: value(4), testAccount: role === "ps" && form.elements[`u${index}_test`].checked, line: index + 1 };
           if (entry.name || entry.login || entry.email || entry.brand || entry.salesCode) rows.push(entry);
         }
         if (!rows.length) throw new Error("Enter at least one user.");
@@ -5372,7 +5400,8 @@
           progress.textContent = `Creating ${index + 1} of ${rows.length}…`;
           try {
             const contactEmail = entry.email.toLowerCase();
-            const loginId = entry.login || contactEmail;
+            if (role === "ps" && !entry.salesCode && !entry.testAccount) throw new Error("Salesperson Code is required unless marked as a test account.");
+            const loginId = role === "ps" && entry.salesCode ? entry.salesCode : entry.login || contactEmail;
             if (!entry.name) throw new Error("Missing full name.");
             if (!loginId) throw new Error("Missing login ID or email.");
             const body = { role, full_name: uppercaseEntry(entry.name), login: loginId, email: contactEmail, app_url: location.origin + location.pathname, district_id: onlyInventory ? null : form.elements.district.value };
@@ -5380,6 +5409,7 @@
             else if (role !== "district_manager") body.branch_id = form.elements.branch.value;
             if (role === "ps") {
               body.salesperson_code = entry.salesCode || null;
+              body.test_account = entry.testAccount;
               body.brand = uppercaseEntry(entry.brand);
               if (!body.brand) throw new Error("Missing brand.");
             }
@@ -5446,12 +5476,12 @@
     if (kind === "toggle") {
       const disabling = person.active;
       openModal({
-        title: `${disabling ? "Disable" : "Enable"} ${person.full_name}`,
+        title: `${disabling ? "Disable" : "Restore"} ${person.full_name}`,
         intro: disabling
           ? "They will no longer be able to see or enter anything. Their records are kept and you can enable them again."
           : "They will be able to sign in again with their current role and branch.",
         body: "",
-        submitLabel: disabling ? "Disable account" : "Enable account",
+        submitLabel: disabling ? "Disable account" : "Restore account",
         onSubmit: async () => {
           mustRpc(await client.rpc("admin_set_user_status", { p_user_id: person.id, p_active: !disabling }));
           await refreshData();
@@ -6267,6 +6297,11 @@
       if (sale) openDeleteSaleModal(sale);
     }
     const peopleAction = event.target.closest("[data-person]");
+    if (event.target.closest("[data-disabled-accounts]") && currentProfile.role === "admin") {
+      ui.peopleDisabled = !ui.peopleDisabled;
+      ui.pages = {};
+      renderPeoplePage();
+    }
     if (peopleAction) {
       const person = liveData.profiles.find(item => item.id === peopleAction.dataset.id);
       if (person) openPersonAction(peopleAction.dataset.person, person);

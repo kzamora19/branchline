@@ -196,18 +196,20 @@ Deno.serve(async (request) => {
 
     const role = String(input.role ?? "");
     const fullName = String(input.full_name ?? "").trim();
-    const loginId = String(input.login || input.email || "").trim();
+    const salespersonCode = String(input.salesperson_code ?? "").trim() || null;
+    const testAccount = role === "ps" && input.test_account === true;
+    const loginId = role === "ps" && salespersonCode ? salespersonCode : String(input.login || input.email || "").trim();
     const contactEmail = String(input.email ?? "").trim().toLowerCase();
     const email = loginEmail(loginId);
     const districtId = String(input.district_id ?? "");
     const branchId = String(input.branch_id ?? "");
     const brand = String(input.brand ?? "").trim();
-    const salespersonCode = String(input.salesperson_code ?? "").trim() || null;
     const inventoryRole = ["inventory_controller", "stock_custodian"].includes(role);
     const inventoryBranches = Array.isArray(input.branch_ids) ? [...new Set(input.branch_ids.map(String))] : [];
 
     if (!["ps", "manager", "district_manager", "inventory_controller", "stock_custodian"].includes(role)) return reply(400, { error: "Choose a valid staff role." });
     if (!fullName) return reply(400, { error: "Full name is required." });
+    if (role === "ps" && !salespersonCode && !testAccount) return reply(400, { error: "Salesperson Code is required for a Product Specialist unless marked as a test account." });
     if (!email) return reply(400, { error: "Enter a username (letters, numbers, . _ -), a mobile number or an email as the login ID." });
     if (contactEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contactEmail)) return reply(400, { error: "Enter a valid email address for the invite." });
     if (!inventoryRole && !districtId) return reply(400, { error: "District is required." });
@@ -251,7 +253,7 @@ Deno.serve(async (request) => {
       email,
       password,
       email_confirm: true,
-      user_metadata: { full_name: fullName },
+      user_metadata: { full_name: fullName, ...(role === "ps" ? { test_account: testAccount } : {}) },
     });
     if (createError || !created.user) {
       return reply(400, { error: createError?.message ?? "Unable to create the login." });
@@ -276,7 +278,7 @@ Deno.serve(async (request) => {
       assigned_brand: role === "ps" ? brand : null,
       salesperson_code: role === "ps" ? salespersonCode : null,
       full_name: fullName,
-      login_id: loginId.includes("@") ? email : email.replace("@login.branchline.app", ""),
+      login_id: role === "ps" && salespersonCode ? salespersonCode : loginId.includes("@") ? email : email.replace("@login.branchline.app", ""),
       email: contactEmail || null,
     });
     if (profileError) return await rollback(profileError.code === "23505" && profileError.message.includes("profiles_dealer_salesperson_code")

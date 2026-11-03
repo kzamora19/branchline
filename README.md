@@ -58,8 +58,16 @@ Codes are not guessed or automatically populated.
 
 ### PS account Salesperson Codes
 
-Administrators can enter an optional **Salesperson Code** in **Add user**,
-**Add several users**, or the PS account's **Update credentials** dialog.
+New PS accounts require a **Salesperson Code**, which automatically becomes their
+username in **Add user** and **Add multiple users**. A separate username cannot
+override a supplied PS code. Check **Test account** to allow a code-free PS account
+with a manually entered Login ID; bulk creation has a checkbox on each row.
+The server validates this exemption and records it in the new login's user
+metadata. Codes must also satisfy the existing login format rules. Sign-in remains
+case-insensitive; source sales-code matching remains exact and case-sensitive.
+
+Administrators can edit a **Salesperson Code** in an existing PS account's
+**Update credentials** dialog.
 The People list shows codes and supports searching by code; the People and access
 export includes them. Leave a field blank to clear it. Enter the exact code from
 the sales database: leading zeros and letter case are preserved, with only outer
@@ -71,10 +79,18 @@ name, and require a PS account in the same company and branch. Unknown or
 wrong-branch codes remain unassigned rather than falling back to a possibly
 incorrect name. Files without codes keep existing name/alias matching. Saving a
 PS code does not rewrite existing sales or relink already-imported invoices.
-Enter existing PS codes manually before importing new sales databases.
+Enter existing PS codes manually before importing new sales databases. Existing
+usernames and passwords are not changed by this release or by editing a code.
+
+Staff Profiles shows active accounts only. Open **Disabled accounts** to find
+disabled staff, search/filter them, update their details or **Restore** them.
+Restoring uses the existing role and branch and returns the account to Staff
+Profiles; disabling/restoring never deletes sales or changes credentials.
 
 Apply [`20261126000000_ps_salesperson_codes.sql`](supabase/migrations/20261126000000_ps_salesperson_codes.sql),
 deploy the matching `admin-create-user` Edge Function, then publish shell v95.
+Shell v96 adds required new-PS usernames and the disabled-account view; deploy
+the updated `admin-create-user` function before publishing that frontend.
 The account-edit API delegates to existing profile authorization and saves the
 code in the same transaction. Account creation stores the code with the profile;
 duplicate-code failures roll back the new login.

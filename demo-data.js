@@ -803,13 +803,18 @@
             else throw new Error("This demo account action is not supported.");
           } else {
             const code = String(body.salesperson_code || "").trim() || null;
+            const testAccount = body.role === "ps" && body.test_account === true;
+            if (body.role === "ps" && !code && !testAccount) throw new Error("Salesperson Code is required for a Product Specialist unless marked as a test account.");
+            const login = body.role === "ps" && code ? code : body.login || body.email;
+            if (!login) throw new Error("Enter a login ID or email address.");
             if (code && body.role !== "ps") throw new Error("Salesperson Code is for Product Specialists only.");
             if (code && tables.profiles.some(p => p.dealer_id === actor.dealer_id && p.salesperson_code === code)) throw new Error("This Salesperson Code is already assigned to another account in your company.");
-            if (tables.profiles.some(p => norm(p.login_id) === norm(body.login))) throw new Error("Demo login ID already exists.");
+            if (tables.profiles.some(p => norm(p.login_id) === norm(login))) throw new Error("Demo login ID already exists.");
             const person = insert("profiles", { dealer_id: actor.dealer_id, role: body.role, full_name: body.full_name,
               district_id: body.district_id, branch_id: body.branch_id || null, assigned_brand: body.brand || null,
               salesperson_code: code,
-              active: true, login_id: body.login, email: body.email || null });
+              test_account: testAccount,
+              active: true, login_id: login, email: body.email || null });
             if (person.role === "manager") tables.manager_branches.push({ manager_id: person.id, branch_id: person.branch_id });
             if (Inventory.roles.includes(person.role)) {
               person.branch_id = null; person.district_id = null;
