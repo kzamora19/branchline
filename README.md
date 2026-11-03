@@ -4,6 +4,9 @@ Branchline is a sales tracker for Product Specialists and branch teams.
 
 ## Compact filters and staff actions
 
+The PS Sales **+ Record sale** button stays fixed at the lower-right corner
+while scrolling, independently of the filter container (shell v103).
+
 Overview, Sales, Analytics and Targets use one collapsed **Filters** summary.
 Expand it to change district, branch, period/month and the current menu's options.
 Expanded filters float over the next panel without shifting page content.

@@ -93,6 +93,9 @@ test("demo records, edits and removes DG independently and keeps fees scoped to 
 test("frontend exposes monitoring only to managers, and caches the shared module", () => {
   const source = fs.readFileSync(path.join(__dirname, "auth-app.js"), "utf8");
   assert.match(source, /record-sale-floating/);
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  assert.match(css, /\.button\.record-sale-floating\s*\{\s*position: fixed;/);
+  assert.doesNotMatch(css, /\.connected-filters \.record-sale-floating/);
   assert.match(source, /function deliveryMonitoringPanel[\s\S]*?\["manager", "district_manager", "admin"\]/);
   assert.match(source, /data-delivery-person/);
   assert.match(source, /Available: \$\{stock.quantity\} · current inventory/);

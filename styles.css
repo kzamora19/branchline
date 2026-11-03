@@ -23,7 +23,7 @@
   background: var(--canvas);
   color: var(--ink);
 }
-.connected-filters .record-sale-floating {
+.button.record-sale-floating {
   position: fixed;
   right: max(20px, env(safe-area-inset-right));
   bottom: max(20px, env(safe-area-inset-bottom));
