@@ -4822,7 +4822,7 @@
     document.body.appendChild(root);
     wireDialogExport(root, `${label} by day`);
     root.addEventListener("pointerdown", event => {
-      if ((event.target === root || event.target.closest("[data-modal-close]")) && !form.querySelector('[type="submit"]')?.disabled) closeModal();
+      if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
     });
     root.querySelector("[data-walkin-entry]")?.addEventListener("click", () => {
       closeModal();

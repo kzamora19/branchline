@@ -31,6 +31,10 @@ authorization remain unchanged. Shell v97 includes these UI-only changes.
 
 ## Settings
 
+Daily Clients assisted / Walk-in traffic popups support X, Close, outside click
+and Escape. These read-only views have no save-in-progress form guard; shell
+v113 fixes a stale form reference that previously blocked pointer dismissal.
+
 **Store-closed dates** now lives in Settings instead of Analytics (shell v104).
 PS and branch managers can view the dates; district managers and administrators
 retain Add/Delete. Existing dates, forecasts and export data remain unchanged.
