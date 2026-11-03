@@ -8,6 +8,31 @@ const {webcrypto}=require("node:crypto");
 const Demo=require("./demo-data.js");
 const PGlite=process.env.BRANCHLINE_PGLITE?require(process.env.BRANCHLINE_PGLITE).PGlite:null;
 
+test("signed-in account query carries the saved sales code into the sidebar label",async()=>{
+ const source=fs.readFileSync(path.join(__dirname,"auth-app.js"),"utf8");
+ const row={id:"ps-fixture",role:"ps",full_name:"Sample Specialist",active:true,salesperson_code:"000Ab-7"};
+ let fields=[];
+ const query={
+  select(value){fields=value.split(",");return this;},
+  eq(key,value){assert.equal(key,"id");assert.equal(value,row.id);return this;},
+  async maybeSingle(){return {data:Object.fromEntries(fields.map(key=>[key,row[key]])),error:null};},
+ };
+ const context=vm.createContext({
+  client:{from(table){assert.equal(table,"profiles");return query;}},
+  session:{user:{id:row.id}},currentSession:null,currentProfile:null,sequence:1,loadSequence:1,
+  roleLabels:{ps:"Product Specialist"},titleCase:value=>value,
+  checkResult(result){assert.equal(result.error,null);return result.data;},
+ });
+ vm.runInContext(source.slice(source.indexOf("  function connectedUserLabel()"),source.indexOf("  function resetUi()")),context);
+ const load=source.indexOf("  async function loadLiveWorkspace(");
+ const start=source.indexOf("      const profile = checkResult(",load);
+ const end=source.indexOf("      restoreAccountFilters();",start);
+ assert.ok(start>load&&end>start);
+ await vm.runInContext(`(async()=>{${source.slice(start,end)}})()`,context);
+ assert.equal(context.currentProfile.salesperson_code,"000Ab-7");
+ assert.equal(context.connectedUserLabel(),"Sample Specialist - 000Ab-7");
+});
+
 test("sidebar PS name includes its exact sales code and preserves uncoded and other-role labels",()=>{
  const source=fs.readFileSync(path.join(__dirname,"auth-app.js"),"utf8");
  const context=vm.createContext({currentProfile:null,currentSession:null});

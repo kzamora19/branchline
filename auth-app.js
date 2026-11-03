@@ -463,7 +463,7 @@
     try {
       const profile = checkResult(await client
         .from("profiles")
-        .select("id,dealer_id,district_id,branch_id,role,assigned_brand,full_name,active")
+        .select("id,dealer_id,district_id,branch_id,role,assigned_brand,full_name,active,salesperson_code")
         .eq("id", session.user.id)
         .maybeSingle(), "Unable to load your account");
       if (sequence !== loadSequence) return;
