@@ -67,7 +67,7 @@ Shell v98 refreshes the corrected aggregation code offline as well.
 
 ## Administrator sale corrections and item prices
 
-Administrators can **Edit** or **Delete** an existing sale in the Sales log.
+Administrators can **Edit** or **Delete** an existing sale in its transaction pop-up.
 Editing keeps the original branch and Product Specialist attribution. Active
 administrators can correct sales across their dealer's branches, including older
 sales; they still cannot record new PS sales. Other roles retain their existing
@@ -75,11 +75,22 @@ editing scope. Customer, price, quantity, serial, address, payment, fulfillment
 and Delivery Guarranty corrections use the existing audited, atomic save flow.
 Inventory reconciliation and serial-availability checks remain in force.
 
-Each product occupies one aligned detail row containing its description and
-quantity, matching serial numbers, unit selling price and line total. The invoice
-total remains separate. Non-serialized products show a dash; multiple-unit lines
-keep their serials together. Repeated historical barcode lines consume their
-serials in line order rather than repeating the entire serial list.
+The Sales log is a compact summary: Transaction/Invoice, Customer, Sale date,
+Product Specialist, Branch and Total. Click a row (or focus its invoice button
+and press Enter/Space) to open the full transaction. Product/address/serial
+search and detailed sales exports still work even though those details are
+hidden from the summary. All roles can inspect sales already visible within
+their authorized scope; this does not grant access to additional transactions.
+
+The pop-up shows customer/address, payment, fulfillment, PS/branch, recorded
+date, products, barcodes, recorded SRPs and the overall quantity/transaction
+total. Product, Serial number, Qty and Unit price are shared column headers;
+there is no repeated price label or line-total column. Quantity remains visible
+because a multi-unit line's amount is unit price times quantity. Non-serialized
+products show a dash; repeated barcode lines consume serials in line order.
+Edit/Delete move into the pop-up and keep their existing permissions. DG fees
+remain separate from sales and read-only monitoring remains BM-and-above only.
+Shell v101 refreshes the compact summary and pop-up.
 
 Apply `supabase/migrations/20261127000000_admin_sale_edit.sql` before deploying
 shell v99. It changes only function permissions/authorization logic, not existing

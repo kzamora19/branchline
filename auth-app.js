@@ -2431,7 +2431,6 @@
 
   function renderSalesPage(dailyTable = false) {
     const isPs = currentProfile.role === "ps";
-    const canEditSales = isPs || ["manager", "admin"].includes(currentProfile.role);
     return mountPage(
       pageHeading("Sales", isPs ? "Your sales for branches you are assigned to." : "Sales visible to your role and assigned branches."),
       "",
@@ -2464,7 +2463,6 @@
           .sort((a, b) => String(b.sale.sold_on).localeCompare(String(a.sale.sold_on)) || String(b.sale.created_at).localeCompare(String(a.sale.created_at)));
         const total = sales.filter(row => !row.isTest).reduce((sum, row) => sum + row.total, 0);
         const testCount = sales.filter(row => row.isTest).length;
-        const isAdmin = currentProfile.role === "admin";
         salesLogExport = new Set(sales.map(row => row.sale.id));
         const logFilters = `<label class="field log-filter"><span>From (sales log)</span><input type="date" data-filter="logFrom" value="${escapeHTML(ui.logFrom)}"></label><label class="field log-filter"><span>To (sales log)</span><input type="date" data-filter="logTo" value="${escapeHTML(ui.logTo)}"></label>${logRange ? '<button class="button button-outline" type="button" data-log-clear>Clear dates</button>' : ""}`;
         const tools = `<div class="table-tools log-tools">${logFilters}<label class="field log-filter log-search"><span>Search</span><input type="search" data-filter="search" placeholder="Invoice, customer, product, staff" value="${escapeHTML(ui.search)}" autocomplete="off"></label>${exportButton('data-export="sales"', "Download sales")}</div>`;
@@ -2521,11 +2519,11 @@
         const dailyBranchNote = dailyIds !== ids ? `${branchName([...dailyIds][0])} · ` : "";
         const dailySummary = panel("Daily sales summary", `${isPs ? "Your account's sales only · " : "Database sales; October 2026 uses supplied summary totals. Summary transaction counts where available · "}${dailyBranchNote}${monthLabel(dsPrefix)} · ${formatMoney(monthTotal.total)} · ${monthTotal.count} transaction${monthTotal.count === 1 ? "" : "s"}`,
           dailyContent, dailyControls);
-        return `${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} ·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a column heading to sort.`, totalsCards + tableBlock(
+        return `${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} ·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a transaction to view details; click a column heading to sort.`, totalsCards + tableBlock(
             "sales",
-                      ["Invoice", "Customer", "Products / serial numbers / prices", "Qty", "Payment", "Delivery / Pick up", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(canEditSales || isAdmin ? [""] : [])],
+            ["Transaction / Invoice", "Customer", "Sale date", "Product Specialist", "Branch", "Total"],
             sales,
-                      row => `<tr${row.isTest ? ' class="test-row"' : ""}><td><strong>${escapeHTML(row.sale.invoice_number)}</strong>${row.isTest ? ' <span class="test-badge">TEST – not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}${row.sale.city || row.sale.barangay ? `<br><small>${escapeHTML([row.sale.barangay, row.sale.city].filter(Boolean).join(", "))}</small>` : ""}</td><td>${saleProductsHTML(row.sale.id, row.lines)}</td><td>${row.qty}</td><td>${escapeHTML(row.sale.payment_mode || "—")}</td><td>${row.sale.fulfillment_method === "delivery" ? "Delivery" : row.sale.fulfillment_method === "pickup" ? "Pick up" : "Not specified"}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td data-sort="${escapeHTML(row.sale.created_at)}">${escapeHTML(new Date(row.sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</td><td><strong>${formatMoney(row.total)}</strong></td>${canEditSales || isAdmin ? `<td><div class="sale-log-actions">${canEditSales ? `<button class="button button-outline button-small" type="button" data-edit-sale="${escapeHTML(row.sale.id)}">Edit</button>` : ""}${isAdmin ? `<button class="button button-outline button-small button-danger" type="button" data-delete-sale="${escapeHTML(row.sale.id)}">Delete</button>` : ""}</div></td>` : ""}</tr>`,
+            saleSummaryRowHTML,
             "No sales match these filters.",
           ), tools)}${deliveryMonitoringPanel(sales.filter(row => !row.isTest).map(row => row.sale))}${dailySummary}${isPs ? brandLogPanel() : ""}`;
       },
@@ -2567,6 +2565,10 @@
         <p><strong>Total amount: ${formatMoney(group.amount)}</strong></p>` });
   }
 
+  function saleSummaryRowHTML(row) {
+    return `<tr class="sale-summary-row${row.isTest ? " test-row" : ""}" data-sale-details="${escapeHTML(row.sale.id)}"><td><button class="text-link" type="button" data-sale-details="${escapeHTML(row.sale.id)}" aria-label="View transaction ${escapeHTML(row.sale.invoice_number)}">${escapeHTML(row.sale.invoice_number)}</button>${row.isTest ? ' <span class="test-badge">TEST – not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td><strong>${formatMoney(row.total)}</strong></td></tr>`;
+  }
+
   // One product line: brand · category · sub-category, then the description and quantity.
   function productLineHTML(line) {
     const meta = [line.brand, line.category, line.sub_category].filter(Boolean).map(escapeHTML).join(" · ");
@@ -2574,19 +2576,39 @@
   }
 
   function saleProductsHTML(saleId, lines) {
-    if (!lines.length) return "—";
     const offsets = new Map();
-    return `<div class="sale-product-list">${lines.map(line => {
+    return `<div class="connected-table-wrap sale-detail-products"><table class="connected-table"><thead><tr><th>Product</th><th>Serial number</th><th>Qty</th><th>Unit price</th></tr></thead><tbody>${lines.length ? lines.map(line => {
       const start = offsets.get(line.barcode) || 0;
       const quantity = Number(line.quantity);
       const serials = serialsFor(saleId, line.barcode).slice(start, start + quantity);
       offsets.set(line.barcode, start + quantity);
-      return `<div class="sale-product-detail">
-        <div>${productLineHTML(line)}</div>
-        <div class="sale-product-serials"><small>Serial numbers</small>${serials.length ? serials.map(serial => `<div>${escapeHTML(serial)}</div>`).join("") : "<span>—</span>"}</div>
-        <div class="sale-product-price"><small>Unit price</small><span>${formatMoney(Number(line.selling_price))}</span><small>Line total</small><strong>${formatMoney(Number(line.selling_price) * quantity)}</strong></div>
-      </div>`;
-    }).join("")}</div>`;
+      const meta = [line.brand, line.category, line.sub_category].filter(Boolean).map(escapeHTML).join(" · ");
+      return `<tr><td><div class="product-line"><span class="pl-meta">${meta}</span>${escapeHTML(line.model_description)}<small class="sale-detail-barcode">Barcode: ${escapeHTML(line.barcode)}</small>${line.srp == null ? "" : `<small class="sale-detail-barcode">SRP: ${formatMoney(Number(line.srp))}</small>`}</div></td><td class="sale-product-serials">${serials.length ? serials.map(serial => `<div>${escapeHTML(serial)}</div>`).join("") : "—"}</td><td>${quantity}</td><td>${formatMoney(Number(line.selling_price))}</td></tr>`;
+    }).join("") : '<tr><td colspan="4">No product details recorded.</td></tr>'}</tbody></table></div>`;
+  }
+
+  function openSaleDetails(saleId) {
+    const ids = scopeBranchIds();
+    const sale = [...visibleSales(), ...liveData.testSales.filter(item => currentProfile.role !== "ps" || item.ps_id === currentProfile.id)]
+      .find(item => item.id === saleId && ids.has(item.branch_id));
+    if (!sale) throw new Error("This transaction is no longer available in your sales scope. Refresh the sales view.");
+    const lines = linesForSale(sale.id);
+    const canEdit = ["ps", "manager", "admin"].includes(currentProfile.role);
+    const fee = ["manager", "district_manager", "admin"].includes(currentProfile.role)
+      ? liveData.deliveryGuaranties.find(item => item.sale_id === sale.id)?.amount : null;
+    const detail = (label, value) => `<div><dt>${label}</dt><dd>${escapeHTML(value || "—")}</dd></div>`;
+    const person = liveData.profiles.find(profile => profile.id === sale.ps_id)?.full_name || titleCase(sale.ps_name || "") || "Staff member";
+    openModal({ title: `Transaction · ${sale.invoice_number}`, readOnly: true, wide: true,
+      intro: isTestSale(sale, liveData.testPsIds) ? "TEST transaction — not counted in sales totals." : "",
+      body: `<dl class="sale-detail-info">${detail("Customer", sale.customer_name)}${detail("Address", addressOf(sale))}${detail("Sale date", sale.sold_on)}${detail("Product Specialist", person)}${detail("Branch", branchName(sale.branch_id))}${detail("Payment", sale.payment_mode)}${detail("Delivery / Pick up", fulfillmentLabel(sale))}${detail("Recorded", new Date(sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</dl>
+        ${saleProductsHTML(sale.id, lines)}
+        <div class="sale-detail-total"><span>Total quantity: ${lines.reduce((sum, line) => sum + Number(line.quantity), 0)}</span><strong>Transaction total: ${formatMoney(saleTotal(sale))}</strong></div>
+        ${fee == null ? "" : `<p>Delivery Guarranty: ${formatMoney(Number(fee))} · Not included in sales total.</p>`}
+        <div class="sale-log-actions">${canEdit ? `<button class="button button-outline" type="button" data-edit-sale="${escapeHTML(sale.id)}">Edit</button>` : ""}${currentProfile.role === "admin" ? `<button class="button button-outline button-danger" type="button" data-delete-sale="${escapeHTML(sale.id)}">Delete</button>` : ""}</div>`,
+      onReady: form => form.addEventListener("click", event => {
+        if (canEdit && event.target.closest("[data-edit-sale]")) openSaleModal(sale);
+        else if (currentProfile.role === "admin" && event.target.closest("[data-delete-sale]")) openDeleteSaleModal(sale);
+      }) });
   }
 
   function brandProgressChart(scope) {
@@ -6461,6 +6483,11 @@
       try { exportTable(exportKey); } catch (error) { exportError(error); }
     }
     if (open === "sale") openSaleModal();
+    const saleDetails = event.target.closest("[data-sale-details]");
+    if (saleDetails) {
+      try { openSaleDetails(saleDetails.dataset.saleDetails); }
+      catch (error) { alert(error.message); }
+    }
     const editProduct = event.target.closest("[data-edit-product]");
     if (editProduct) {
       const product = liveData.products.find(item => item.barcode === editProduct.dataset.editProduct);

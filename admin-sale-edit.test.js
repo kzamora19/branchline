@@ -7,7 +7,7 @@ const PGlite = process.env.BRANCHLINE_PGLITE ? require(process.env.BRANCHLINE_PG
 const source = fs.readFileSync(path.join(__dirname, "auth-app.js"), "utf8");
 const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
 
-test("sale products pair serials by barcode, align each product, and display its own unit and extended prices", () => {
+test("sale products pair serials by barcode with shared headers and unit prices only", () => {
   const c = vm.createContext({
     escapeHTML: value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;"),
     formatMoney: value => `PHP ${value.toFixed(2)}`,
@@ -23,20 +23,65 @@ test("sale products pair serials by barcode, align each product, and display its
     { barcode: "A", brand: "BRAND", model_description: "Repeated historical barcode A", quantity: 1, selling_price: 200 },
     { barcode: "C", brand: "BRAND", model_description: "Non-serialized", quantity: 2, selling_price: 12.5 },
   ]);
-  const rows = html.split('<div class="sale-product-detail">').slice(1);
+  const rows = html.split("<tbody>")[1].split("<tr>").slice(1);
   assert.equal(rows.length, 4);
-  assert.match(rows[0], /Short B[\s\S]*SERIAL-B[\s\S]*Unit price[\s\S]*PHP 50.00/);
+  assert.match(html, /<th>Serial number<\/th><th>Qty<\/th><th>Unit price<\/th>/);
+  assert.doesNotMatch(html, /Line total/);
+  assert.match(rows[0], /Short B[\s\S]*SERIAL-B[\s\S]*PHP 50.00/);
   assert.doesNotMatch(rows[0], /SERIAL-A/);
   assert.match(rows[1], /long A description[\s\S]*SERIAL-A1[\s\S]*PHP 100.00/);
   assert.doesNotMatch(rows[1], /SERIAL-A2/);
   assert.match(rows[2], /Repeated historical barcode A[\s\S]*&lt;SERIAL-A2>/);
-  assert.match(rows[3], /Non-serialized[\s\S]*<span>—<\/span>[\s\S]*PHP 12.50[\s\S]*Line total[\s\S]*PHP 25.00/);
-  assert.equal(c.saleProductsHTML("sale", []), "—");
+  assert.match(rows[3], /Non-serialized[\s\S]*—<\/td><td>2<\/td><td>PHP 12.50/);
+  assert.match(c.saleProductsHTML("sale", []), /No product details recorded/);
+});
+
+test("transaction summary stays compact and accessible; details respect visible sales, branch scope and role actions", () => {
+  const sale = { id: "sale", branch_id: "b", ps_id: "ps", invoice_number: '<INV "1">', customer_name: "<Customer>",
+    sold_on: "2026-11-03", created_at: "2026-11-03T03:00:00Z", city: "City", barangay: "Barangay", payment_mode: "Cash", fulfillment_method: "delivery" };
+  const lines = [{ barcode: "A", model_description: "Multi-unit product", brand: "BRAND", quantity: 2, selling_price: 25, srp: 40 }];
+  let modal;
+  const c = vm.createContext({
+    escapeHTML: value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;"),
+    formatMoney: value => `PHP ${value.toFixed(2)}`, serialsFor: () => ["S1", "S2"],
+    currentProfile: { id: "ps", role: "ps" }, scopeBranchIds: () => new Set(["b"]),
+    visibleSales: () => [sale], linesForSale: () => lines,
+    liveData: { testSales: [{ ...sale, id: "other-test", ps_id: "someone-else" }], profiles: [{ id: "ps", full_name: "Original PS" }],
+      deliveryGuaranties: [{ sale_id: "sale", amount: 10 }], testPsIds: new Set() },
+    isTestSale: () => false, branchName: () => "Original Branch", titleCase: value => value,
+    addressOf: value => [value.barangay, value.city].join(", "), fulfillmentLabel: () => "Delivery",
+    saleTotal: () => 50, openModal: options => { modal = options; },
+  });
+  vm.runInContext(section("  function saleSummaryRowHTML(", "  function brandProgressChart("), c);
+  const summary = c.saleSummaryRowHTML({ sale, isTest: true, person: "Original PS", branch: "Original Branch", total: 50 });
+  assert.equal((summary.match(/<td>/g) || []).length, 6);
+  assert.match(summary, /data-sale-details="sale"/);
+  assert.match(summary, /<button[^>]+aria-label="View transaction &lt;INV &quot;1&quot;>"/);
+  assert.match(summary, /TEST – not counted/);
+  assert.doesNotMatch(summary, /Multi-unit product|S1|data-edit-sale|data-delete-sale|Serial number|Unit price/);
+  for (const role of ["ps", "manager", "district_manager", "admin", "inventory_controller", "stock_custodian"]) {
+    c.currentProfile.role = role;
+    c.openSaleDetails("sale");
+    assert.equal(modal.readOnly, true);
+    assert.match(modal.body, /&lt;Customer>/);
+    assert.match(modal.body, /Original PS|Original Branch/);
+    assert.match(modal.body, /<th>Serial number<\/th><th>Qty<\/th><th>Unit price<\/th>/);
+    assert.match(modal.body, /S1[\s\S]*S2[\s\S]*<td>2<\/td><td>PHP 25.00/);
+    assert.match(modal.body, /Transaction total: PHP 50.00/);
+    assert.doesNotMatch(modal.body, /Line total/);
+    assert.equal(modal.body.includes("data-edit-sale"), ["ps", "manager", "admin"].includes(role));
+    assert.equal(modal.body.includes("data-delete-sale"), role === "admin");
+    assert.equal(modal.body.includes("Delivery Guarranty: PHP 10.00"), ["manager", "district_manager", "admin"].includes(role));
+  }
+  c.currentProfile.role = "ps";
+  assert.throws(() => c.openSaleDetails("other-test"), /no longer available/);
+  c.scopeBranchIds = () => new Set(["foreign"]);
+  assert.throws(() => c.openSaleDetails("sale"), /no longer available/);
 });
 
 test("sales log offers admin Edit and Delete without granting editing to district or inventory roles", () => {
-  assert.match(source, /const canEditSales = isPs \|\| \["manager", "admin"\]\.includes\(currentProfile\.role\)/);
-  assert.match(source, /sale-log-actions[\s\S]*data-edit-sale=[\s\S]*isAdmin \?[\s\S]*data-delete-sale=/);
+  assert.match(source, /const canEdit = \["ps", "manager", "admin"\]\.includes\(currentProfile\.role\)/);
+  assert.match(source, /sale-log-actions[\s\S]*data-edit-sale=[\s\S]*currentProfile.role === "admin" \?[\s\S]*data-delete-sale=/);
   assert.match(source, /if \(editSale && \["ps", "manager", "admin"\]\.includes\(currentProfile\.role\)\)/);
 });
 
