@@ -8,6 +8,26 @@ const {webcrypto}=require("node:crypto");
 const Demo=require("./demo-data.js");
 const PGlite=process.env.BRANCHLINE_PGLITE?require(process.env.BRANCHLINE_PGLITE).PGlite:null;
 
+test("sidebar PS name includes its exact sales code and preserves uncoded and other-role labels",()=>{
+ const source=fs.readFileSync(path.join(__dirname,"auth-app.js"),"utf8");
+ const context=vm.createContext({currentProfile:null,currentSession:null});
+ vm.runInContext(source.slice(source.indexOf("  function connectedUserLabel()"),source.indexOf("  function resetUi()")),context);
+ const name="Sample Specialist";
+ for(const [role,code,expected] of [
+  ["ps","000Ab-7",`${name} - 000Ab-7`],
+  ["ps"," 00123 ",`${name} - 00123`],
+  ["ps",null,name],["ps","   ",name],["manager","00123",name],
+ ]) {
+  context.currentProfile={full_name:name,role,salesperson_code:code};
+  assert.equal(context.connectedUserLabel(),expected);
+ }
+ context.currentProfile=null;
+ assert.equal(context.connectedUserLabel(),"Signed-in user");
+ context.currentSession={user:{email:"fixture@example.invalid"}};
+ assert.equal(context.connectedUserLabel(),"fixture@example.invalid");
+ assert.match(source, /querySelector\("#connected-user-name"\)\.textContent = connectedUserLabel\(\)/);
+});
+
 test("PS code edit and both history import APIs use exact codes, preserve zeroes, and leave old invoices alone",{skip:!PGlite},async()=>{
  const db=new PGlite(),id=n=>`00000000-0000-0000-0000-${String(n).padStart(12,"0")}`;
  const dealer=id(1),district=id(2),branch=id(3),other=id(4),ps=id(5),second=id(6),admin=id(7),foreign=id(8),foreignAdmin=id(9);

@@ -159,6 +159,9 @@ Codes are not guessed or automatically populated.
 
 ### PS account Salesperson Codes
 
+The signed-in PS sidebar shows `Name - Sales code`, preserving leading zeroes.
+Accounts without a configured code show only the name; other roles are unchanged.
+
 New PS accounts require a **Salesperson Code**, which automatically becomes their
 username in **Add user** and **Add multiple users**. A separate username cannot
 override a supplied PS code. Check **Test account** to allow a code-free PS account

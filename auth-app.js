@@ -178,7 +178,9 @@
   }
 
   function connectedUserLabel() {
-    return currentProfile?.full_name || currentSession?.user?.email || "Signed-in user";
+    const name = currentProfile?.full_name || currentSession?.user?.email || "Signed-in user";
+    const code = currentProfile?.role === "ps" ? String(currentProfile.salesperson_code || "").trim() : "";
+    return code ? `${name} - ${code}` : name;
   }
 
   function resetUi() {
