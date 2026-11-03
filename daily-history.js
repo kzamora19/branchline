@@ -66,7 +66,11 @@
   const monthKey = (branch, date) => `${branch}|${String(date).slice(0, 7)}`;
 
   function historyFacts(history, liveFacts, ids) {
-    return history.filter(row => ids.has(row.branch_id) && SUMMARY_SALES_MONTHS.includes(String(row.day).slice(0, 7)))
+    const databaseMonths = new Set(liveFacts.filter(row => ids.has(row.branchId) && !row.summary)
+      .map(row => monthKey(row.branchId, row.date)));
+    return history.filter(row => ids.has(row.branch_id) && (
+      SUMMARY_SALES_MONTHS.includes(String(row.day).slice(0, 7)) ||
+      (String(row.day).startsWith("2025-") && !databaseMonths.has(monthKey(row.branch_id, row.day)))))
       .map(row => {
         const date = String(row.day).slice(0, 10);
         return {

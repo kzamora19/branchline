@@ -49,12 +49,14 @@ Existing import validation, confirmation and server permissions are unchanged.
 ## Sales Database versus Sales Summary
 
 The two imports describe the same sales and are never added together. Sales
-amounts use the Sales Database for this year and last year, even when individual
-days have no invoices. The explicit temporary exception is **October 2026**:
+amounts use the Sales Database, even when individual days have no invoices.
+**2025 fallback:** branch/months with no database sales use the supplied
+Sales Summary total. Any database sales in that branch/month (even zero-value
+invoices) keep the entire month database-only. The temporary exception is **October 2026**:
 for each branch with an October monitoring summary, the full supplied summary
 replaces that branch's entire October database amount (including partial
 database imports). A branch without an October summary retains its database
-sales. Summary amounts from other months never fill gaps.
+sales. Other 2026 summary amounts never fill gaps.
 
 Transaction counts use the Sales Summary for each branch/month that has summary
 rows, including zero counts; invoice counts are used only for branch/months

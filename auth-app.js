@@ -1599,7 +1599,7 @@
     clearWorkspace();
   }
 
-  // Monitoring totals replace October 2026 branch sales, never supplement database days.
+  // Summary totals cover empty 2025 branch/months and replace incomplete October 2026 sales.
   function withHistoryFacts(facts, ids, isPs) {
     const history = isPs ? [] : liveData.dailyHistory || [];
     return history.length ? window.BranchlineDailyHistory.reconcileSalesFacts(history, facts, ids) : facts;
@@ -1991,7 +1991,7 @@
       : '<div class="empty-state">No data for this year yet.</div>';
     const yearSelect = `<label class="field an-inline"><span class="visually-hidden">Year</span><select data-filter="yrYear">${yearList.map(value =>
       `<option value="${value}" ${value === year ? "selected" : ""}>${value}</option>`).join("")}</select></label>`;
-    const trend = panel(`Yearly comparison: ${year} vs ${year - 1}`, "Sales: Sales Database, except October 2026 uses the supplied Sales Summary total instead of database sales. Transactions: Sales Summary per branch/month where available, otherwise recorded invoices. Walk-ins show only where counts exist.", trendTable, `${yearBranchControl}${yearSelect}${manualExport("traffic-monthly", `Yearly comparison ${year}`, trendHead, trendRows, trendRowHtml)}`);
+    const trend = panel(`Yearly comparison: ${year} vs ${year - 1}`, "Sales: Sales Database; 2025 branch/months with no database sales use Sales Summary totals. October 2026 uses the supplied Sales Summary instead of incomplete database sales. Sources are never added together. Transactions: Sales Summary per branch/month where available, otherwise recorded invoices. Walk-ins show only where counts exist.", trendTable, `${yearBranchControl}${yearSelect}${manualExport("traffic-monthly", `Yearly comparison ${year}`, trendHead, trendRows, trendRowHtml)}`);
     return { compare, trend, periods };
   }
 

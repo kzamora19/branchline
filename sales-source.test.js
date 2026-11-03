@@ -42,16 +42,16 @@ function context(role = "admin", ids = new Set(["one"])) {
   return c;
 }
 
-test("database sales win for both years; full October replaces partial imports by branch/month, never by day", () => {
+test("database sales win; empty 2025 branch/months use summary, while October 2026 replaces partial imports", () => {
   const ids = new Set(["one", "two"]);
   const input = JSON.stringify({ history, raw });
   const facts = H.reconcileSalesFacts(history, raw, ids);
   assert.equal(sum(facts.filter(f => f.date.startsWith("2026"))), 1610);
-  assert.equal(sum(facts.filter(f => f.date.startsWith("2025"))), 230);
+  assert.equal(sum(facts.filter(f => f.date.startsWith("2025"))), 5230);
   assert.equal(sum(facts.filter(f => f.branchId === "one" && f.date.startsWith("2026-10"))), 950);
   assert.equal(sum(facts.filter(f => f.branchId === "two" && f.date.startsWith("2026-10"))), 70);
   assert.equal(facts.some(f => f.saleId === "oct-gap"), false, "Missing summary days must not fill with partial database sales");
-  assert.equal(facts.some(f => f.date.startsWith("2025-06")), false, "Summary-only other months do not become sales");
+  assert.equal(sum(facts.filter(f => f.date.startsWith("2025-06"))), 5000, "Empty prior-year months use summary sales");
   assert.deepEqual(H.SUMMARY_SALES_MONTHS, ["2026-10"]);
   assert.equal(JSON.stringify({ history, raw }), input, "No imported records are mutated");
 });
@@ -75,17 +75,17 @@ test("yearly comparison and exported months, YTD, average sale and conversion us
   const current = c.trafficStats(A, ctx, "2026-01-01", "2026-11-03");
   const prior = c.trafficStats(A, ctx, "2025-01-01", "2025-11-03");
   assert.equal(current.sales, 1490); assert.equal(current.transactions, 17);
-  assert.equal(prior.sales, 230); assert.equal(prior.transactions, 12);
+  assert.equal(prior.sales, 5230); assert.equal(prior.transactions, 12);
   assert.equal(current.avgTicket, 1490 / 17);
   assert.equal(current.visitors, 80); assert.equal(current.conversion, 16 / 80);
   const output = c.trafficPanels(A, ctx, "2026-11", "2026-11-03");
   const months = c.exports.get("traffic-monthly");
   assert.equal(months.find(r => r.month === "2026-01").stat.sales, 200);
   assert.equal(months.find(r => r.month === "2026-01").ly.sales, 80);
-  assert.equal(months.find(r => r.month === "2026-06").ly.sales, 0);
+  assert.equal(months.find(r => r.month === "2026-06").ly.sales, 5000);
   assert.equal(months.find(r => r.month === "2026-10").stat.sales, 950);
   assert.equal(months.find(r => r.month === "2026-10").ly.sales, 150);
-  assert.match(output.trend, /Year to date<\/strong><\/td><td>P1490<\/td><td>P230<\/td>/);
+  assert.match(output.trend, /Year to date<\/strong><\/td><td>P1490<\/td><td>P5230<\/td>/);
   assert.match(output.trend, /Sales Database/);
 });
 
@@ -144,10 +144,10 @@ test("all-time totals and exported month rows keep sales separate from monitorin
   Object.assign(c.liveData, { sales: [], targets: [], profiles: [] });
   vm.runInContext(section("  function allTimeAnalyticsPanels(", "  function renderAnalyticsPage("), c);
   const html = c.allTimeAnalyticsPanels(new Set(["one"]), raw.filter(f => f.branchId === "one"), false, "2026-11-03");
-  assert.match(html, /All-time sales<\/span><strong>P1720<\/strong>/);
+  assert.match(html, /All-time sales<\/span><strong>P6720<\/strong>/);
   assert.match(html, /Transactions<\/span><strong>29<\/strong>/);
   const months = tables.get("an-all-month");
   assert.deepEqual(Array.from(months.find(r => r[0] === "2026-01")).slice(0, 3), ["2026-01", "P200", 5]);
   assert.deepEqual(Array.from(months.find(r => r[0] === "2026-10")).slice(0, 3), ["2026-10", "P950", 2]);
-  assert.deepEqual(Array.from(months.find(r => r[0] === "2025-06")).slice(0, 3), ["2025-06", "P0", 2]);
+  assert.deepEqual(Array.from(months.find(r => r[0] === "2025-06")).slice(0, 3), ["2025-06", "P5000", 2]);
 });
