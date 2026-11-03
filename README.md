@@ -122,6 +122,8 @@ The Sales menu shows DG monitoring only to Branch Managers, District Managers an
 
 PS **+ Record sale** stays at the bottom-right while scrolling. Serialized lines show current available quantity separately from retained sales-only choices. Selecting unavailable stock opens an availability modal and prevents saving unavailable quantities; zero-current-stock items can still use eligible retained serials for late sales. Uninitialized inventory is explicitly unknown, not assumed zero.
 
+Cache v93 uses a compact availability warning, omits the DG explanation from the entry form, and filters known unavailable products out of suggestions. Exact barcode entry and automatically linked outdoor units still validate stock. Saving an unavailable line always reopens the warning, even after dismissing it, before other form validation or any save request. Increasing quantity also validates linked outdoor units. Eligible retained serials and unchanged historical-sale edits remain supported; no database migration is needed for v93.
+
 Focused validation: `node --test sales-delivery.test.js inventory-source-branch.test.js`. Real PostgreSQL integration also uses `sales-delivery-db.test.js` with `BRANCHLINE_PGLITE` and `BRANCHLINE_MIGRATIONS` pointing to the existing PGlite installation and complete foundational migration chain.
 
 ## Required sale address and retained serial choices

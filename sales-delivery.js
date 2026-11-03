@@ -11,7 +11,7 @@
     if (!stock) return { blocked: false, warning: "Inventory is not initialized. Availability cannot be verified." };
     const enough = stock.serialized ? eligibleUnits.length >= quantity : Number(stock.quantity) + previousQuantity >= quantity;
     if (!enough) return { blocked: true, warning: "This item is not available in the requested quantity. Choose another item or reduce the quantity." };
-    return { blocked: false, warning: Number(stock.quantity) === 0
+    return { blocked: false, warning: stock.serialized && Number(stock.quantity) === 0
       ? "This item is not available in current inventory. A previously imported unused serial can still be recorded for a late sale." : "" };
   }
   function monitoring(sales, fees, profiles) {

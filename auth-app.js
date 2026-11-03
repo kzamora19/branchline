@@ -3098,13 +3098,13 @@
   let saleProductsCache = { source: null, list: [] };
 
   // Suggest only the best few matches instead of putting thousands of options in the page.
-  function productSuggestions(text) {
+  function productSuggestions(text, available = () => true) {
     const words = String(text || "").toLowerCase().split(/\s+/).filter(Boolean);
     if (!words.length) return [];
     const out = [];
     for (const item of saleProducts()) {
       const haystack = `${item.brand} ${item.model_description} ${item.barcode}`.toLowerCase();
-      if (words.every(word => haystack.includes(word))) {
+      if (words.every(word => haystack.includes(word)) && available(item)) {
         out.push(item);
         if (out.length >= 30) break;
       }
@@ -3609,7 +3609,6 @@
         <div class="delivery-fee-fields" ${sale?.fulfillment_method === "delivery" ? "" : "hidden"}>
           <label class="check-row"><input name="dg" type="checkbox" ${deliveryFee !== null ? "checked" : ""}> DELIVERY GUARRANTY (DG)</label>
           ${fieldHTML("Delivery Guarranty amount (PHP)", "dg_amount", `<input name="dg_amount" type="number" inputmode="decimal" min="0.01" max="9999999999.99" step="0.01" value="${escapeHTML(deliveryFee ?? "")}" ${deliveryFee === null ? "disabled" : "required"}>`)}
-          <small>Separate fee only. Not added to product sales, targets or PS sales totals. One invoice counts as one DG sale.</small>
         </div>
         <div class="dlg-grid">
           ${fieldHTML("City / municipality", "city", `<input name="city" list="sale-cities" autocomplete="off" required placeholder="e.g. Santiago City" value="${escapeHTML(sale?.city || "")}">`)}
@@ -3696,19 +3695,19 @@
         const stockState = (product, quantity) => window.BranchlineDelivery.availability(
           inventoryStockFor(saleBranch, product.barcode), inventorySaleUnitsFor(saleBranch, product.barcode, sale?.id), quantity,
           lines.filter(line => line.barcode === product.barcode).reduce((sum, line) => sum + Number(line.quantity || 0), 0));
-        const notifyAvailability = row => {
+        const notifyAvailability = (row, force = false) => {
           const product = resolve(row.querySelector('[name="product"]').value);
           if (!product) { delete row.dataset.stockNotice; return; }
           const quantity = Number(row.querySelector('[name="quantity"]').value);
           if (!Number.isInteger(quantity) || quantity < 1) return;
           const state = stockState(product, quantity);
           const notice = `${product.barcode}:${quantity}:${state.warning}`;
-          if (row.dataset.stockNotice === notice) return;
+          if (!force && row.dataset.stockNotice === notice) return;
           row.dataset.stockNotice = notice;
           if (!state.warning) return;
           const pop = document.createElement("div");
-          pop.className = "serial-pop";
-          pop.innerHTML = `<div class="serial-card" role="dialog" aria-modal="true" aria-label="Item availability" tabindex="-1"><h3>${state.blocked ? "Item unavailable" : "Check item availability"}</h3><p>${escapeHTML(product.model_description)}</p><p>${escapeHTML(state.warning)}</p><button class="button button-primary" type="button" data-stock-dismiss>OK</button></div>`;
+          pop.className = "serial-pop stock-notice";
+          pop.innerHTML = `<div class="serial-card stock-notice-card" role="dialog" aria-modal="true" aria-label="Item availability" aria-describedby="stock-notice-message" tabindex="-1"><h3>${state.blocked ? "Item unavailable" : "Check item availability"}</h3><p class="stock-notice-product">${escapeHTML(product.model_description)}</p><p id="stock-notice-message">${escapeHTML(state.warning)}</p><div class="stock-notice-actions"><button class="button button-primary" type="button" data-stock-dismiss>OK</button></div></div>`;
           const dismiss = () => { pop.remove(); row.querySelector('[name="product"]').focus(); };
           pop.addEventListener("click", event => { if (event.target.closest("[data-stock-dismiss]")) dismiss(); });
           pop.addEventListener("keydown", event => {
@@ -3719,6 +3718,17 @@
           form.closest(".dlg-backdrop").appendChild(pop);
           pop.querySelector("button").focus();
         };
+        form.addEventListener("submit", event => {
+          const blocked = [...form.querySelectorAll(".sale-row")].find(row => {
+            const product = resolve(row.querySelector('[name="product"]').value);
+            const quantity = Number(row.querySelector('[name="quantity"]').value);
+            return product && Number.isInteger(quantity) && quantity > 0 && stockState(product, quantity).blocked;
+          });
+          if (!blocked) return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          notifyAvailability(blocked, true);
+        }, { capture: true });
         let places = [];
         let placeCode = "";
         const cityBox = form.elements.city;
@@ -3829,7 +3839,7 @@
             return;
           }
           if (event.target.name === "product") {
-            form.querySelector("#sale-products").innerHTML = productSuggestions(event.target.value)
+            form.querySelector("#sale-products").innerHTML = productSuggestions(event.target.value, item => !stockState(item, 1).blocked)
               .map(item => `<option value="${escapeHTML(productLabel(item))}"></option>`).join("");
             syncOutdoor(event.target.closest(".sale-row"));
             const row = event.target.closest(".sale-row");
@@ -3840,6 +3850,8 @@
             const row = event.target.closest(".sale-row");
             const linked = row.dataset.outdoorRow ? form.querySelector(`[data-outdoor-of="${row.dataset.outdoorRow}"] [name="quantity"]`) : null;
             if (linked) linked.value = event.target.value;
+            notifyAvailability(row);
+            if (linked) notifyAvailability(linked.closest(".sale-row"));
           }
           recalc();
         });

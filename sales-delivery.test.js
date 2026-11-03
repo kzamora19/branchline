@@ -21,6 +21,7 @@ test("availability blocks unavailable quantities but permits retained serials an
   assert.match(D.availability({ quantity: 0, serialized: true }, [{ serial: "LATE" }], 1).warning, /late sale/);
   assert.equal(D.availability({ quantity: 1, serialized: false }, [], 2).blocked, true);
   assert.equal(D.availability({ quantity: 0, serialized: false }, [], 2, 2).blocked, false);
+  assert.equal(D.availability({ quantity: 0, serialized: false }, [], 2, 2).warning, "");
   assert.equal(D.availability({ quantity: 2, serialized: false }, [], 2).warning, "");
   assert.match(D.availability(null, [], 1).warning, /cannot be verified/);
 });
@@ -48,12 +49,27 @@ test("demo records, edits and removes DG independently and keeps fees scoped to 
   const branch = demo.profile.branch_id;
   demo.setRole("admin");
   await data(demo.client.rpc("import_inventory", { p_branch: branch, p_reported_at: new Date().toISOString(), p_files: "fictional",
-    p_items: [{ barcode: "990099", description: "TCL TEST UNIT", brand: "TCL", category: "TV", quantity: 3, serialized: false, serials: [] }] }));
+    p_items: [
+      { barcode: "990099", description: "TCL TEST UNIT", brand: "TCL", category: "TV", quantity: 3, serialized: false, serials: [] },
+      { barcode: "990100", description: "TCL TEST OUTDOOR", brand: "TCL", category: "TV", quantity: 0, serialized: false, serials: [] },
+    ] }));
   await data(demo.client.rpc("classify_inventory_product", { p_branch: branch, p_barcode: "00990099", p_brand: "TCL", p_category: "TV" }));
+  await data(demo.client.rpc("classify_inventory_product", { p_branch: branch, p_barcode: "00990100", p_brand: "TCL", p_category: "TV" }));
   demo.setRole("ps");
   const params = { p_customer_name: "Customer", p_invoice_number: "DG-TEST", p_sold_on: "2026-11-03", p_payment_mode: "Cash",
     p_city: "City", p_barangay: "Barangay", p_lines: [{ barcode: "00990099", quantity: 1, selling_price: 100, srp: 100 }],
     p_serials: [], p_fulfillment_method: "delivery", p_dg_amount: 200 };
+  const before = (await data(demo.client.from("sales"))).length;
+  for (const lines of [
+    [{ barcode: "00990100", quantity: 1, selling_price: 100 }],
+    [...params.p_lines, { barcode: "00990100", quantity: 1, selling_price: 0 }],
+    [{ ...params.p_lines[0], quantity: 4 }],
+  ]) {
+    const unavailable = await demo.client.rpc("save_sale_with_delivery", { ...params, p_lines: lines });
+    assert.match(unavailable.error.message, /Insufficient/);
+    assert.equal((await data(demo.client.from("sales"))).length, before);
+    assert.equal((await data(demo.client.from("inventory_stock"))).find(row => row.barcode === "00990099").quantity, 3);
+  }
   const id = await data(demo.client.rpc("save_sale_with_delivery", params));
   assert.equal((await data(demo.client.from("sale_delivery_guaranties"))).find(row => row.sale_id === id).amount, 200);
   assert.equal((await data(demo.client.from("sale_lines"))).filter(row => row.sale_id === id).reduce((sum, row) => sum + row.quantity * row.selling_price, 0), 100);
@@ -74,5 +90,9 @@ test("frontend exposes monitoring only to managers, and caches the shared module
   assert.match(source, /Available: \$\{stock.quantity\} · current inventory/);
   assert.match(source, /aria-label="Item availability"/);
   assert.match(source, /client.rpc\("save_sale_with_delivery"/);
+  assert.doesNotMatch(source, /Separate fee only\. Not added to product sales/);
+  assert.match(source, /productSuggestions\(event.target.value, item => !stockState\(item, 1\).blocked\)/);
+  assert.match(source, /event.stopImmediatePropagation\(\);\s*notifyAvailability\(blocked, true\)/);
+  assert.match(source, /stock-notice-card/);
   assert.match(fs.readFileSync(path.join(__dirname, "sw.js"), "utf8"), /"\.\/sales-delivery.js"/);
 });
