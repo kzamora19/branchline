@@ -2,9 +2,43 @@
 
 Branchline is a sales tracker for Product Specialists and branch teams.
 
+## Compact filters and staff actions
+
+Overview, Sales, Analytics and Targets use one collapsed **Filters** summary.
+Expand it to change district, branch, period/month and the current menu's options.
+Panel-specific search, date ranges, ranking and analysis controls are grouped
+inside it under their panel names; exports and other actions stay outside.
+The single branch selection applies across panels instead of separate overrides.
+Sales-log From/To dates override the log's period only, and are labelled in the
+summary; use **Clear dates** to return to the shared period.
+
+District, branch, month/period and supported panel selections are saved on this
+device separately for each dealer/account (demo and live are separate). Switching
+menus retains the shared scope; search remains menu-local. Preferences never
+grant access: saved district/branch IDs are checked against the accessible roster
+on load, and PS scope remains their assigned branch. Analytics retains its
+Monthly/All-time analysis choice rather than treating forecasts as YTD totals.
+
+Staff rows have an **Actions** dropdown with only permitted Update, Transfer,
+Disable/Restore and Delete operations. Existing confirmation dialogs and server
+authorization remain unchanged. Shell v97 includes these UI-only changes.
+
+## Settings
+
+The **Settings** menu collects Import Center (including the existing catalog,
+Sales History, Daily Monitoring and branch inventory import tools), alert messages
+and push schedules, device notification preferences, Change password and the
+Danger zone. Products, Inventory and People no longer duplicate those entry points.
+Imports remain available only to authorized stock managers; catalog, sales and
+daily imports, alert administration and the Danger zone remain administrator-only.
+Password and device settings apply to the signed-in account/device and are
+unavailable in the sample demo. Transfer-review notices appear in Settings;
+transaction warnings, confirmations and sign-in reminders still appear when needed.
+Existing import validation, confirmation and server permissions are unchanged.
+
 ## Unified multi-layout importer
 
-Open **Products > Import Center** or **Inventory > Import stock**. Upload raw Excel
+Open **Settings > Import Center**. Upload raw Excel
 or CSV reports together, confirm sheet layouts and metadata, map branches, then
 choose **Consolidate and review** before importing.
 

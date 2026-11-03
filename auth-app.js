@@ -28,14 +28,15 @@
     products: "Products",
     users: "People & access",
     inventory: "Inventory",
+    settings: "Settings",
   };
   const rolePages = {
-    ps: ["overview", "sales", "analytics", "inventory"],
-    manager: ["overview", "sales", "analytics", "targets", "products", "inventory"],
-    district_manager: ["overview", "sales", "analytics", "targets", "products", "inventory"],
-    admin: ["overview", "sales", "analytics", "targets", "products", "users", "inventory"],
-    inventory_controller: ["inventory"],
-    stock_custodian: ["inventory"],
+    ps: ["overview", "sales", "analytics", "inventory", "settings"],
+    manager: ["overview", "sales", "analytics", "targets", "products", "inventory", "settings"],
+    district_manager: ["overview", "sales", "analytics", "targets", "products", "inventory", "settings"],
+    admin: ["overview", "sales", "analytics", "targets", "products", "users", "inventory", "settings"],
+    inventory_controller: ["inventory", "settings"],
+    stock_custodian: ["inventory", "settings"],
   };
   const PAGE_SIZE = 10;
   const PERCENT_DECIMALS = 4;
@@ -53,6 +54,60 @@
   let resultsView = null;
   const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", rankBranch: "", brandBranch: "", bpMix: "", bpYear: "", dsMonth: "", dsYear: "", dsBranch: "", pages: {}, sort: {}, colf: {} };
   const productSelection = new Set();
+  const universalPages = new Set(["overview", "sales", "analytics", "targets"]);
+  const savedFilterKeys = ["district", "branch", "period", "month", "date", "anRange", "anBasis", "logFrom", "logTo", "rankBrand", "rankCategory", "rankSub", "anDim", "brandBasis", "dsMonth", "dsYear", "yrYear",
+    ...["pdMix", "pdTrend", "pdTop", "pdAttn"].flatMap(key => [key, `${key}M`, `${key}Y`, `${key}Date`])];
+  let filterAccount = "";
+
+  function filterStorageKey() {
+    return `branchline-filters-v1:${demoStore ? "demo" : "live"}:${currentProfile.dealer_id}:${currentProfile.id}`;
+  }
+
+  function restoreAccountFilters() {
+    const key = filterStorageKey();
+    if (filterAccount === key) return;
+    resetUi();
+    for (const name of savedFilterKeys) {
+      if (!["period", "month", "date", "district", "branch", "anRange", "anBasis"].includes(name)) ui[name] = "";
+    }
+    ui.anBasis = "all";
+    filterAccount = key;
+    try {
+      const saved = JSON.parse(localStorage.getItem(key) || "{}");
+      for (const name of savedFilterKeys) {
+        if (typeof saved?.[name] === "string") ui[name] = saved[name];
+      }
+    } catch (error) {
+      console.warn("Unable to restore saved Branchline filters; using current defaults.", error);
+    }
+    if (!["month", "year", "day"].includes(ui.period)) ui.period = "month";
+    if (!["month", "all"].includes(ui.anRange)) ui.anRange = "month";
+    if (!Object.hasOwn(window.BranchlineAnalytics.RULES, ui.anBasis)) ui.anBasis = "all";
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ui.month)) ui.month = currentMonth();
+    for (const name of ["date", "logFrom", "logTo"]) {
+      const time = Date.parse(ui[name]);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ui[name]) || !Number.isFinite(time) || new Date(time).toISOString().slice(0, 10) !== ui[name]) ui[name] = "";
+    }
+    if (ui.logFrom && ui.logTo && ui.logFrom > ui.logTo) ui.logFrom = ui.logTo = "";
+  }
+
+  function sanitizeAccountScope() {
+    if (!liveData.districts.some(row => row.id === ui.district)) ui.district = "";
+    if (!liveData.branches.some(row => row.id === ui.branch && (!ui.district || row.district_id === ui.district))) ui.branch = "";
+    if (currentProfile.role === "ps") {
+      ui.district = currentProfile.district_id || "";
+      ui.branch = currentProfile.branch_id || "";
+    }
+  }
+
+  function saveAccountFilters() {
+    if (!currentProfile) return;
+    try {
+      localStorage.setItem(filterStorageKey(), JSON.stringify(Object.fromEntries(savedFilterKeys.map(key => [key, ui[key] || ""]))));
+    } catch (error) {
+      console.warn("Unable to save Branchline filter preferences on this device.", error);
+    }
+  }
   let productsFiltered = [];
   let salesLogExport = null;
   let walkInDailyCtx = null;
@@ -127,6 +182,7 @@
   }
 
   function resetUi() {
+    ui.filtersOpen = false;
     ui.period = "month";
     ui.anRange = "month";
     ui.month = "";
@@ -154,12 +210,14 @@
   }
 
   function clearWorkspace() {
+    parkAccountControls();
     loadSequence += 1;
     currentSession = null;
     currentProfile = null;
     liveData = null;
     resultsView = null;
     activePage = "overview";
+    filterAccount = "";
     resetUi();
     pacePopupShown = false;
     document.querySelector(".edge-glow")?.remove();
@@ -391,6 +449,7 @@
   }
 
   async function loadLiveWorkspace(session) {
+    parkAccountControls();
     const client = demoStore ? demoStore.client : liveClient;
     const fetchAll = (...args) => fetchAllFrom(client, ...args);
     const isDemoLoad = Boolean(demoStore);
@@ -418,6 +477,7 @@
       }
 
       currentProfile = { ...profile, full_name: titleCase(profile.full_name), assigned_brand: titleCase(profile.assigned_brand) };
+      restoreAccountFilters();
       loading.update(10, "Loading your workspace...");
       if (inventoryOnly()) {
         const [branches, districts, inventory] = await Promise.all([
@@ -426,10 +486,11 @@
         ]);
         if (sequence !== loadSequence || !currentSession) return;
         liveData = { branches: checkResult(branches, "Unable to load inventory branches"), districts: checkResult(districts, "Unable to load districts"), profiles: [currentProfile], products: [], ...inventory };
+        sanitizeAccountScope();
         document.querySelector("#connected-user-name").textContent = connectedUserLabel();
         document.querySelector("#connected-user-role").textContent = roleLabels[profile.role];
         refreshPushButton(false);
-        activePage = "inventory";
+        if (!rolePageAllowed(activePage)) activePage = "inventory";
         if (location.hash === "#inventory") ui.invView = "transfers";
         await loading.finish();
         if (sequence !== loadSequence || !currentSession) return;
@@ -610,6 +671,7 @@
       refreshPushButton(profile.role === "ps");
       if (location.hash === "#inventory") { activePage = "inventory"; ui.invView = "transfers"; }
       if (!ui.month) ui.month = currentMonth();
+      sanitizeAccountScope();
       activePage = rolePageAllowed(activePage) ? activePage : "overview";
       await loading.finish();
       if (sequence !== loadSequence || !currentSession) return;
@@ -728,6 +790,7 @@
   const canPickBranch = () => ["admin", "district_manager"].includes(currentProfile.role);
 
   function panelBranchSelect(key, ids, className = "field an-inline") {
+    if (universalPages.has(activePage)) return "";
     const branches = liveData.branches.filter(branch => ids.has(branch.id)).sort((a, b) => natural(a.name, b.name));
     if (!canPickBranch() || branches.length < 2) return "";
     return `<label class="${className}"><span class="${className.includes("an-inline") ? "visually-hidden" : ""}">Branch</span><select data-filter="${key}"><option value="">All branches</option>${branches.map(branch =>
@@ -735,6 +798,7 @@
   }
 
   function panelIds(key, ids) {
+    if (universalPages.has(activePage)) return ids;
     return canPickBranch() && ui[key] && ids.has(ui[key]) ? new Set([ui[key]]) : ids;
   }
 
@@ -1206,9 +1270,11 @@
     if (options.search) {
       controls.push(`<label class="field field-search"><span>Search</span><input type="search" data-filter="search" placeholder="${escapeHTML(options.search)}" value="${escapeHTML(ui.search)}" autocomplete="off"></label>`);
     }
-    if (options.actions) {
-      controls.push(`<div class="filter-actions">${options.actions}</div>`);
+    if (universalPages.has(activePage)) {
+      if (options.extra) controls.push(options.extra);
+      return `<div class="universal-filter-row"><details class="universal-filters" ${ui.filtersOpen ? "open" : ""}><summary><strong>Filters</strong><span data-filter-summary></span></summary><div class="universal-filter-body"><div class="connected-filters" role="group" aria-label="Filters">${controls.join("")}</div><div data-panel-filters></div></div></details>${options.actions ? `<div class="filter-actions">${options.actions}</div>` : ""}</div>`;
     }
+    if (options.actions) controls.push(`<div class="filter-actions">${options.actions}</div>`);
     return controls.length ? `<div class="connected-filters" role="group" aria-label="Filters">${controls.join("")}</div>` : "";
   }
 
@@ -1246,7 +1312,39 @@
   function refreshResults() {
     const container = document.querySelector("#live-results");
     if (container && resultsView) container.innerHTML = resultsView();
+    consolidatePanelFilters();
     if (pieTablePopup) renderPieTablePopup();
+  }
+
+  function consolidatePanelFilters() {
+    const details = connectedContent.querySelector(".universal-filters");
+    if (!details) return;
+    const destination = details.querySelector("[data-panel-filters]");
+    destination.replaceChildren();
+    for (const heading of connectedContent.querySelectorAll("#live-results .connected-panel-heading")) {
+      const fields = [...heading.querySelectorAll("[data-filter]")];
+      if (!fields.length) continue;
+      const group = document.createElement("fieldset");
+      group.className = "universal-panel-filters";
+      const legend = document.createElement("legend");
+      legend.textContent = heading.querySelector("h2")?.textContent || "More filters";
+      group.append(legend);
+      for (const input of fields) {
+        const label = input.closest("label");
+        if (label) {
+          label.querySelector("span")?.classList.remove("visually-hidden");
+          group.append(label);
+        }
+      }
+      for (const clear of heading.querySelectorAll("[data-log-clear]")) group.append(clear);
+      destination.append(group);
+    }
+    const district = liveData.districts.find(row => row.id === ui.district)?.name || "All districts";
+    const branch = liveData.branches.find(row => row.id === ui.branch)?.name || "All branches";
+    const period = activePage === "analytics" ? (ui.anRange === "all" ? "All-time" : monthLabel(ui.month)) : statusLabel();
+    const range = activePage === "sales" && (ui.logFrom || ui.logTo) ? `${ui.logFrom || "Start"} to ${ui.logTo || "Today"} (sales log)` : "";
+    details.querySelector("[data-filter-summary]").textContent = [district, branch, period, range, ui.search ? `Search: ${ui.search}` : ""].filter(Boolean).join(" · ");
+    details.ontoggle = () => { ui.filtersOpen = details.open; };
   }
 
   let capturingPieResults = false;
@@ -1315,8 +1413,23 @@
     modalRoot.querySelector("[data-pie-table-content]").replaceChildren(source);
   }
 
+  function parkAccountControls() {
+    let parking = document.querySelector("#settings-control-parking");
+    if (!parking) {
+      parking = document.createElement("div");
+      parking.id = "settings-control-parking";
+      parking.hidden = true;
+      connectedShell.append(parking);
+    }
+    for (const id of ["change-password", "push-toggle"]) {
+      const control = document.getElementById(id);
+      if (control) parking.append(control);
+    }
+  }
+
   function renderConnected() {
     if (!currentProfile || !liveData) return;
+    parkAccountControls();
     const pages = rolePages[currentProfile.role] || [];
     connectedNav.innerHTML = pages.map(page =>
       `<button type="button" class="connected-nav-link ${activePage === page ? "active" : ""}" data-live-page="${page}">${escapeHTML(pageLabels[page])}</button>`
@@ -1328,9 +1441,27 @@
     else if (activePage === "products") renderProductsPage();
     else if (activePage === "users") renderPeoplePage();
     else if (activePage === "inventory") renderInventoryPage();
+    else if (activePage === "settings") renderSettingsPage();
     else renderOverview();
     renderDemoControls();
     renderTransferAlerts();
+  }
+
+  function dangerZonePanel() {
+    return currentProfile.role === "admin" ? `<section class="panel danger-zone"><h2>Danger zone</h2><p>Permanently delete all districts, branches, staff logins, products, sales, targets and history. Administrator accounts and payment modes are kept. This cannot be undone.</p><button class="button button-danger" type="button" data-open="wipe">Delete all data</button></section>` : "";
+  }
+
+  function renderSettingsPage() {
+    mountPage(pageHeading("Settings", "Imports, alerts and account settings available to your role."), "", "", () =>
+      (managesInventory() ? panel("Imports", "Import tools remain restricted to your role and assigned branches. Review and confirm before saving.",
+        '<button class="button button-primary" type="button" data-open="import-center">Import Center</button>') : "") +
+      panel("Account and device", demoStore ? "Password changes and device notifications are available after signing in to a real account." : "Change your password or manage this device's notifications.", '<div class="filter-actions" id="settings-account-controls"></div>') +
+      pushMessagesPanel() + dangerZonePanel());
+    const slot = connectedContent.querySelector("#settings-account-controls");
+    for (const id of ["change-password", "push-toggle"]) {
+      const control = document.getElementById(id);
+      if (control) slot.append(control);
+    }
   }
 
   function renderDemoControls() {
@@ -1978,7 +2109,7 @@
       : "";
     const allTime = ui.anRange === "all";
     const rangeSelect = `<label class="field"><span>Analysis period</span><select data-filter="anRange"><option value="month" ${!allTime ? "selected" : ""}>Monthly analysis</option><option value="all" ${allTime ? "selected" : ""}>All-time (all recorded dates)</option></select></label>`;
-    const filters = `${filterBar({ district: true, branch: true })}<div class="connected-filters" role="group" aria-label="Analytics options">${rangeSelect}${allTime ? "" : monthSelect + basisSelect}<div class="filter-actions">${walkInButton}</div></div>`;
+    const filters = filterBar({ district: true, branch: true, extra: rangeSelect + (allTime ? "" : monthSelect + basisSelect), actions: walkInButton });
 
     mountPage(
       pageHeading("Analytics", "Sales, traffic and inventory analysis. Current stock is separate from historical activity; forecasts are labelled projections."),
@@ -2276,7 +2407,6 @@
         const logSource = [...visibleSales(), ...liveData.testSales.filter(sale => !isPs || sale.ps_id === currentProfile.id)];
         const sales = logSource
           .filter(sale => ids.has(sale.branch_id)
-            && (isPs || !ui.logBranch || sale.branch_id === ui.logBranch)
             && (logRange ? (!ui.logFrom || sale.sold_on >= ui.logFrom) && (!ui.logTo || sale.sold_on <= ui.logTo) : inPeriod(sale.sold_on)))
           .map(sale => ({
             sale,
@@ -2295,9 +2425,7 @@
         const testCount = sales.filter(row => row.isTest).length;
         const isAdmin = currentProfile.role === "admin";
         salesLogExport = new Set(sales.map(row => row.sale.id));
-        const logBranches = liveData.branches.filter(branch => ids.has(branch.id)).sort((a, b) => natural(a.name, b.name));
-        const logFilters = `${!isPs && logBranches.length > 1 ? `<label class="field log-filter"><span>Branch</span><select data-filter="logBranch"><option value="">All branches</option>${logBranches.map(branch =>
-          `<option value="${escapeHTML(branch.id)}" ${branch.id === ui.logBranch ? "selected" : ""}>${escapeHTML(branch.name)}</option>`).join("")}</select></label>` : ""}<label class="field log-filter"><span>From</span><input type="date" data-filter="logFrom" value="${escapeHTML(ui.logFrom)}"></label><label class="field log-filter"><span>To</span><input type="date" data-filter="logTo" value="${escapeHTML(ui.logTo)}"></label>${ui.logBranch || logRange ? '<button class="button button-outline" type="button" data-log-clear>Clear</button>' : ""}`;
+        const logFilters = `<label class="field log-filter"><span>From (sales log)</span><input type="date" data-filter="logFrom" value="${escapeHTML(ui.logFrom)}"></label><label class="field log-filter"><span>To (sales log)</span><input type="date" data-filter="logTo" value="${escapeHTML(ui.logTo)}"></label>${logRange ? '<button class="button button-outline" type="button" data-log-clear>Clear dates</button>' : ""}`;
         const tools = `<div class="table-tools log-tools">${logFilters}<label class="field log-filter log-search"><span>Search</span><input type="search" data-filter="search" placeholder="Invoice, customer, product, staff" value="${escapeHTML(ui.search)}" autocomplete="off"></label>${exportButton('data-export="sales"', "Download sales")}</div>`;
         const rangeNote = logRange ? `${ui.logFrom || "start"} to ${ui.logTo || "today"} · ` : ui.period === "day" ? "this day only · " : "";
 
@@ -2307,7 +2435,7 @@
         const cardFrom = logRange ? ui.logFrom || "0000-01-01" : dayFocus;
         const cardTo = logRange ? ui.logTo || "9999-12-31" : dayFocus;
         const cardWhen = logRange ? `${ui.logFrom || "start"} to ${ui.logTo || "today"}` : dayFocus === todayISO ? `today, ${dayFocus}` : dayFocus;
-        const cardIds = !isPs && ui.logBranch && ids.has(ui.logBranch) ? new Set([ui.logBranch]) : ids;
+        const cardIds = ids;
         const allSaleFacts = withHistoryFacts(analyticsFacts(ids), ids, isPs)
           .filter(fact => !isPs || fact.psId === currentProfile.id);
         const totalOf = (facts) => ({ total: facts.reduce((sum, f) => sum + f.amount, 0), count: new Set(facts.map(f => f.saleId)).size });
@@ -2535,7 +2663,7 @@
     const views = [["master", "Item Master"], ["brand", currentProfile.role === "ps" ? "My Brand Inventory" : "Brand Inventory"], ["aging", "Aging stock"], ["transfers", "Transfer history"], ["history", "Inventory history"],
       ...(currentProfile.role === "admin" ? [["classification", `Needs classification (${pendingClassification})`]] : []),
       ...(!inventoryOnly() && managesInventory() ? [["missing", "Missing SRP"]] : []),
-      ...(managesInventory() ? [["import", "Import stock"], ["transfer", "Transfer stock"]] : [])];
+      ...(managesInventory() ? [["transfer", "Transfer stock"]] : [])];
     if (!views.some(([key]) => key === ui.invView)) ui.invView = "master";
     const isForm = ["import", "transfer"].includes(ui.invView);
     if (ui.invView === "missing" && !ui.sort["inventory-missing"]) ui.sort["inventory-missing"] = { col: 3, dir: "asc" };
@@ -2725,12 +2853,7 @@
         ["daily-history", "Daily Monitoring", "Monthly workbooks with branch daily totals and walk-ins.", openDailyHistoryModal],
       ] : []),
       ...(managesInventory() ? [
-        ["inventory", "Branch inventory", "Paired quantity and serialized reports. Replaces the selected branch's stock snapshot.", () => {
-          ui.invView = "import";
-          ui.search = ""; ui.invBrand = ""; ui.pages = {};
-          activePage = "inventory";
-          renderConnected();
-        }],
+        ["inventory", "Branch inventory", "Paired quantity and serialized reports. Replaces the selected branch's stock snapshot.", () => openInventoryImport()],
       ] : []),
     ];
     if (!routes.length) { alert("You do not have permission to import these files."); return; }
@@ -4010,7 +4133,6 @@
         search: "Brand, description or barcode",
         actions: [
           '<button class="button button-primary" type="button" data-open="product">+ Add product</button>',
-          currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="import-center">Import Center</button>' : "",
           currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="sync-categories">Update sales categories</button>' : "",
           currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="payments">Payment modes</button>' : "",
         ].join(""),
@@ -4117,13 +4239,11 @@
           people,
           row => {
             const p = row.profile;
-            const buttons = p.role === "admin"
-              ? `<button class="button button-outline button-small" type="button" data-person="edit" data-id="${escapeHTML(p.id)}">Update</button>`
-              : `<button class="button button-outline button-small" type="button" data-person="edit" data-id="${escapeHTML(p.id)}">Update</button> <button class="button button-outline button-small" type="button" data-person="transfer" data-id="${escapeHTML(p.id)}">Transfer</button> <button class="button button-outline button-small" type="button" data-person="toggle" data-id="${escapeHTML(p.id)}">${p.active ? "Disable" : "Restore"}</button> <button class="button button-outline button-small" type="button" data-person="delete" data-id="${escapeHTML(p.id)}">Delete</button>`;
+            const buttons = `<select class="staff-actions" data-person-action="${escapeHTML(p.id)}" aria-label="Actions for ${escapeHTML(p.full_name)}"><option value="">Actions</option><option value="edit">Update</option>${p.role === "admin" ? "" : `<option value="transfer">Transfer</option><option value="toggle">${p.active ? "Disable" : "Restore"}</option><option value="delete">Delete</option>`}</select>`;
             return `<tr><td><strong>${escapeHTML(p.full_name)}</strong></td><td>${escapeHTML(row.role)}</td><td>${escapeHTML(row.brand)}</td><td class="salesperson-code">${escapeHTML(p.salesperson_code || "—")}</td><td>${escapeHTML(row.district)}</td><td>${escapeHTML(row.branch)}</td><td>${p.active ? "Active" : "Disabled"}</td><td class="manage-cell">${buttons}</td></tr>`;
           },
           "No staff profiles match these filters.",
-        )) + (ui.peopleDisabled ? "" : pushMessagesPanel() + `<section class="panel danger-zone"><h2>Danger zone</h2><p>Permanently delete all districts, branches, staff logins, products, sales, targets and history. Administrator accounts and payment modes are kept. This cannot be undone.</p><button class="button button-danger" type="button" data-open="wipe">Delete all data</button></section>`);
+        ));
       },
     );
   }
@@ -4784,7 +4904,7 @@
 
   function renderTransferAlerts() {
     connectedContent.querySelector("[data-transfer-alerts]")?.remove();
-    if (!liveData || !currentProfile) return;
+    if (!liveData || !currentProfile || activePage !== "settings") return;
     const pending = (liveData.inventoryTransferBatches || []).filter(batch =>
       (batch.status === "pending_approval" && canReviewTransfer(batch.from_branch,true)) ||
       (batch.status === "transit" && canReviewTransfer(batch.to_branch)));
@@ -6268,6 +6388,7 @@
       ui.logBranch = "";
       ui.logFrom = "";
       ui.logTo = "";
+      saveAccountFilters();
       ui.pages = {};
       refreshResults();
     }
@@ -6505,9 +6626,6 @@
     const button = event.target.closest("[data-live-page]");
     if (!button) return;
     activePage = button.dataset.livePage;
-    ui.district = "";
-    ui.branch = "";
-    ui.date = "";
     ui.search = "";
     ui.pages = {};
     connectedSidebar.classList.remove("open");
@@ -6632,16 +6750,21 @@
       }
     }
     ui[key] = control.value;
+    if (key === "month" && ui.date && ui.date.slice(0, 7) !== ui.month) ui.date = `${ui.month}-01`;
+    if (key === "date" && ui.date) ui.month = ui.date.slice(0, 7);
     ui.pages = {};
     if (key === "rankCategory") ui.rankSub = "";
     if (key === "district") {
       ui.branch = "";
+      saveAccountFilters();
       renderConnected();
     } else if (key === "period" || key === "anRange") {
+      saveAccountFilters();
       renderConnected();
     } else {
       const caret = control.selectionStart;
       refreshResults();
+      saveAccountFilters();
       if (key === "search") {
         const field = fieldScope.querySelector('[data-filter="search"]');
         if (field) {
@@ -6649,6 +6772,17 @@
           field.setSelectionRange(caret, caret);
         }
       }
+    }
+  });
+
+  connectedContent.addEventListener("change", event => {
+    const select = event.target.closest("[data-person-action]");
+    if (!select || currentProfile.role !== "admin") return;
+    const action = select.value;
+    select.value = "";
+    const person = liveData.profiles.find(row => row.id === select.dataset.personAction);
+    if (person && ["edit", "transfer", "toggle", "delete"].includes(action) && (person.role !== "admin" || action === "edit")) {
+      openPersonAction(action, person);
     }
   });
 

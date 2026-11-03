@@ -302,6 +302,25 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .bulk-grid-sales-code { grid-template-columns: repeat(5, minmax(0, 1fr)) 72px; }
 .bulk-test-account { display: flex; align-items: center; gap: 5px; font-size: 10px; }
 .bulk-grid .bulk-test-account input { width: 14px; min-height: 14px; padding: 0; }
+.staff-actions { min-width: 100px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); font: inherit; }
+.universal-filter-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+.universal-filters { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.universal-filters summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; list-style: none; font-size: 11px; }
+.universal-filters summary::-webkit-details-marker { display: none; }
+.universal-filters summary::after { content: "+"; margin-left: auto; font-size: 16px; }
+.universal-filters[open] summary::after { content: "-"; }
+.universal-filters summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.universal-filter-body { padding: 0 16px 16px; }
+.universal-filter-body .connected-filters { margin: 0; padding: 0; border: 0; box-shadow: none; }
+.universal-panel-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin: 12px 0 0; padding: 12px 0 0; border: 0; border-top: 1px solid var(--line); min-width: 0; }
+.universal-panel-filters legend { padding: 0 8px 0 0; font-size: 10px; font-weight: 600; }
+.universal-panel-filters .field { flex: 1 1 150px; margin: 0; max-width: 100%; }
+.universal-filter-row > .filter-actions { padding-top: 5px; }
+@media (max-width: 700px) {
+  .universal-filter-row { flex-wrap: wrap; }
+  .universal-filters { flex-basis: 100%; }
+  .universal-panel-filters .field { flex-basis: 100%; }
+}
 input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesperson-code { text-transform: none; }
 .mix-tools { flex: 1 1 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .mix-tools-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
