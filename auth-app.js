@@ -2566,7 +2566,7 @@
   }
 
   function saleSummaryRowHTML(row) {
-    return `<tr class="sale-summary-row${row.isTest ? " test-row" : ""}" data-sale-details="${escapeHTML(row.sale.id)}"><td><button class="text-link" type="button" data-sale-details="${escapeHTML(row.sale.id)}" aria-label="View transaction ${escapeHTML(row.sale.invoice_number)}">${escapeHTML(row.sale.invoice_number)}</button>${row.isTest ? ' <span class="test-badge">TEST – not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td><strong>${formatMoney(row.total)}</strong></td></tr>`;
+    return `<tr class="sale-summary-row${row.isTest ? " test-row" : ""}" data-sale-details="${escapeHTML(row.sale.id)}" tabindex="0" aria-label="View transaction ${escapeHTML(row.sale.invoice_number)}"><td>${escapeHTML(row.sale.invoice_number)}${row.isTest ? ' <span class="test-badge">TEST – not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td><strong>${formatMoney(row.total)}</strong></td></tr>`;
   }
 
   // One product line: brand · category · sub-category, then the description and quantity.
@@ -6915,6 +6915,12 @@
   });
 
   connectedContent.addEventListener("keydown", event => {
+    const saleRow = event.target.closest("[data-sale-details]");
+    if (saleRow && ["Enter", " "].includes(event.key)) {
+      event.preventDefault();
+      saleRow.click();
+      return;
+    }
     const pie = event.target.closest("[data-pie-table]");
     if (pie && !["BUTTON", "SELECT", "INPUT"].includes(event.target.tagName) && ["Enter", " "].includes(event.key)) {
       event.preventDefault();

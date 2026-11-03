@@ -76,7 +76,7 @@ and Delivery Guarranty corrections use the existing audited, atomic save flow.
 Inventory reconciliation and serial-availability checks remain in force.
 
 The Sales log is a compact summary: Transaction/Invoice, Customer, Sale date,
-Product Specialist, Branch and Total. Click a row (or focus its invoice button
+Product Specialist, Branch and Total. Click anywhere on a row (or focus the row
 and press Enter/Space) to open the full transaction. Product/address/serial
 search and detailed sales exports still work even though those details are
 hidden from the summary. All roles can inspect sales already visible within

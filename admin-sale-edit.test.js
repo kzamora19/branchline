@@ -56,7 +56,8 @@ test("transaction summary stays compact and accessible; details respect visible 
   const summary = c.saleSummaryRowHTML({ sale, isTest: true, person: "Original PS", branch: "Original Branch", total: 50 });
   assert.equal((summary.match(/<td>/g) || []).length, 6);
   assert.match(summary, /data-sale-details="sale"/);
-  assert.match(summary, /<button[^>]+aria-label="View transaction &lt;INV &quot;1&quot;>"/);
+  assert.match(summary, /<tr[^>]+tabindex="0" aria-label="View transaction &lt;INV &quot;1&quot;>"/);
+  assert.doesNotMatch(summary, /<button|text-link/);
   assert.match(summary, /TEST – not counted/);
   assert.doesNotMatch(summary, /Multi-unit product|S1|data-edit-sale|data-delete-sale|Serial number|Unit price/);
   for (const role of ["ps", "manager", "district_manager", "admin", "inventory_controller", "stock_custodian"]) {
@@ -77,6 +78,19 @@ test("transaction summary stays compact and accessible; details respect visible 
   assert.throws(() => c.openSaleDetails("other-test"), /no longer available/);
   c.scopeBranchIds = () => new Set(["foreign"]);
   assert.throws(() => c.openSaleDetails("sale"), /no longer available/);
+});
+
+test("plain transaction rows support Enter and Space like ranking rows", () => {
+  const c = vm.createContext({});
+  const start = source.indexOf('    const saleRow = event.target.closest("[data-sale-details]");');
+  const handler = source.slice(start, source.indexOf('    const pie = ', start));
+  let clicked = 0, prevented = 0;
+  for (const key of ["Enter", " ", "Tab"]) {
+    c.event = { key, preventDefault: () => { prevented++; }, target: { closest: () => ({ click: () => { clicked++; } }) } };
+    vm.runInContext(`(function(){${handler}})()`, c);
+  }
+  assert.equal(clicked, 2);
+  assert.equal(prevented, 2);
 });
 
 test("sales log offers admin Edit and Delete without granting editing to district or inventory roles", () => {
