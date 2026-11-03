@@ -132,9 +132,11 @@ test("chart icon downloads exactly one PNG with pie labels, complete legends and
   }
 });
 
-test("complete brand log export reads every page and fails explicitly on setup, query or account changes", async () => {
+test("complete brand log loading reads beyond legacy limits and fails explicitly on setup, query or account changes", async () => {
   const pages = [];
-  const records = Array.from({ length: 2501 }, (_, index) => ({ line_id: String(index) }));
+  const records = Array.from({ length: 3501 }, (_, index) => ({
+    line_id: String(index), sold_on: index < 3500 ? "2025-01-01" : "2026-11-03",
+  }));
   const exportClient = { rpc(name) {
     assert.equal(name, "export_brand_branch_sales");
     return { order(column) {
@@ -145,8 +147,11 @@ test("complete brand log export reads every page and fails explicitly on setup, 
   const ctx = context({ client: exportClient, currentProfile: { id: "own" } });
   ctx.exportClient = exportClient;
   const rows = await vm.runInContext('fetchExportBrandLog(exportClient, "own")', ctx);
-  assert.equal(rows.length, 2501);
-  assert.deepEqual(pages, [[0, 999], [1000, 1999], [2000, 2999]]);
+  assert.equal(rows.length, 3501);
+  assert.equal(rows.filter(row => row.sold_on.startsWith("2026-11")).length, 1);
+  assert.deepEqual(pages, [[0, 999], [1000, 1999], [2000, 2999], [3000, 3999]]);
+  assert.match(source, /isPsUser \? fetchExportBrandLog\(client, profile.id\)\.then/);
+  assert.doesNotMatch(source, /client.rpc\("brand_branch_sales"\)/);
   const errorClient = { rpc: () => ({ order: () => ({ range: () => Promise.resolve({ error: { code: "PGRST202" } }) }) }) };
   ctx.client = ctx.exportClient = errorClient;
   await assert.rejects(vm.runInContext('fetchExportBrandLog(exportClient, "own")', ctx), /database update/);
@@ -156,6 +161,21 @@ test("complete brand log export reads every page and fails explicitly on setup, 
   ctx.client = ctx.exportClient = exportClient;
   ctx.currentProfile.id = "different";
   await assert.rejects(vm.runInContext('fetchExportBrandLog(exportClient, "own")', ctx), /account changed/);
+});
+
+test("brand log reports load failures rather than showing a misleading empty period", () => {
+  const ctx = context({
+    currentProfile: { assigned_brand: "TCL" },
+    liveData: { brandSales: [], brandSalesError: "Database <timeout>" },
+    panel: (title, subtitle, body) => `${title}|${subtitle}|${body}`,
+  });
+  vm.runInContext(section("  function brandLogPanel()", "  function inventoryStockFor("), ctx);
+  const html = vm.runInContext("brandLogPanel()", ctx);
+  assert.match(html, /Sales details could not be loaded/);
+  assert.match(html, /role="alert"/);
+  assert.match(html, /Database &lt;timeout&gt;/);
+  assert.match(html, /chart is loaded separately/);
+  assert.doesNotMatch(html, /No sales of your brand/);
 });
 
 test("demo full brand export has stable line IDs, no amount fields, and enforces role checks", async () => {

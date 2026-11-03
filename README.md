@@ -326,6 +326,8 @@ Cache v88 includes this update.
 
 ## Sales-history date handling
 
+The branch-wide brand log loads every permitted line using the same paginated, price-free RPC as Export All, rather than the legacy capped log. Its branch, assigned-brand/category and test-account scope matches the contribution aggregate. A failed detail request displays an explicit load error, not a misleading "no sales" message; the independently loaded chart can still be available.
+
 Excel numeric transaction dates are kept as stored by default. Company-export
 text dates remain DD/MM/YYYY; ISO dates remain YYYY-MM-DD. Both importers offer
 **Repair day/month-swapped Excel dates** for confirmed legacy exports only.

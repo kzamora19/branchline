@@ -528,7 +528,9 @@
         fetchAll("brand_targets", "id,branch_id,month,brand,amount", [["month", false], ["id", true]]),
         fetchAll("sale_lines",         "id,sale_id,barcode,model_description,brand,category,sub_category,srp,selling_price,quantity", [["id", true]]),
         fetchAll("manager_branches", "manager_id,branch_id", [["manager_id", true], ["branch_id", true]]),
-        isPsUser ? client.rpc("brand_branch_sales") : Promise.resolve({ data: [], error: null }),
+        isPsUser ? fetchExportBrandLog(client, profile.id).then(
+          data => ({ data, error: null }),
+          error => ({ data: [], error })) : Promise.resolve({ data: [], error: null }),
                 fetchAll("payment_modes", "id,name,position", [["position", true], ["name", true]]),
         isPsUser
           ? client.rpc("get_ps_dashboard", { p_month: `${psDashboardMonth}-01` })
@@ -613,6 +615,7 @@
         paymentModes: paymentModes.error || !paymentModes.data.length
           ? PAYMENT_FALLBACK.map((name, index) => ({ id: "", name, position: index + 1 }))
           : paymentModes.data,
+        brandSalesError: brandSales.error ? brandSales.error.message || "Unable to load the branch-wide brand sales log." : "",
         brandSales: brandSales.error ? [] : (brandSales.data || []).map(item => ({
           ...item,
           brand: titleCase(item.brand),
@@ -2673,6 +2676,8 @@
 
   function brandLogPanel() {
     const brand = currentProfile.assigned_brand || "your brand";
+    if (liveData.brandSalesError) return panel(`${brand} sales log · branch-wide`, "Sales details could not be loaded.",
+      `<p class="an-note" role="alert">${escapeHTML(liveData.brandSalesError)} Reload the workspace to retry. The contribution chart is loaded separately.</p>`);
     const rows = liveData.brandSales
       .filter(row => inPeriod(row.sold_on))
       .sort((a, b) => String(b.sold_on).localeCompare(String(a.sold_on)) || natural(a.ps_name, b.ps_name));
@@ -5989,8 +5994,8 @@
       const result = await exportClient.rpc("export_brand_branch_sales").order("line_id").range(offset, offset + 999);
       if (currentProfile?.id !== profileId || client !== exportClient) throw new Error("The account changed during export. Start again after signing in.");
       if (result.error) {
-        if (["PGRST202", "42883"].includes(result.error.code)) throw new Error("Export All needs the complete brand-log export database update. Ask your administrator to apply migration 20261108000000.");
-        throw new Error(`Unable to export the full brand log: ${result.error.message || "database request failed"}`);
+        if (["PGRST202", "42883"].includes(result.error.code)) throw new Error("The complete brand sales log needs the database update. Ask your administrator to apply migration 20261108000000.");
+        throw new Error(`Unable to load the full brand sales log: ${result.error.message || "database request failed"}`);
       }
       rows.push(...result.data);
       if (result.data.length < 1000) return rows;
