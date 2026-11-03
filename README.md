@@ -268,6 +268,12 @@ The `import-engine/` modules are a first-party snapshot of the standalone Extrac
 Files are processed locally in the browser. The sample demo stores edits only in
 browser-local storage and does not write to Supabase.
 
+## Sales comparison basis
+
+Overview, Sales, Analytics, rankings and report exports share a per-account **Sales comparison basis** filter. **Selling Price** is the default. **SRP (selling-price fallback)** uses each saved sale-line SRP times quantity, including an explicit zero SRP. Missing SRPs and imported summary-only totals/payment channels retain selling-price amounts, clearly labelled as a mixed-basis comparison. The PS contribution chart follows the same selection without revealing other staff's amounts. Inventory-only roles retain their existing access and do not gain sales reporting.
+
+This is display-only: targets, transaction unit prices, entry/edit forms, original record exports, DG fees, stock and pace notifications are unchanged. Transaction details show the actual transaction total separately from the SRP comparison. Sales-report exports follow the selected basis and include a comparison-basis information sheet; Export All retains raw actual amounts plus a separate comparison amount and applies the selection to generated reports. Filters are remembered per account/device. Apply `20261130000000_srp_comparison_fallback.sql` before shell v110; it changes only missing-SRP fallback in the existing scoped contribution calculation, not saved prices or permissions.
+
 ## Sale delivery and DELIVERY GUARRANTY
 
 Apply `20261124000000_delivery_guarranty.sql` before deploying cache v92. New manual sales require **Delivery / Pick up**. Existing sales remain unspecified until edited; existing unspecified sales can retain that value. Fulfillment can be changed through the existing PS/BM sale-edit permissions.

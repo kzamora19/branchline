@@ -489,10 +489,8 @@
           day.branch_price += line.selling_price * line.quantity;
           if (sale.ps_id === actor.id) day.own_price += line.selling_price * line.quantity;
           if (line.srp == null) day.missing_srp += line.quantity;
-          else {
-            day.branch_srp += line.srp * line.quantity;
-            if (sale.ps_id === actor.id) day.own_srp += line.srp * line.quantity;
-          }
+          day.branch_srp += (line.srp ?? line.selling_price) * line.quantity;
+          if (sale.ps_id === actor.id) day.own_srp += (line.srp ?? line.selling_price) * line.quantity;
           days.set(sale.sold_on, day);
         }
         return [...days.values()];

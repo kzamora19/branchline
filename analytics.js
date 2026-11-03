@@ -548,7 +548,13 @@
       .sort((a, b) => b.sales - a.sales || a.key.localeCompare(b.key));
   }
 
+  function salesLineAmount(line, basis) {
+    const price = basis === "srp" ? (line.srp ?? line.selling_price) : line.selling_price;
+    return Number(price) * Number(line.quantity);
+  }
+
   const api = {
+    salesLineAmount,
     inventorySummary, salesSummary,
     paymentMix, comparisonPaymentMode, buildInsights, UNSPECIFIED,
     RULES, addDays, weekday, daysInMonth, monthStart, monthEnd, shiftMonth, weekStart,

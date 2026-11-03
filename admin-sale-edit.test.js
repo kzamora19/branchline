@@ -44,7 +44,7 @@ test("transaction summary stays compact and accessible; details respect visible 
   const c = vm.createContext({
     escapeHTML: value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;"),
     formatMoney: value => `PHP ${value.toFixed(2)}`, serialsFor: () => ["S1", "S2"],
-    currentProfile: { id: "ps", role: "ps" }, scopeBranchIds: () => new Set(["b"]),
+    ui: { salesBasis: "price" }, currentProfile: { id: "ps", role: "ps" }, scopeBranchIds: () => new Set(["b"]),
     visibleSales: () => [sale], linesForSale: () => lines,
     liveData: { testSales: [{ ...sale, id: "other-test", ps_id: "someone-else" }], profiles: [{ id: "ps", full_name: "Original PS" }],
       deliveryGuaranties: [{ sale_id: "sale", amount: 10 }], testPsIds: new Set() },

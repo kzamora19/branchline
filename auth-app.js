@@ -55,7 +55,7 @@
   const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", rankBranch: "", brandBranch: "", bpMix: "", bpYear: "", dsMonth: "", dsYear: "", dsBranch: "", pages: {}, sort: {}, colf: {} };
   const productSelection = new Set();
   const universalPages = new Set(["overview", "sales", "analytics", "targets"]);
-  const savedFilterKeys = ["district", "branch", "period", "month", "date", "anRange", "anBasis", "logFrom", "logTo", "rankBrand", "rankCategory", "rankSub", "anDim", "brandBasis", "dsMonth", "dsYear", "yrYear",
+  const savedFilterKeys = ["district", "branch", "period", "month", "date", "anRange", "anBasis", "logFrom", "logTo", "rankBrand", "rankCategory", "rankSub", "anDim", "salesBasis", "dsMonth", "dsYear", "yrYear",
     ...["pdMix", "pdTrend", "pdTop", "pdAttn"].flatMap(key => [key, `${key}M`, `${key}Y`, `${key}Date`])];
   let filterAccount = "";
 
@@ -81,6 +81,7 @@
       console.warn("Unable to restore saved Branchline filters; using current defaults.", error);
     }
     if (!["month", "year", "day"].includes(ui.period)) ui.period = "month";
+    if (!["price", "srp"].includes(ui.salesBasis)) ui.salesBasis = "price";
     if (!["month", "all"].includes(ui.anRange)) ui.anRange = "month";
     if (!Object.hasOwn(window.BranchlineAnalytics.RULES, ui.anBasis)) ui.anBasis = "all";
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ui.month)) ui.month = currentMonth();
@@ -184,6 +185,7 @@
   }
 
   function resetUi() {
+    ui.salesBasis = "price";
     ui.filtersOpen = false;
     ui.period = "month";
     ui.anRange = "month";
@@ -712,9 +714,9 @@
     return liveData.linesBySale.get(saleId) || [];
   }
 
-  function saleTotal(sale) {
+  function saleTotal(sale, basis = ui.salesBasis) {
     return linesForSale(sale.id).reduce((total, line) =>
-      total + Number(line.selling_price) * Number(line.quantity), 0);
+      total + window.BranchlineAnalytics.salesLineAmount(line, basis), 0);
   }
 
   function periodDay() {
@@ -840,7 +842,7 @@
     })).sort((a, b) => natural(a.district, b.district) || natural(a.branch.name, b.branch.name));
   }
 
-  function personalTargetProgress() {
+  function personalTargetProgress(basis = ui.salesBasis) {
     const branchId = currentProfile.branch_id;
     const activePsCount = Number(liveData.psDashboard?.ps_count) || 0;
     const branchTarget = liveData.targets
@@ -851,7 +853,7 @@
       .filter(sale => sale.ps_id === currentProfile.id
         && sale.branch_id === branchId
         && inStatus(sale.sold_on))
-      .reduce((total, sale) => total + saleTotal(sale), 0);
+      .reduce((total, sale) => total + saleTotal(sale, basis), 0);
     return { actual, target, branchTarget, activePsCount };
   }
 
@@ -887,7 +889,7 @@
       if (!ids.has(sale.branch_id) || !inStatus(sale.sold_on)) return;
       linesForSale(sale.id).forEach(line => {
         const brand = (line.brand || "Unbranded").trim();
-        addTo(actual, brand, Number(line.selling_price) * Number(line.quantity));
+        addTo(actual, brand, window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis));
         remember(categories, brand, line.category);
         remember(subs, brand, line.sub_category);
       });
@@ -964,7 +966,7 @@
       if (owner?.branch_id && owner.branch_id !== sale.branch_id) return;
       if (!ids.has(sale.branch_id) || !inPeriod(sale.sold_on)) return;
       linesForSale(sale.id).forEach(line => {
-        if (lineMatches(line, filters)) addTo(totals, sale.ps_id, Number(line.selling_price) * Number(line.quantity));
+        if (lineMatches(line, filters)) addTo(totals, sale.ps_id, window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis));
       });
     });
     if (!filtered) {
@@ -1240,8 +1242,17 @@
     return `<section class="connected-panel"${sourceKey || key ? ` data-pie-source="${escapeHTML(sourceKey || key)}"` : ""}><div class="connected-panel-heading panel-heading-row"><div><h2>${escapeHTML(title)}</h2>${detail ? `<p>${escapeHTML(detail)}</p>` : ""}</div>${action ? `<div class="panel-actions">${action}</div>` : ""}</div>${content}</section>`;
   }
 
+  function salesBasisNote() {
+    return ui.salesBasis === "srp"
+      ? "SRP comparison - mixed basis: recorded SRP x quantity where available; missing SRPs and summary-only totals/channels use selling price. Targets stay unchanged. Display only; saved sales and DG fees are unchanged."
+      : "Selling Price x quantity. Display-only sales comparison; saved sales, targets and DG fees are unchanged.";
+  }
+
   function filterBar(options) {
     const controls = [];
+    if (universalPages.has(activePage)) {
+      controls.push(`<label class="field"><span>Sales comparison basis</span><select data-filter="salesBasis"><option value="price" ${ui.salesBasis !== "srp" ? "selected" : ""}>Selling Price</option><option value="srp" ${ui.salesBasis === "srp" ? "selected" : ""}>SRP (selling-price fallback)</option></select></label>`);
+    }
     if (options.district && liveData.districts.length > 1) {
       const districts = [...liveData.districts].sort((a, b) => natural(a.name, b.name));
       controls.push(`<label class="field"><span>District</span><select data-filter="district"><option value="">All districts</option>${districts.map(district =>
@@ -1311,7 +1322,7 @@
 
   function refreshResults() {
     const container = document.querySelector("#live-results");
-    if (container && resultsView) container.innerHTML = resultsView();
+    if (container && resultsView) container.innerHTML = `${universalPages.has(activePage) ? `<p class="an-note" data-sales-basis-note>${escapeHTML(salesBasisNote())}</p>` : ""}${resultsView()}`;
     consolidatePanelFilters();
     if (pieTablePopup) renderPieTablePopup();
   }
@@ -1343,7 +1354,7 @@
     const branch = liveData.branches.find(row => row.id === ui.branch)?.name || "All branches";
     const period = activePage === "analytics" ? (ui.anRange === "all" ? "All-time" : monthLabel(ui.month)) : statusLabel();
     const range = activePage === "sales" && (ui.logFrom || ui.logTo) ? `${ui.logFrom || "Start"} to ${ui.logTo || "Today"} (sales log)` : "";
-    details.querySelector("[data-filter-summary]").textContent = [district, branch, period, range, ui.search ? `Search: ${ui.search}` : ""].filter(Boolean).join(" · ");
+    details.querySelector("[data-filter-summary]").textContent = [district, branch, period, ui.salesBasis === "srp" ? "SRP / selling-price fallback" : "Selling Price", range, ui.search ? `Search: ${ui.search}` : ""].filter(Boolean).join(" · ");
     details.ontoggle = () => {
       ui.filtersOpen = details.open;
       positionFloatingFilters();
@@ -1435,6 +1446,7 @@
     const title = source.querySelector("h2")?.textContent || "Chart table";
     modalRoot.querySelector(".dlg-head h2").textContent = title;
     modalRoot.querySelector('[role="dialog"]').setAttribute("aria-label", title);
+    if (ui.salesBasis === "srp") source.insertAdjacentHTML("afterbegin", `<p class="an-note">${escapeHTML(salesBasisNote())}</p>`);
     modalRoot.querySelector("[data-pie-table-content]").replaceChildren(source);
   }
 
@@ -1634,7 +1646,7 @@
           product: (line.model_description || "").trim() || "Unnamed product",
           barcode: line.barcode,
           quantity: Number(line.quantity),
-          amount: Number(line.selling_price) * Number(line.quantity),
+          amount: window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis),
           srpAmount: line.srp != null && Number(line.srp) > 0 && Number(line.selling_price) > 0 ? Number(line.srp) * Number(line.quantity) : 0,
           soldAmount: line.srp != null && Number(line.srp) > 0 && Number(line.selling_price) > 0 ? Number(line.selling_price) * Number(line.quantity) : 0,
         });
@@ -2621,7 +2633,8 @@
       intro: isTestSale(sale, liveData.testPsIds) ? "TEST transaction — not counted in sales totals." : "",
       body: `<dl class="sale-detail-info">${detail("Customer", sale.customer_name)}${detail("Address", addressOf(sale))}${detail("Sale date", sale.sold_on)}${detail("Product Specialist", person)}${detail("Branch", branchName(sale.branch_id))}${detail("Payment", sale.payment_mode)}${detail("Delivery / Pick up", fulfillmentLabel(sale))}${detail("Recorded", new Date(sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</dl>
         ${saleProductsHTML(sale.id, lines)}
-        <div class="sale-detail-total"><span>Total quantity: ${lines.reduce((sum, line) => sum + Number(line.quantity), 0)}</span><strong>Transaction total: ${formatMoney(saleTotal(sale))}</strong></div>
+        <div class="sale-detail-total"><span>Total quantity: ${lines.reduce((sum, line) => sum + Number(line.quantity), 0)}</span><strong>Transaction total: ${formatMoney(saleTotal(sale, "price"))}</strong></div>
+        ${ui.salesBasis === "srp" ? `<p class="an-note">SRP comparison total (selling-price fallback): ${formatMoney(saleTotal(sale))}. Original transaction prices above are unchanged.</p>` : ""}
         ${fee == null ? "" : `<p>Delivery Guarranty: ${formatMoney(Number(fee))} · Not included in sales total.</p>`}
         <div class="sale-log-actions">${canEdit ? `<button class="button button-outline" type="button" data-edit-sale="${escapeHTML(sale.id)}">Edit</button>` : ""}${currentProfile.role === "admin" ? `<button class="button button-outline button-danger" type="button" data-delete-sale="${escapeHTML(sale.id)}">Delete</button>` : ""}</div>`,
       onReady: form => form.addEventListener("click", event => {
@@ -2635,18 +2648,18 @@
     const title = `${brand || "Brand"} sales · your branch contribution`;
     if (liveData.brandContributionError) return panel(title, scope,
       `<p class="connected-error">${escapeHTML(liveData.brandContributionError)}</p>`);
-    const srp = ui.brandBasis === "srp";
+    const srp = ui.salesBasis === "srp";
     const rows = liveData.brandContribution.filter(row => inStatus(row.sold_on));
     const sum = key => rows.reduce((total, row) => total + Number(row[key] || 0), 0);
     const own = sum(srp ? "own_srp" : "own_price");
     const total = sum(srp ? "branch_srp" : "branch_price");
     const other = Math.max(0, total - own);
-    const controls = `<label class="field an-inline"><span>Sales basis</span><select data-filter="brandBasis"><option value="price" ${!srp ? "selected" : ""}>Price (actual selling price)</option><option value="srp" ${srp ? "selected" : ""}>SRP</option></select></label>`;
+    const controls = "";
     const missing = srp ? sum("missing_srp") : 0;
     const footer = `<ul class="pie-legend contribution-legend">
       <li><i style="background:#355ee8"></i><span>Sold by you</span><strong>${formatMoney(own)} · ${percent(own, total, 2)}</strong></li>
       <li><i style="background:#16a34a"></i><span>Sold by other PS</span><strong>${percent(other, total, 2)} · amount hidden</strong></li>
-      </ul><p class="an-note">Your assigned-brand sales divided by all sales of that brand in your branch. Branch-wide amounts are hidden.${missing ? ` ${missing} unit(s) have no recorded SRP and are excluded from both SRP figures.` : ""}</p>`;
+      </ul><p class="an-note">Your assigned-brand sales divided by all sales of that brand in your branch. Branch-wide amounts are hidden.${missing ? ` Mixed basis: ${missing} unit(s) have no recorded SRP and use selling price instead.` : ""}</p>`;
     return pieChart(title, `${scope} · ${srp ? "SRP" : "Price"} × quantity`, [
       { label: "Sold by you", value: own, color: "#355ee8" },
       { label: "Sold by other PS", value: other, color: "#16a34a" },
@@ -2654,7 +2667,7 @@
       controls, footer, amounts: false, legend: false, names: true, tableKey: "brandlog",
       exportRows: [[title, `${scope} · ${srp ? "SRP" : "Price"} × quantity`], ["Seller", "Amount", "Share (%)"],
         ["Sold by you", own, total ? own / total * 100 : 0], ["Sold by other PS", "Hidden", total ? other / total * 100 : 0],
-        ...(srp ? [["Units without recorded SRP", missing, "Excluded"]] : [])],
+        ...(srp ? [["Units without recorded SRP", missing, "Selling-price fallback"]] : [])],
     });
   }
 
@@ -5837,6 +5850,7 @@
   }
 
   function chartExport(title, rows) {
+    if (ui.salesBasis === "srp") rows = [...rows, ["Comparison basis", salesBasisNote()]];
     return `<div class="chart-download">${exportButton(`data-chart-download="${escapeHTML(title)}" data-chart-rows="${escapeHTML(JSON.stringify(rows))}"`, `Download ${title} as PNG image`)}</div>`;
   }
 
@@ -5884,7 +5898,8 @@
       return { height: lines.length * (size + 7), svg: lines.map((line, index) => `<text x="${x}" y="${y + index * (size + 7)}" font-size="${size}" font-weight="${weight}">${escapeHTML(line)}</text>`).join("") };
     };
     const heading = textLines(title, 24, 34, Math.floor(width / 16), 24, 700);
-    const subtitle = textLines(card.querySelector(".connected-panel-heading p")?.textContent, 24, heading.height + 42, Math.floor(width / 9), 16);
+    const subtitleText = [card.querySelector(".connected-panel-heading p")?.textContent, ui.salesBasis === "srp" ? salesBasisNote() : ""].filter(Boolean).join(" · ");
+    const subtitle = textLines(subtitleText, 24, heading.height + 42, Math.floor(width / 9), 16);
     const chartTop = heading.height + subtitle.height + 60;
     let graphic = "";
     if (original) {
@@ -5939,6 +5954,9 @@
   }
 
   function exportWorkbook(sheets, fileName, includeIndex = false) {
+    if (ui.salesBasis === "srp" && !["inventory_controller", "stock_custodian"].includes(currentProfile?.role)) {
+      sheets = [{ name: "Comparison basis", rows: [["Sales comparison basis", salesBasisNote()], ["Original records", "Raw unit prices, entry/edit forms, targets and DG fees are unchanged."]] }, ...sheets];
+    }
     if (window.XLSX) {
       const book = window.XLSX.utils.book_new();
       const names = new Set(includeIndex ? ["worksheet index"] : []);
@@ -6012,12 +6030,12 @@
     records("Branches", liveData.branches, [["Branch ID", "id"], ["Branch", "name"], ["District ID", "district_id"]]);
     const districtIds = new Set(liveData.branches.map(branch => branch.district_id));
     records("Districts", liveData.districts.filter(district => districtIds.has(district.id)), [["District ID", "id"], ["District", "name"]]);
-    add(isPs ? "My sales" : "Sales", ["Date", "Invoice", "Customer", "Branch", "PS", "Payment", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "City", "Barangay", "Serials", "Test", "Delivery / Pick up"],
+    add(isPs ? "My sales" : "Sales", ["Date", "Invoice", "Customer", "Branch", "PS", "Payment", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "City", "Barangay", "Serials", "Test", "Delivery / Pick up", "Comparison amount"],
       sales.flatMap(sale => linesForSale(sale.id).map(line => [
         sale.sold_on, sale.invoice_number, sale.customer_name, branchName(sale.branch_id), psNameOf(sale.ps_id, sale.ps_name), sale.payment_mode,
         line.brand, line.category, line.sub_category, line.model_description, line.barcode, Number(line.quantity), line.srp ?? "",
         Number(line.selling_price), Number(line.quantity) * Number(line.selling_price), sale.city || "", sale.barangay || "",
-        serialsFor(sale.id, line.barcode).join(", "), isTestSale(sale, liveData.testPsIds) ? "Yes" : "No", fulfillmentLabel(sale),
+        serialsFor(sale.id, line.barcode).join(", "), isTestSale(sale, liveData.testPsIds) ? "Yes" : "No", fulfillmentLabel(sale), window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis),
       ])));
     if (["manager", "district_manager", "admin"].includes(currentProfile.role)) sheets.push(deliveryExport(sales));
     if (isPs) {
@@ -6050,6 +6068,7 @@
       collectingExports = true;
       if (isPs) liveData.brandSales = completeBrandLog;
       Object.keys(ui).forEach(key => { ui[key] = typeof ui[key] === "object" ? {} : ""; });
+      ui.salesBasis = savedUi.salesBasis;
       ui.period = "month";
       ui.anBasis = "all";
       const appendRegistered = month => {
@@ -6108,7 +6127,7 @@
     const byBrand = new Map();
     sales.forEach(sale => {
       linesForSale(sale.id).forEach(line => {
-        const amount = Number(line.selling_price) * Number(line.quantity);
+        const amount = window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis);
         detail.push([sale.sold_on, sale.invoice_number, sale.customer_name, branchDistrictName(sale.branch_id), branchName(sale.branch_id), psNameOf(sale.ps_id, sale.ps_name), line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), amount, sale.payment_mode || "", sale.city || "", sale.barangay || "", serialsFor(sale.id, line.barcode).join(", "), fulfillmentLabel(sale)]);
         addTo(byBranch, branchName(sale.branch_id), amount);
         addTo(byBrand, (line.brand || "Unbranded").trim(), amount);
@@ -6187,7 +6206,7 @@
         const parts = [keys.brand ? (line.brand || "").trim() || "—" : "", keys.category ? line.category || "—" : "", keys.sub ? line.sub_category || "—" : ""];
         const id = parts.join("\u0001");
         const entry = totals.get(id) || { brand: parts[0], category: parts[1], sub: parts[2], amount: 0, qty: 0 };
-        entry.amount += Number(line.selling_price) * Number(line.quantity);
+        entry.amount += window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis);
         entry.qty += Number(line.quantity);
         totals.set(id, entry);
       });
@@ -6205,13 +6224,13 @@
     const groupOptions = [["all", showBrand ? "Brand, category and sub-category" : "Category and sub-category"], ...(showBrand ? [["brand", "Brand only"]] : []), ["category", "Category only"], ["sub", "Sub-category only"]];
     const render = () => {
       const list = rows();
-      const total = list.reduce((sum, { line }) => sum + Number(line.selling_price) * Number(line.quantity), 0);
+      const total = list.reduce((sum, { line }) => sum + window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), 0);
       const brands = uniqueSorted(all.map(({ line }) => (line.brand || "").trim()));
       const categories = uniqueSorted(all.map(({ line }) => line.category));
       const subs = uniqueSorted(all.filter(({ line }) => !state.category || line.category === state.category).map(({ line }) => line.sub_category));
       const lineRows = list.slice().sort((a, b) => String(b.sale.sold_on).localeCompare(String(a.sale.sold_on)))
-        .map(({ sale, line }) => `<tr><td>${escapeHTML(sale.sold_on)}</td><td><strong>${escapeHTML(sale.invoice_number)}</strong></td><td>${escapeHTML(line.brand)}</td><td>${escapeHTML(line.category || "—")}</td><td>${escapeHTML(line.sub_category || "—")}</td><td>${escapeHTML(line.model_description)}</td><td>${escapeHTML(line.quantity)}</td><td>${formatMoney(Number(line.selling_price) * Number(line.quantity))}</td></tr>`).join("");
-      root.querySelector("#ps-detail").innerHTML = `<p class="dlg-intro">${escapeHTML(intro)}</p>
+        .map(({ sale, line }) => `<tr><td>${escapeHTML(sale.sold_on)}</td><td><strong>${escapeHTML(sale.invoice_number)}</strong></td><td>${escapeHTML(line.brand)}</td><td>${escapeHTML(line.category || "—")}</td><td>${escapeHTML(line.sub_category || "—")}</td><td>${escapeHTML(line.model_description)}</td><td>${escapeHTML(line.quantity)}</td><td>${formatMoney(window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis))}</td></tr>`).join("");
+      root.querySelector("#ps-detail").innerHTML = `<p class="dlg-intro">${escapeHTML(intro)}</p><p class="an-note">${escapeHTML(salesBasisNote())}</p>
         <div class="rank-filters">${showBrand ? rankFilterSelect("brand", "Brand", brands, state.brand) : ""}${rankFilterSelect("category", "Category", categories, state.category)}${rankFilterSelect("sub", "Sub-category", subs, state.sub)}
         <label class="field"><span>Group by</span><select data-group>${groupOptions.map(([value, label]) => `<option value="${value}" ${state.group === value ? "selected" : ""}>${escapeHTML(label)}</option>`).join("")}</select></label></div>
         <p class="ps-total"><span>${list.length} line${list.length === 1 ? "" : "s"}</span> <strong>${formatMoney(total)}</strong></p>
@@ -6249,7 +6268,7 @@
     });
     root.querySelector("#ps-detail-export").addEventListener("click", () => {
       const header = ["Sale date", "Invoice", "Customer", "Brand", "Category", "Sub-category", "Product",             "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment", "City / town", "Barangay", "Serial numbers"];
-                  const data = rows().map(({ sale, line }) => [sale.sold_on, sale.invoice_number, sale.customer_name, line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), Number(line.selling_price) * Number(line.quantity), sale.payment_mode || "", sale.city || "", sale.barangay || "", serialsFor(sale.id, line.barcode).join(", ")]);
+                  const data = rows().map(({ sale, line }) => [sale.sold_on, sale.invoice_number, sale.customer_name, line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), sale.payment_mode || "", sale.city || "", sale.barangay || "", serialsFor(sale.id, line.barcode).join(", ")]);
       exportWorkbook([{ name: sheet, rows: [header, ...data] }], `${fileBase}-${localISODate()}`);
     });
     render();
@@ -6677,7 +6696,7 @@
 
   function showPacePopup() {
     if (currentProfile?.role !== "ps" || pacePopupShown) return;
-    const { actual, target } = personalTargetProgress();
+    const { actual, target } = personalTargetProgress("price");
     if (!(target > 0)) return;
     pacePopupShown = true;
     const status = paceStatus(actual, target);
