@@ -459,7 +459,7 @@
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
         fetchAll("sales",         "id,branch_id,ps_id,ps_name,customer_name,invoice_number,sold_on,payment_mode,city,barangay,fulfillment_method,created_at,updated_at", [["sold_on", false], ["id", true]]),
                 fetchAll("products", "id,branch_id,barcode,model_description,brand,category,sub_category,active,srp", [["model_description", true], ["id", true]], query => (catalogBranch ? query.eq("branch_id", catalogBranch) : query).eq("active", true)),
-        fetchAll("profiles", "id,full_name,role,branch_id,district_id,assigned_brand,active,login_id,email", [["id", true]]),
+        fetchAll("profiles", "id,full_name,role,branch_id,district_id,assigned_brand,active,login_id,email,salesperson_code", [["id", true]]),
         fetchAll("brand_targets", "id,branch_id,month,brand,amount", [["month", false], ["id", true]]),
         fetchAll("sale_lines",         "id,sale_id,barcode,model_description,brand,category,sub_category,srp,selling_price,quantity", [["id", true]]),
         fetchAll("manager_branches", "manager_id,branch_id", [["manager_id", true], ["branch_id", true]]),
@@ -4054,7 +4054,7 @@
       "",
       filterBar({
         district: true,
-        search: "Name, role, brand, district or branch",
+        search: "Name, Salesperson Code, role, brand, district or branch",
         actions: [
           '<button class="button button-primary" type="button" data-open="user">+ Add user</button>',
           '<button class="button button-outline" type="button" data-open="users-bulk">+ Add multiple users</button>',
@@ -4079,7 +4079,7 @@
                   : "—",
             brand: profile.role === "ps" ? profile.assigned_brand || "—" : "—",
           }))
-          .filter(row => matches(query, row.profile.full_name, row.role, row.brand, row.district, row.branch))
+          .filter(row => matches(query, row.profile.full_name, row.profile.salesperson_code, row.role, row.brand, row.district, row.branch))
           .sort((a, b) => (roleRank[a.profile.role] ?? 9) - (roleRank[b.profile.role] ?? 9)
             || (a.profile.role === "ps" ? natural(a.brand, b.brand) : natural(a.district, b.district))
             || natural(a.profile.full_name, b.profile.full_name));
@@ -4111,14 +4111,14 @@
         ));
         return districtsPanel + branchesPanel + panel("Staff profiles", "Highest role first; Product Specialists are grouped by brand.", tableBlock(
           "people",
-          ["Name", "Role", "Brand", "District", "Branch", "Status", ""],
+          ["Name", "Role", "Brand", "Salesperson Code", "District", "Branch", "Status", ""],
           people,
           row => {
             const p = row.profile;
             const buttons = p.role === "admin"
               ? `<button class="button button-outline button-small" type="button" data-person="edit" data-id="${escapeHTML(p.id)}">Update</button>`
               : `<button class="button button-outline button-small" type="button" data-person="edit" data-id="${escapeHTML(p.id)}">Update</button> <button class="button button-outline button-small" type="button" data-person="transfer" data-id="${escapeHTML(p.id)}">Transfer</button> <button class="button button-outline button-small" type="button" data-person="toggle" data-id="${escapeHTML(p.id)}">${p.active ? "Disable" : "Enable"}</button> <button class="button button-outline button-small" type="button" data-person="delete" data-id="${escapeHTML(p.id)}">Delete</button>`;
-            return `<tr><td><strong>${escapeHTML(p.full_name)}</strong></td><td>${escapeHTML(row.role)}</td><td>${escapeHTML(row.brand)}</td><td>${escapeHTML(row.district)}</td><td>${escapeHTML(row.branch)}</td><td>${p.active ? "Active" : "Disabled"}</td><td class="manage-cell">${buttons}</td></tr>`;
+            return `<tr><td><strong>${escapeHTML(p.full_name)}</strong></td><td>${escapeHTML(row.role)}</td><td>${escapeHTML(row.brand)}</td><td class="salesperson-code">${escapeHTML(p.salesperson_code || "—")}</td><td>${escapeHTML(row.district)}</td><td>${escapeHTML(row.branch)}</td><td>${p.active ? "Active" : "Disabled"}</td><td class="manage-cell">${buttons}</td></tr>`;
           },
           "No staff profiles match these filters.",
         )) + pushMessagesPanel() + `<section class="panel danger-zone"><h2>Danger zone</h2><p>Permanently delete all districts, branches, staff logins, products, sales, targets and history. Administrator accounts and payment modes are kept. This cannot be undone.</p><button class="button button-danger" type="button" data-open="wipe">Delete all data</button></section>`;
@@ -4355,7 +4355,7 @@
           const part = mustRpc(await client.rpc("import_sales_history", {
             p_batch: batchId, p_label: label, p_file: fileName,
             p_sales: chunks[index].map(sale => ({ branch_id: sale.branch_id, invoice: sale.invoice, sold_on: sale.sold_on,
-              customer: uppercaseEntry(sale.customer), ps_name: uppercaseEntry(sale.ps_name), payment_mode: sale.payment_mode,
+              customer: uppercaseEntry(sale.customer), ps_name: uppercaseEntry(sale.ps_name), salespersoncode: sale.salespersoncode || null, payment_mode: sale.payment_mode,
               lines: sale.lines.map(line => ({ ...line, description: uppercaseEntry(line.description), brand: uppercaseEntry(line.brand),
                 category: uppercaseEntry(line.category), sub_category: uppercaseEntry(line.sub_category) })) })),
           }));
@@ -5232,6 +5232,7 @@
         ${fieldHTML("District", "district", selectHTML("district", liveData.districts.map(item => [item.id, item.name]), ui.district))}
         <div id="branch-field">${fieldHTML("Branch", "branch", '<select name="branch"></select>')}</div>
         <div id="inventory-branches-field" hidden>${inventoryAssignmentFields([])}</div>
+        <div id="user-sales-code-field">${fieldHTML("Salesperson Code (optional)", "salesperson_code", '<input name="salesperson_code" autocomplete="off" placeholder="Exact code from the sales database">')}</div>
         <div id="user-brand-field">${fieldHTML("Brand (for brand monitoring)", "brand", `<input name="brand" list="brand-options" autocomplete="off" placeholder="e.g. Lg, Lg - Aircon, or Midea / Toshiba"><datalist id="brand-options">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>`)}</div>`,
       onReady: form => {
         const sync = () => {
@@ -5245,6 +5246,7 @@
           form.elements.district.closest(".field").hidden = onlyInventory;
           form.querySelector("#inventory-branches-field").hidden = !onlyInventory;
           form.querySelector("#user-brand-field").hidden = role !== "ps";
+          form.querySelector("#user-sales-code-field").hidden = role !== "ps";
         };
         form.elements.role.addEventListener("change", sync);
         form.elements.district.addEventListener("change", sync);
@@ -5273,6 +5275,7 @@
           body.branch_id = form.elements.branch.value;
         }
         if (role === "ps") {
+          body.salesperson_code = form.elements.salesperson_code.value.trim() || null;
           body.brand = uppercaseEntry(form.elements.brand.value);
           if (!body.brand) throw new Error("Enter the brand this Product Specialist represents.");
         }
@@ -5301,11 +5304,11 @@
       openModal({ title: "Add multiple users", body: "<p>Create a district and a branch before adding users.</p>", submitLabel: "OK", onSubmit: async () => {} });
       return;
     }
-    const rowHTML = index => ["Full name", "Login ID", "Email (optional)", "Brand"].map((label, col) =>
+    const rowHTML = index => ["Full name", "Login ID", "Email (optional)", "Brand", "Salesperson Code (optional)"].map((label, col) =>
       `<input name="u${index}_${col}" placeholder="${label}" aria-label="${label}, user ${index + 1}" autocomplete="off"${col === 3 ? ' list="brand-options"' : ""}${col === 1 || col === 2 ? ' autocapitalize="none"' : ""}>`).join("");
     openModal({
       title: "Add multiple users",
-      intro: "Fill one row per person. Everyone gets the same role, district and branch. Blank rows are ignored. Brand is for Product Specialists and is required for them.",
+      intro: "Fill one row per person. Everyone gets the same role, district and branch. Blank rows are ignored. Brand is required for PS accounts. Salesperson Code is optional and must match the source database exactly.",
       submitLabel: "Create users",
       wide: true,
       body: `${fieldHTML("Role", "role", selectHTML("role", [["ps", "Product Specialist (PS)"], ["manager", "Branch Manager (BM)"], ["district_manager", "District Manager (DM)"], ["inventory_controller", "Inventory Controller"], ["stock_custodian", "Stock Custodian"]], "ps"))}
@@ -5314,8 +5317,8 @@
         <div id="inventory-branches-field" hidden>${inventoryAssignmentFields([])}</div>
         <div class="bulk-users-head"><strong>Users</strong><button class="button button-outline button-small" type="button" id="bulk-add-rows">+ Add more users</button></div>
         <datalist id="brand-options">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>
-        <div class="bulk-grid" id="bulk-grid">
-          <span class="bulk-label">Full name</span><span class="bulk-label">Login ID</span><span class="bulk-label">Email (optional)</span><span class="bulk-label">Brand</span>
+        <div class="bulk-grid bulk-grid-sales-code" id="bulk-grid">
+          <span class="bulk-label">Full name</span><span class="bulk-label">Login ID</span><span class="bulk-label">Email (optional)</span><span class="bulk-label">Brand</span><span class="bulk-label">Salesperson Code</span>
           <span id="bulk-rows" style="display:contents">${[0, 1, 2, 3, 4].map(rowHTML).join("")}</span>
         </div>
         <p class="dlg-preview" id="bulk-progress" hidden></p>`,
@@ -5331,7 +5334,7 @@
           form.querySelector("#branch-field").hidden = role === "district_manager" || onlyInventory;
           form.elements.district.closest(".field").hidden = onlyInventory;
           form.querySelector("#inventory-branches-field").hidden = !onlyInventory;
-          form.querySelectorAll('[name$="_3"]').forEach(input => { input.disabled = role !== "ps"; });
+          form.querySelectorAll('[name$="_3"],[name$="_4"]').forEach(input => { input.disabled = role !== "ps"; });
         };
         form.elements.role.addEventListener("change", sync);
         form.elements.district.addEventListener("change", sync);
@@ -5353,8 +5356,8 @@
         const rows = [];
         for (let index = 0; index < form.bulkCount(); index += 1) {
           const value = col => (form.elements[`u${index}_${col}`]?.value || "").trim();
-          const entry = { name: value(0), login: value(1), email: value(2), brand: value(3), line: index + 1 };
-          if (entry.name || entry.login || entry.email || entry.brand) rows.push(entry);
+          const entry = { name: value(0), login: value(1), email: value(2), brand: value(3), salesCode: value(4), line: index + 1 };
+          if (entry.name || entry.login || entry.email || entry.brand || entry.salesCode) rows.push(entry);
         }
         if (!rows.length) throw new Error("Enter at least one user.");
         if (rows.length > 40) throw new Error("Add up to 40 users at a time.");
@@ -5376,6 +5379,7 @@
             if (onlyInventory) body.branch_ids = branchIds;
             else if (role !== "district_manager") body.branch_id = form.elements.branch.value;
             if (role === "ps") {
+              body.salesperson_code = entry.salesCode || null;
               body.brand = uppercaseEntry(entry.brand);
               if (!body.brand) throw new Error("Missing brand.");
             }
@@ -5512,15 +5516,17 @@
         ${`${fieldHTML("Login ID (username, mobile number or email)", "login", `<input name="login" autocomplete="off" value="${escapeHTML(person.login_id || "")}" placeholder="${person.login_id ? "" : "Email on file; enter a new login ID to change"}">`)}
         ${fieldHTML("Contact email (for invites)", "contact", `<input name="contact" type="email" autocomplete="off" value="${escapeHTML(person.email || "")}">`)}`}
         ${isPs ? fieldHTML("Brand", "brand", `<input name="brand" required list="edit-brands" autocomplete="off" placeholder="e.g. Lg, Lg - Aircon, or Midea / Toshiba" value="${escapeHTML(person.assigned_brand || "")}"><datalist id="edit-brands">${knownBrands().map(brand => `<option value="${escapeHTML(brand)}"></option>`).join("")}</datalist>`) : ""}
+        ${isPs ? fieldHTML("Salesperson Code (optional)", "salesperson_code", `<input name="salesperson_code" autocomplete="off" value="${escapeHTML(person.salesperson_code || "")}" placeholder="Exact code from the sales database">`) : ""}
         ${role === "admin" ? "" : '<label class="check-row"><input type="checkbox" name="reset"> <span>Reset password (a new temporary password is shown once)</span></label>'}`,
       onSubmit: async form => {
-        mustRpc(await client.rpc("admin_update_profile", {
+        mustRpc(await client.rpc(isPs ? "admin_update_profile_with_sales_code" : "admin_update_profile", {
           p_user_id: person.id,
           p_full_name: uppercaseEntry(form.elements.name.value),
           p_role: role,
           p_district_id: person.district_id,
           p_branch_id: isPs ? person.branch_id : null,
           p_assigned_brand: isPs ? uppercaseEntry(form.elements.brand.value) : null,
+          ...(isPs ? { p_salesperson_code: form.elements.salesperson_code.value.trim() || null } : {}),
         }));
         {
           const login = form.elements.login.value.trim();
@@ -5779,7 +5785,7 @@
     records("Store-closed dates", liveData.holidays, [["Date", "date"], ["Label", "label"]]);
     records("Payment modes", liveData.paymentModes, [["Name", "name"], ["Position", "position"]]);
     if (currentProfile.role === "admin") {
-      records("People and access", liveData.profiles, [["Name", "full_name"], ["Role", "role"], ["District ID", "district_id"], ["Branch ID", "branch_id"], ["Assigned brand", "assigned_brand"], ["Active", "active"], ["Login", "login_id"], ["Email", "email"]]);
+      records("People and access", liveData.profiles, [["Name", "full_name"], ["Role", "role"], ["District ID", "district_id"], ["Branch ID", "branch_id"], ["Assigned brand", "assigned_brand"], ["Salesperson Code", "salesperson_code"], ["Active", "active"], ["Login", "login_id"], ["Email", "email"]]);
       records("Manager branches", liveData.managerLinks, [["Manager ID", "manager_id"], ["Branch ID", "branch_id"]]);
       records("Push messages", liveData.pushMessages, [["Status", "status"], ["Message", "message"], ["Created", "created_at"]]);
       records("Push schedules", liveData.pushSchedules, [["Send at", "send_at"], ["Active", "active"], ["Created", "created_at"]]);

@@ -299,6 +299,8 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .bulk-grid .bulk-label { color: #687587; font-size: 9px; font-weight: 600; }
 .bulk-grid input, .bulk-grid select { width: 100%; min-height: 35px; padding: 8px 10px; border: 1px solid #e4e8ee; border-radius: 6px; background: #fff; font-size: 10px; }
 .bulk-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.bulk-grid-sales-code { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesperson-code { text-transform: none; }
 .mix-tools { flex: 1 1 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .mix-tools-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 .log-totals { padding: 0 12px; }

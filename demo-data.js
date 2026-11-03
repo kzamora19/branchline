@@ -13,6 +13,12 @@
   const iso = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   const now = () => new Date().toISOString();
   const norm = value => String(value || "").trim().toLowerCase();
+  const historyNameKey = value => String(value || "").trim().replace(/\s*\[[^]]*\]\s*$/, "").replace(/\s+/g, " ").toLowerCase();
+  const historyPsAliasKey = value => ({
+    "vermont jay montalban": "vermont montalban",
+    "rhyan jhay joson": "ryan joson",
+    "jason everly palarca": "jason palarca",
+  })[historyNameKey(value)] || historyNameKey(value);
   const testName = value => /^\s*test(?![a-z])/i.test(String(value || ""));
   const testProfile = person => testName(person.full_name) || testName(person.login_id);
   function philippineDate(date = new Date()) {
@@ -376,15 +382,6 @@
       }
       if (name === "import_unified_sales_history") {
         const result = rpc("import_sales_history", p);
-        for (const row of p.p_sales) {
-          if (!String(row.salespersoncode || "").trim()) continue;
-          const sale = tables.sales.find(item => item.import_batch_id === p.p_batch && item.branch_id === row.branch_id && item.invoice_number === row.invoice);
-          if (!sale) continue;
-          const code = String(row.salespersoncode).trim();
-          const person = tables.profiles.find(item => item.dealer_id === actor.dealer_id && item.branch_id === row.branch_id && item.role === "ps" && item.salesperson_code === code);
-          sale.salesperson_code = code;
-          sale.ps_id = person?.id || null;
-        }
         return { ...result, salesperson_codes_preserved: true };
       }
       if (name === "dispatch_inventory") throw new Error("Use the whole-transfer approval/receipt workflow.");
@@ -653,8 +650,13 @@
           for (const row of p.p_sales) {
             requireBranch(row.branch_id);
             if (tables.sales.some(sale => sale.branch_id === row.branch_id && sale.invoice_number === row.invoice)) { result.skipped_existing++; continue; }
-            const ps = tables.profiles.find(person => person.role === "ps" && person.branch_id === row.branch_id && norm(person.full_name) === norm(row.ps_name));
+            const code = String(row.salespersoncode || "").trim() || null;
+            const exactPs = tables.profiles.find(person => person.role === "ps" && person.branch_id === row.branch_id && historyNameKey(person.full_name) === historyNameKey(row.ps_name));
+            const aliasMatches = exactPs ? [] : tables.profiles.filter(person => person.role === "ps" && person.branch_id === row.branch_id && historyPsAliasKey(person.full_name) === historyPsAliasKey(row.ps_name));
+            const ps = code ? tables.profiles.find(person => person.dealer_id === actor.dealer_id && person.role === "ps" && person.branch_id === row.branch_id && person.salesperson_code === code)
+              : exactPs || (aliasMatches.length === 1 ? aliasMatches[0] : null);
             const sale = insert("sales", { branch_id: row.branch_id, dealer_id: actor.dealer_id, ps_id: ps?.id || null, ps_name: row.ps_name,
+              salesperson_code: code,
               customer_name: row.customer, invoice_number: row.invoice, sold_on: row.sold_on, payment_mode: row.payment_mode,
               created_at: now(), updated_at: now(), import_batch_id: batch.id });
             for (const line of row.lines) {
@@ -731,12 +733,18 @@
         }
         return null;
       }
-      if (["admin_set_user_status", "admin_update_profile", "admin_transfer_user"].includes(name)) {
+      if (["admin_set_user_status", "admin_update_profile", "admin_update_profile_with_sales_code", "admin_transfer_user"].includes(name)) {
         requireRole("admin");
         const person = tables.profiles.find(row => row.id === p.p_user_id);
         if (!person) throw new Error("Demo user not found.");
         if (name === "admin_set_user_status") person.active = p.p_active;
-        if (name === "admin_update_profile") Object.assign(person, { full_name: p.p_full_name, assigned_brand: p.p_assigned_brand });
+        if (name === "admin_update_profile_with_sales_code") {
+          const code = String(p.p_salesperson_code || "").trim() || null;
+          if (code && p.p_role !== "ps") throw new Error("Salesperson Code is for Product Specialists only.");
+          if (code && tables.profiles.some(row => row.id !== person.id && row.dealer_id === person.dealer_id && row.salesperson_code === code)) throw new Error("This Salesperson Code is already assigned to another account in your company.");
+          person.salesperson_code = code;
+        }
+        if (["admin_update_profile", "admin_update_profile_with_sales_code"].includes(name)) Object.assign(person, { full_name: p.p_full_name, assigned_brand: p.p_assigned_brand });
         if (name === "admin_transfer_user") {
           Object.assign(person, { district_id: p.p_district_id, branch_id: p.p_branch_id });
           if (person.role === "manager") tables.manager_branches = tables.manager_branches.filter(row => row.manager_id !== person.id).concat([{ manager_id: person.id, branch_id: p.p_branch_id }]);
@@ -794,9 +802,13 @@
             } else if (body.action === "update_contact") Object.assign(person, { login_id: body.login, email: body.contact_email });
             else throw new Error("This demo account action is not supported.");
           } else {
+            const code = String(body.salesperson_code || "").trim() || null;
+            if (code && body.role !== "ps") throw new Error("Salesperson Code is for Product Specialists only.");
+            if (code && tables.profiles.some(p => p.dealer_id === actor.dealer_id && p.salesperson_code === code)) throw new Error("This Salesperson Code is already assigned to another account in your company.");
             if (tables.profiles.some(p => norm(p.login_id) === norm(body.login))) throw new Error("Demo login ID already exists.");
             const person = insert("profiles", { dealer_id: actor.dealer_id, role: body.role, full_name: body.full_name,
               district_id: body.district_id, branch_id: body.branch_id || null, assigned_brand: body.brand || null,
+              salesperson_code: code,
               active: true, login_id: body.login, email: body.email || null });
             if (person.role === "manager") tables.manager_branches.push({ manager_id: person.id, branch_id: person.branch_id });
             if (Inventory.roles.includes(person.role)) {

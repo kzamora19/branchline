@@ -54,7 +54,30 @@ database audit schema, not this public repository.
 Salesperson codes remain text, including leading zeros. Code-based assignment
 requires an exact configured `profiles.salesperson_code` within the same dealer
 and branch. Unknown codes remain unassigned with their source names retained.
-This release does not assign roster codes or provide a roster editor.
+Codes are not guessed or automatically populated.
+
+### PS account Salesperson Codes
+
+Administrators can enter an optional **Salesperson Code** in **Add user**,
+**Add several users**, or the PS account's **Update credentials** dialog.
+The People list shows codes and supports searching by code; the People and access
+export includes them. Leave a field blank to clear it. Enter the exact code from
+the sales database: leading zeros and letter case are preserved, with only outer
+spaces removed. Codes must be unique within the company, including disabled PS
+accounts and other branches.
+
+Both legacy and unified sales imports prioritize a supplied code over the source
+name, and require a PS account in the same company and branch. Unknown or
+wrong-branch codes remain unassigned rather than falling back to a possibly
+incorrect name. Files without codes keep existing name/alias matching. Saving a
+PS code does not rewrite existing sales or relink already-imported invoices.
+Enter existing PS codes manually before importing new sales databases.
+
+Apply [`20261126000000_ps_salesperson_codes.sql`](supabase/migrations/20261126000000_ps_salesperson_codes.sql),
+deploy the matching `admin-create-user` Edge Function, then publish shell v95.
+The account-edit API delegates to existing profile authorization and saves the
+code in the same transaction. Account creation stores the code with the profile;
+duplicate-code failures roll back the new login.
 
 ### Confirmed historical salesperson name links
 
