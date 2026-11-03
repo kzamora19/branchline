@@ -61,24 +61,43 @@
     return { rows, months, warnings };
   }
 
-  // Synthetic sales for days where the branch has no live sales. One per transaction so counts stay right.
-  // history: [{ branch_id, day, sales, transactions }]; liveFacts: facts with { branchId, date }.
+  // October's database is incomplete. Remove this exception only after its full import is confirmed.
+  const SUMMARY_SALES_MONTHS = ["2026-10"];
+  const monthKey = (branch, date) => `${branch}|${String(date).slice(0, 7)}`;
+
   function historyFacts(history, liveFacts, ids) {
-    const covered = new Set(liveFacts.map(fact => `${fact.branchId}|${fact.date}`));
-    const facts = [];
-    history.forEach(row => {
+    return history.filter(row => ids.has(row.branch_id) && SUMMARY_SALES_MONTHS.includes(String(row.day).slice(0, 7)))
+      .map(row => {
+        const date = String(row.day).slice(0, 10);
+        return {
+          date, saleId: `history|${row.branch_id}|${date}`, branchId: row.branch_id, psId: null, psName: "",
+          brand: "", category: "", subCategory: "", product: "", amount: Number(row.sales) || 0, srpAmount: 0, soldAmount: 0, summary: true,
+        };
+      });
+  }
+
+  function reconcileSalesFacts(history, liveFacts, ids) {
+    const summaries = historyFacts(history, liveFacts, ids);
+    const replaced = new Set(summaries.map(row => monthKey(row.branchId, row.date)));
+    return [...liveFacts.filter(row => ids.has(row.branchId) && !replaced.has(monthKey(row.branchId, row.date))), ...summaries];
+  }
+
+  // A monitoring month replaces invoice counts for that entire branch/month, never just missing days.
+  function transactionFacts(history, liveFacts, ids) {
+    const scoped = history.filter(row => ids.has(row.branch_id));
+    const covered = new Set(scoped.map(row => monthKey(row.branch_id, row.day)));
+    const invoices = new Map(liveFacts.filter(row => ids.has(row.branchId) && !row.summary && !covered.has(monthKey(row.branchId, row.date)))
+      .map(row => [row.saleId, { id: row.saleId, saleId: row.saleId, branchId: row.branchId, date: row.date }]));
+    const result = [...invoices.values()];
+    for (const row of scoped) {
       const date = String(row.day).slice(0, 10);
-      if (!ids.has(row.branch_id) || covered.has(`${row.branch_id}|${date}`)) return;
-      const sales = Number(row.sales) || 0;
-      const count = Math.max(Number(row.transactions) || 0, sales > 0 ? 1 : 0);
+      const count = Math.max(0, Math.trunc(Number(row.transactions) || 0));
       for (let index = 0; index < count; index += 1) {
-        facts.push({
-          date, saleId: `history|${row.branch_id}|${date}|${index}`, branchId: row.branch_id, psId: null, psName: "",
-          brand: "", category: "", subCategory: "", product: "", amount: sales / count, srpAmount: 0, soldAmount: 0, summary: true,
-        });
+        const id = `history|${row.branch_id}|${date}|${index}`;
+        result.push({ id, saleId: id, branchId: row.branch_id, date, summary: true });
       }
-    });
-    return facts;
+    }
+    return result;
   }
 
   // Store walk-in counts from history, only for days with no real store count.
@@ -90,7 +109,7 @@
       .filter(row => !have.has(`${row.branch_id}|${row.counted_on}`));
   }
 
-  const api = { parseMonitoring, historyFacts, historyWalkins, MONTHS };
+  const api = { parseMonitoring, historyFacts, reconcileSalesFacts, transactionFacts, historyWalkins, MONTHS, SUMMARY_SALES_MONTHS };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.BranchlineDailyHistory = api;
 })(typeof window !== "undefined" ? window : globalThis);

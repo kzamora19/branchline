@@ -36,6 +36,32 @@ unavailable in the sample demo. Transfer-review notices appear in Settings;
 transaction warnings, confirmations and sign-in reminders still appear when needed.
 Existing import validation, confirmation and server permissions are unchanged.
 
+## Sales Database versus Sales Summary
+
+The two imports describe the same sales and are never added together. Sales
+amounts use the Sales Database for this year and last year, even when individual
+days have no invoices. The explicit temporary exception is **October 2026**:
+for each branch with an October monitoring summary, the full supplied summary
+replaces that branch's entire October database amount (including partial
+database imports). A branch without an October summary retains its database
+sales. Summary amounts from other months never fill gaps.
+
+Transaction counts use the Sales Summary for each branch/month that has summary
+rows, including zero counts; invoice counts are used only for branch/months
+without summary rows. Walk-in counts retain their existing priority: entered
+store counts, then imported monitoring counts, then PS counts where applicable.
+Average sale and conversion use these transaction counts, independently of
+sales amounts. Yearly/YTD comparisons, Analytics, branch Overview/Targets and
+daily sales summaries share these rules. Invoice logs, product/payment/staff
+breakdowns and PS personal sales remain database-only; October's summary cannot
+be attributed to individual PSs or products.
+
+`SUMMARY_SALES_MONTHS` in `daily-history.js` records the approved October 2026
+exception. Remove it only after confirming October's database import is complete;
+the presence of a few October invoices does not prove completeness. This is a
+display/aggregation correction, not a deletion or rewrite of imported records.
+Shell v98 refreshes the corrected aggregation code offline as well.
+
 ## Unified multi-layout importer
 
 Open **Settings > Import Center**. Upload raw Excel

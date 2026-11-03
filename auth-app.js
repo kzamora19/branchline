@@ -815,12 +815,10 @@
     const year = month.slice(0, 4);
     const actual = new Map();
     const ytd = new Map();
-    liveData.sales.forEach(sale => {
-      if (!ids.has(sale.branch_id)) return;
-      const saleMonth = sale.sold_on.slice(0, 7);
-      const total = saleTotal(sale);
-      if (inStatus(sale.sold_on)) addTo(actual, sale.branch_id, total);
-      if (saleMonth.slice(0, 4) === year && saleMonth <= month) addTo(ytd, sale.branch_id, total);
+    withHistoryFacts(analyticsFacts(ids), ids, currentProfile.role === "ps").forEach(fact => {
+      const saleMonth = fact.date.slice(0, 7);
+      if (inStatus(fact.date)) addTo(actual, fact.branchId, fact.amount);
+      if (saleMonth.slice(0, 4) === year && saleMonth <= month) addTo(ytd, fact.branchId, fact.amount);
     });
     const target = new Map();
     const ytdTarget = new Map();
@@ -1563,10 +1561,14 @@
     clearWorkspace();
   }
 
-  // Imported daily totals only fill days with no live sales. Managers and above only.
+  // Monitoring totals replace October 2026 branch sales, never supplement database days.
   function withHistoryFacts(facts, ids, isPs) {
     const history = isPs ? [] : liveData.dailyHistory || [];
-    return history.length ? [...facts, ...window.BranchlineDailyHistory.historyFacts(history, facts, ids)] : facts;
+    return history.length ? window.BranchlineDailyHistory.reconcileSalesFacts(history, facts, ids) : facts;
+  }
+
+  function withHistoryTransactions(facts, ids, isPs) {
+    return window.BranchlineDailyHistory.transactionFacts(isPs ? [] : liveData.dailyHistory || [], facts, ids);
   }
 
   function storeCountsFor(ids, isPs) {
@@ -1861,19 +1863,21 @@
   function trafficStats(A, ctx, from, to) {
     const inRange = ctx.sales.filter(sale => sale.date >= from && sale.date <= to);
     const total = inRange.reduce((sum, sale) => sum + sale.amount, 0);
-    const walk = A.walkInSummary({ from, to, storeCounts: ctx.storeCounts, psCounts: ctx.psCounts, transactions: inRange.map(sale => ({ id: sale.id, branchId: sale.branchId, date: sale.date })) });
-    return { sales: total, transactions: inRange.length, avgTicket: A.average(total, inRange.length), visitors: walk.visitors, covered: walk.coveredDays, conversion: walk.conversion, matched: walk.transactions };
+    const transactions = ctx.transactions.filter(sale => sale.date >= from && sale.date <= to);
+    const walk = A.walkInSummary({ from, to, storeCounts: ctx.storeCounts, psCounts: ctx.psCounts, transactions });
+    return { sales: total, transactions: transactions.length, avgTicket: A.average(total, transactions.length), visitors: walk.visitors, covered: walk.coveredDays, conversion: walk.conversion, matched: walk.transactions };
   }
 
   function trafficContext(facts, ids, isPs) {
     const bySale = new Map();
-    facts.forEach(fact => {
+    withHistoryFacts(facts, ids, isPs).forEach(fact => {
       const entry = bySale.get(fact.saleId) || { id: fact.saleId, branchId: fact.branchId, date: fact.date, amount: 0 };
       entry.amount += fact.amount;
       bySale.set(fact.saleId, entry);
     });
     return {
       sales: [...bySale.values()],
+      transactions: withHistoryTransactions(facts, ids, isPs),
       storeCounts: storeCountsFor(ids, isPs),
       psCounts: liveData.psWalkins.filter(row => ids.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id)),
     };
@@ -1916,6 +1920,7 @@
 
     const years = new Set([Number(month.slice(0, 4))]);
     ctx.sales.forEach(sale => years.add(Number(sale.date.slice(0, 4))));
+    ctx.transactions.forEach(sale => years.add(Number(sale.date.slice(0, 4))));
     ctx.storeCounts.forEach(row => years.add(Number(String(row.counted_on).slice(0, 4))));
     const yearList = [...years].filter(value => value >= 2000).sort((a, b) => b - a);
     const year = yearList.includes(Number(ui.yrYear)) ? Number(ui.yrYear) : Number(month.slice(0, 4));
@@ -1948,7 +1953,7 @@
       : '<div class="empty-state">No data for this year yet.</div>';
     const yearSelect = `<label class="field an-inline"><span class="visually-hidden">Year</span><select data-filter="yrYear">${yearList.map(value =>
       `<option value="${value}" ${value === year ? "selected" : ""}>${value}</option>`).join("")}</select></label>`;
-    const trend = panel(`Yearly comparison: ${year} vs ${year - 1}`, "Month by month against the same month last year. Walk-ins show only for months that have counts.", trendTable, `${yearBranchControl}${yearSelect}${manualExport("traffic-monthly", `Yearly comparison ${year}`, trendHead, trendRows, trendRowHtml)}`);
+    const trend = panel(`Yearly comparison: ${year} vs ${year - 1}`, "Sales: Sales Database, except October 2026 uses the supplied Sales Summary total instead of database sales. Transactions: Sales Summary per branch/month where available, otherwise recorded invoices. Walk-ins show only where counts exist.", trendTable, `${yearBranchControl}${yearSelect}${manualExport("traffic-monthly", `Yearly comparison ${year}`, trendHead, trendRows, trendRowHtml)}`);
     return { compare, trend, periods };
   }
 
@@ -2055,20 +2060,30 @@
       if (!to || row.date > to) to = row.date;
     }
     from ||= today; to ||= today;
-    const totals = A.salesSummary(allFacts, () => "All")[0] || { sales: 0, transactions: 0, units: 0 };
+    const transactionFacts = withHistoryTransactions(facts, ids, isPs);
+    const totals = A.salesSummary(allFacts, () => "All")[0] || { sales: 0, units: 0 };
+    totals.transactions = transactionFacts.length;
     const walk = A.walkInSummary({ from: "0001-01-01", to: "9999-12-31", storeCounts: storeCountsFor(ids, isPs),
       psCounts: liveData.psWalkins.filter(row => ids.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id)),
-      transactions: [...new Map(allFacts.map(row => [row.saleId, { id: row.saleId, branchId: row.branchId, date: row.date }])).values()] });
+      transactions: transactionFacts });
     const cards = `<div class="connected-metrics">
       <article class="connected-metric"><span>All-time sales</span><strong>${formatMoney(totals.sales)}</strong><small>${escapeHTML(`${from} to ${to}`)}</small></article>
       <article class="connected-metric"><span>Transactions</span><strong>${totals.transactions}</strong><small>Average ${totals.transactions ? formatMoney(totals.sales / totals.transactions) : "n/a"}</small></article>
       <article class="connected-metric"><span>Recorded product units sold</span><strong>${totals.units}</strong><small>Daily summary imports do not provide unit quantities</small></article>
       <article class="connected-metric"><span>${isPs ? "Clients assisted" : "Walk-in traffic"}</span><strong>${walk.coveredDays ? walk.visitors : "No data"}</strong><small>${walk.coveredDays} counted days</small></article>
       <article class="connected-metric"><span>Conversion on counted days</span><strong>${walk.conversion === null ? "n/a" : `${(walk.conversion * 100).toFixed(1)}%`}</strong></article></div>`;
-    const summaryTable = (key, title, source, group) => analyticsDataTable(key, title,
-      "All recorded dates in your selected scope. Daily monitoring summaries are included only where live branch/day sales are absent; their product, payment and staff breakdowns are unknown.",
-      ["Group", "Sales", "Transactions", "Recorded units"], A.salesSummary(source, group).map(row =>
-        [row.key, formatMoney(row.sales), row.transactions, row.unknownUnits ? `${row.units} known; summary quantities unknown` : row.units]));
+    const summaryTable = (key, title, source, group, scopeTotals) => {
+      const counts = new Map();
+      if (scopeTotals) transactionFacts.forEach(row => addTo(counts, group(row), 1));
+      const rows = A.salesSummary(source, group);
+      if (scopeTotals) for (const name of counts.keys()) {
+        if (!rows.some(row => row.key === name)) rows.push({ key: name, sales: 0, units: 0 });
+      }
+      return analyticsDataTable(key, title,
+        "Sales use the Sales Database except October 2026, which uses the monitoring total where supplied. Summary sales never fill other months. Branch/month transaction counts use monitoring where available; product/staff breakdowns show recorded invoices only and cannot attribute summary counts.",
+        ["Group", "Sales", scopeTotals ? "Transactions" : "Recorded invoices", "Recorded units"], rows.map(row =>
+          [row.key, formatMoney(row.sales), scopeTotals ? counts.get(row.key) || 0 : row.unknownUnits ? "Not attributable" : row.transactions, row.unknownUnits ? `${row.units} known; summary quantities unknown` : row.units]));
+    };
     const detailed = allFacts.map(row => row.summary ? { ...row, brand: "Unknown (daily summary)", category: "Unknown (daily summary)", subCategory: "Unknown (daily summary)", product: "Unknown (daily summary)" } : row);
     const dimensions = [["year", "Sales by year", row => row.date.slice(0, 4)], ["month", "Sales by month", row => row.date.slice(0, 7)],
       ["branch", "Sales by branch", row => branchName(row.branchId)], ["brand", "Sales by brand", row => row.brand || "Unclassified"],
@@ -2092,7 +2107,7 @@
         return isPs ? cells : [...cells, formatMoney(actual), Number(row.amount) > 0 ? percent(actual, Number(row.amount)) : "No target"];
       }));
     return `${cards}<p class="an-note">All-time includes all loaded historical dates, independent of the month selector. Forecasts and monthly pace are not meaningful across all time and are shown only in Monthly analysis. Product-unit totals exclude summary-only imports. Payment mix excludes summary-only imports because they have no payment details.</p>
-      ${dimensions.map(([key, title, group]) => summaryTable(`an-all-${key}`, title, detailed, group)).join("")}${payment}${targets}
+      ${dimensions.map(([key, title, group]) => summaryTable(`an-all-${key}`, title, detailed, group, ["year", "month", "branch"].includes(key))).join("")}${payment}${targets}
       ${inventoryAnalyticsPanels(ids, facts, "0001-01-01", "9999-12-31", today)}`;
   }
 
@@ -2159,7 +2174,8 @@
         const forecast = A.forecastMonth({ month, refDate, daily, rules, partialDay: isCurrent });
         const remainingSellingDays = isCurrent ? A.countSellingDays(today, monthEnd, rules) : 0;
         const pace = A.requiredPace({ target, actual, paceDays: remainingSellingDays });
-        const transactions = new Set(allFacts.filter(f => f.date >= monthStart && f.date <= through).map(f => f.saleId)).size;
+        const transactionFacts = withHistoryTransactions(facts, ids, isPs);
+        const transactions = transactionFacts.filter(f => f.date >= monthStart && f.date <= through).length;
 
         const forecastText = forecast.status === "projected" || forecast.status === "final"
           ? formatMoney(forecast.value) : "Not enough data";
@@ -2178,7 +2194,7 @@
           to: through,
           storeCounts: storeCountsFor(ids, isPs),
           psCounts: liveData.psWalkins.filter(row => ids.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id)),
-          transactions: [...new Map(allFacts.filter(f => f.date >= monthStart && f.date <= through).map(f => [f.saleId, { id: f.saleId, branchId: f.branchId, date: f.date }])).values()],
+          transactions: transactionFacts,
         });
         walkInDailyCtx = { ids, isPs, monthStart, through };
         const walkSource = walk.coveredDays === 0 ? "No counts recorded yet"
@@ -2289,9 +2305,9 @@
             ${rankPanel("Needs attention", attnP, "pdAttn", result => result.bottom, "Lowest target achievement.")}`;
         }
 
-        const trafficCtx = trafficContext(allFacts, ids, isPs);
+        const trafficCtx = trafficContext(facts, ids, isPs);
         const yearIds = panelIds("bpYear", ids);
-        const yearCtx = yearIds === ids ? trafficCtx : trafficContext(allFacts.filter(f => yearIds.has(f.branchId)), yearIds, isPs);
+        const yearCtx = yearIds === ids ? trafficCtx : trafficContext(facts.filter(f => yearIds.has(f.branchId)), yearIds, isPs);
         const traffic = trafficPanels(A, trafficCtx, month, through, yearCtx, panelBranchSelect("bpYear", ids));
         const mtdPeriod = traffic.periods.find(item => item.name === "Month to date");
         const mix = computePaymentMix(month, ids, through);
@@ -2436,32 +2452,36 @@
         const cardTo = logRange ? ui.logTo || "9999-12-31" : dayFocus;
         const cardWhen = logRange ? `${ui.logFrom || "start"} to ${ui.logTo || "today"}` : dayFocus === todayISO ? `today, ${dayFocus}` : dayFocus;
         const cardIds = ids;
-        const allSaleFacts = withHistoryFacts(analyticsFacts(ids), ids, isPs)
+        const recordedFacts = analyticsFacts(ids);
+        const allSaleFacts = withHistoryFacts(recordedFacts, ids, isPs)
           .filter(fact => !isPs || fact.psId === currentProfile.id);
-        const totalOf = (facts) => ({ total: facts.reduce((sum, f) => sum + f.amount, 0), count: new Set(facts.map(f => f.saleId)).size });
-        const cardFacts = allSaleFacts.filter(f => f.date >= cardFrom && f.date <= cardTo && cardIds.has(f.branchId));
+        const transactionFacts = withHistoryTransactions(recordedFacts, ids, isPs);
+        const totalOf = (from, to, branches) => ({
+          total: allSaleFacts.filter(f => f.date >= from && f.date <= to && branches.has(f.branchId)).reduce((sum, f) => sum + f.amount, 0),
+          count: transactionFacts.filter(f => f.date >= from && f.date <= to && branches.has(f.branchId)).length,
+        });
         const cardList = canPickBranch()
-          ? [...cardIds].map(id => ({ name: branchName(id), ...totalOf(cardFacts.filter(f => f.branchId === id)) })).sort((a, b) => natural(a.name, b.name))
-          : [{ name: isPs ? "My total sales" : "Total sales", ...totalOf(cardFacts) }];
+          ? [...cardIds].map(id => ({ name: branchName(id), ...totalOf(cardFrom, cardTo, new Set([id])) })).sort((a, b) => natural(a.name, b.name))
+          : [{ name: isPs ? "My total sales" : "Total sales", ...totalOf(cardFrom, cardTo, cardIds) }];
         const totalsCards = `<div class="connected-metrics log-totals">${cardList.map(card =>
           `<article class="connected-metric"><span>${escapeHTML(card.name)} · ${escapeHTML(cardWhen)}</span><strong>${formatMoney(card.total)}</strong><small>${card.count} sale${card.count === 1 ? "" : "s"}${logRange ? "" : " · pick From and To to total a date range"}</small></article>`).join("")}</div>`;
 
         // Daily summary: totals only, for any month and year.
         const years = new Set([todayISO.slice(0, 4), (ui.month || currentMonth()).slice(0, 4)]);
         allSaleFacts.forEach(f => years.add(f.date.slice(0, 4)));
+        transactionFacts.forEach(f => years.add(f.date.slice(0, 4)));
         const yearList = [...years].sort().reverse();
         const dsYear = yearList.includes(ui.dsYear) ? ui.dsYear : (ui.month || currentMonth()).slice(0, 4);
         const dsMonth = /^(0[1-9]|1[0-2])$/.test(ui.dsMonth) ? ui.dsMonth : (ui.month || currentMonth()).slice(5, 7);
         const dsPrefix = `${dsYear}-${dsMonth}`;
         const dailyIds = panelIds("dsBranch", ids);
-        const monthFacts = allSaleFacts.filter(f => dailyIds.has(f.branchId) && f.date.startsWith(dsPrefix) && f.date <= todayISO);
         const dayRows = [];
         for (let day = new Date(Number(dsYear), Number(dsMonth), 0).getDate(); day >= 1; day -= 1) {
           const date = `${dsPrefix}-${String(day).padStart(2, "0")}`;
           if (date > todayISO) continue;
-          dayRows.push({ date, ...totalOf(monthFacts.filter(f => f.date === date)) });
+          dayRows.push({ date, ...totalOf(date, date, dailyIds) });
         }
-        const monthTotal = totalOf(monthFacts);
+        const monthTotal = totalOf(`${dsPrefix}-01`, `${dsPrefix}-31` > todayISO ? todayISO : `${dsPrefix}-31`, dailyIds);
         const monthOptions = Array.from({ length: 12 }, (_, index) => {
           const value = String(index + 1).padStart(2, "0");
           return `<option value="${value}" ${value === dsMonth ? "selected" : ""}>${new Date(2000, index, 1).toLocaleString("en-PH", { month: "long" })}</option>`;
@@ -2474,7 +2494,7 @@
             "No days to show for this month yet.", 31)
           : `${dailySalesChart(dayRows, dsPrefix, todayISO)}<div class="daily-table-action"><button class="button button-outline button-small" type="button" data-pie-table="dailysum" aria-label="View daily sales summary table">View table</button></div>`;
         const dailyBranchNote = dailyIds !== ids ? `${branchName([...dailyIds][0])} · ` : "";
-        const dailySummary = panel("Daily sales summary", `${isPs ? "Your account's sales only · " : ""}${dailyBranchNote}${monthLabel(dsPrefix)} · ${formatMoney(monthTotal.total)} · ${monthTotal.count} sale${monthTotal.count === 1 ? "" : "s"}`,
+        const dailySummary = panel("Daily sales summary", `${isPs ? "Your account's sales only · " : "Database sales; October 2026 uses supplied summary totals. Summary transaction counts where available · "}${dailyBranchNote}${monthLabel(dsPrefix)} · ${formatMoney(monthTotal.total)} · ${monthTotal.count} transaction${monthTotal.count === 1 ? "" : "s"}`,
           dailyContent, dailyControls);
         return `${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} ·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a column heading to sort.`, totalsCards + tableBlock(
             "sales",
@@ -4099,7 +4119,7 @@
         const ids = scopeBranchIds();
         const query = searchQuery();
         const actualByBranchMonth = new Map();
-        liveData.sales.forEach(sale => addTo(actualByBranchMonth, `${sale.branch_id}|${sale.sold_on.slice(0, 7)}`, saleTotal(sale)));
+        withHistoryFacts(analyticsFacts(ids), ids, false).forEach(fact => addTo(actualByBranchMonth, `${fact.branchId}|${fact.date.slice(0, 7)}`, fact.amount));
         const targets = liveData.targets
           .filter(target => ids.has(target.branch_id) && targetInPeriod(target.month) && matches(query, branchName(target.branch_id)))
           .map(target => ({
@@ -4660,7 +4680,7 @@
     const through = range?.to || ctx.through;
     const storeCounts = storeCountsFor(ids, isPs);
     const psCounts = liveData.psWalkins.filter(row => ids.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id));
-    const transactions = [...new Map(withHistoryFacts(analyticsFacts(ids), ids, isPs).map(f => [f.saleId, { id: f.saleId, branchId: f.branchId, date: f.date }])).values()];
+    const transactions = withHistoryTransactions(analyticsFacts(ids), ids, isPs);
     const summarize = (from, to) => A.walkInSummary({ from, to, storeCounts, psCounts, transactions });
     const label = isPs ? "Clients assisted" : "Walk-in traffic";
     const total = summarize(monthStart, through);
@@ -4731,7 +4751,7 @@
     if (!ctx) return;
     const { ids, isPs, monthStart, through } = ctx;
     const perDay = new Map();
-    withHistoryFacts(analyticsFacts(ids), ids, isPs).forEach(f => {
+    withHistoryTransactions(analyticsFacts(ids), ids, isPs).forEach(f => {
       if (!perDay.has(f.date)) perDay.set(f.date, new Set());
       perDay.get(f.date).add(f.saleId);
     });
