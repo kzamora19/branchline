@@ -78,6 +78,14 @@ test("demo records, edits and removes DG independently and keeps fees scoped to 
   await data(demo.client.rpc("save_sale_with_delivery", { ...params, p_sale_id: id, p_fulfillment_method: "pickup", p_dg_amount: null }));
   assert.equal((await data(demo.client.from("sale_delivery_guaranties"))).some(row => row.sale_id === id), false);
   assert.equal((await data(demo.client.from("sale_edit_history"))).find(row => row.sale_id === id).previous_values.delivery_guarranty_amount, 200);
+  const manual = { ...params, p_invoice_number:"MANUAL-TEST", p_dg_amount:null,
+    p_lines:[{barcode:"00990100",quantity:1,selling_price:100}],p_serials:[{barcode:"00990100",serial:"Missing-From-Import",manual:true}] };
+  const missingConfirmation=await demo.client.rpc("save_sale_with_delivery",{...manual,p_serials:[{...manual.p_serials[0],manual:false}]});
+  assert.match(missingConfirmation.error.message,/Confirm adding missing serial/);
+  const manualId=await data(demo.client.rpc("save_sale_with_delivery",manual));
+  assert.equal((await data(demo.client.from("inventory_stock"))).find(row=>row.barcode==="00990100").quantity,0);
+  assert.equal((await data(demo.client.from("manual_sale_serial_entries"))).find(row=>row.sale_id===manualId).serial,"Missing-From-Import");
+  assert.match((await demo.client.rpc("save_sale_with_delivery",{...manual,p_invoice_number:"MANUAL-DUPLICATE"})).error.message,/not available/);
   demo.setRole("inventory_controller");
   assert.equal((await data(demo.client.from("sale_delivery_guaranties"))).length, 0);
 });
@@ -91,7 +99,7 @@ test("frontend exposes monitoring only to managers, and caches the shared module
   assert.match(source, /aria-label="Item availability"/);
   assert.match(source, /client.rpc\("save_sale_with_delivery"/);
   assert.doesNotMatch(source, /Separate fee only\. Not added to product sales/);
-  assert.match(source, /productSuggestions\(event.target.value, item => !stockState\(item, 1\).blocked\)/);
+  assert.match(source, /productSuggestions\(event.target.value, item => form.elements.show_unavailable.checked \|\| !stockState\(item, 1\).blocked\)/);
   assert.match(source, /event.stopImmediatePropagation\(\);\s*notifyAvailability\(blocked, true\)/);
   assert.match(source, /stock-notice-card/);
   assert.match(fs.readFileSync(path.join(__dirname, "sw.js"), "utf8"), /"\.\/sales-delivery.js"/);

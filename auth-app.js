@@ -3605,10 +3605,10 @@
           ${fieldHTML("Date", "date", `<input name="date" type="date" required value="${escapeHTML(sale?.sold_on || localISODate())}">`)}
           ${fieldHTML("Mode of payment", "payment", paymentSelectHTML(sale?.payment_mode))}
           ${fieldHTML("Delivery / Pick up", "fulfillment", `<select name="fulfillment" ${!sale || sale.fulfillment_method ? "required" : ""}><option value="">${sale ? "Not specified (older sale)" : "Select..."}</option><option value="delivery" ${sale?.fulfillment_method === "delivery" ? "selected" : ""}>Delivery</option><option value="pickup" ${sale?.fulfillment_method === "pickup" ? "selected" : ""}>Pick up</option></select>`)}
-        </div>
         <div class="delivery-fee-fields" ${sale?.fulfillment_method === "delivery" ? "" : "hidden"}>
           <label class="check-row"><input name="dg" type="checkbox" ${deliveryFee !== null ? "checked" : ""}> DELIVERY GUARRANTY (DG)</label>
-          ${fieldHTML("Delivery Guarranty amount (PHP)", "dg_amount", `<input name="dg_amount" type="number" inputmode="decimal" min="0.01" max="9999999999.99" step="0.01" value="${escapeHTML(deliveryFee ?? "")}" ${deliveryFee === null ? "disabled" : "required"}>`)}
+          ${fieldHTML("Delivery Guarranty amount (PHP)", "dg_amount", `<input name="dg_amount" aria-label="Delivery Guarranty amount (PHP)" placeholder="DG amount (PHP)" type="number" inputmode="decimal" min="0.01" max="9999999999.99" step="0.01" value="${escapeHTML(deliveryFee ?? "")}" ${deliveryFee === null ? "disabled" : "required"}>`)}
+        </div>
         </div>
         <div class="dlg-grid">
           ${fieldHTML("City / municipality", "city", `<input name="city" list="sale-cities" autocomplete="off" required placeholder="e.g. Santiago City" value="${escapeHTML(sale?.city || "")}">`)}
@@ -3618,6 +3618,7 @@
         <datalist id="sale-cities"></datalist>
         <datalist id="sale-barangays"></datalist>
         <datalist id="sale-products"></datalist>
+        <label class="check-row sale-unlisted-toggle"><input type="checkbox" name="show_unavailable"> Show unavailable products for manual late-sale serial entry</label>
         <div id="sale-rows">${lines.map(saleLineRow).join("")}</div>
         <div class="sale-footer"><span class="sale-footer-actions"><button class="button button-outline button-small" type="button" data-add-line>+ Add product line</button></span><strong>Sale total: <span id="sale-total">${formatMoney(lines.reduce((sum, line) => sum + Number(line.selling_price || 0) * Number(line.quantity || 0), 0))}</span></strong></div>
         ${sale ? '<label class="check-row"><input name="reconcile" type="checkbox"> Apply quantity/serial corrections to current inventory if this sale was included in a replacement snapshot. Prices and customer corrections do not require this.</label>' : ""}`,
@@ -3656,6 +3657,7 @@
         form.elements.customer.addEventListener("input", () => fillCustomers(form.elements.customer.value));
         form.elements.customer.addEventListener("focus", () => fillCustomers(form.elements.customer.value));
         const serials = new Map();
+        const manualModes = new Set();
         (sale ? liveData.serialsBySale.get(sale.id) || [] : []).forEach(row => {
           if (!serials.has(row.barcode)) serials.set(row.barcode, []);
           serials.get(row.barcode).push(row.serial);
@@ -3673,6 +3675,9 @@
           return [...groups.values()];
         };
         const saleBranch = sale?.branch_id || currentProfile.branch_id;
+        for (const [barcode] of serials) {
+          if (!inventoryStockFor(saleBranch, barcode)?.serialized) manualModes.add(barcode);
+        }
         const serialOptions = (barcode, selected) => `<option value="">Select serial for this sale...</option>${inventorySaleUnitsFor(saleBranch, barcode, sale?.id)
           .map(item => `<option value="${escapeHTML(item.serial)}" ${item.serial === selected ? "selected" : ""}>${escapeHTML(item.serial)} · ${escapeHTML(item.received_on || "date unknown")}${item.status === "absent" ? " · Not in latest inventory" : ""}</option>`).join("")}`;
         const showSerialFields = () => {
@@ -3682,17 +3687,25 @@
             const qty = Number(row.querySelector('[name="quantity"]').value);
             const host = row.querySelector(".sale-inventory-serials");
             const selected = serials.get(product?.barcode) || [];
-            const key = `${product?.barcode}:${qty}:${selected.join("|")}`;
+            const manual = manualModes.has(product?.barcode);
+            const key = `${product?.barcode}:${qty}:${manual}:${selected.join("|")}`;
             if (host.dataset.key === key) return;
             host.dataset.key = key;
-            host.innerHTML = stock?.serialized ? (qty === 1
+            host.innerHTML = manual ? `<div class="manual-sale-serials">${Array.from({ length: Number.isInteger(qty) && qty > 0 ? Math.min(qty, 1000) : 0 }, (_, index) =>
+              `<label class="field"><span>Serial number · unit ${index + 1}</span><input data-manual-serial="${index}" data-barcode="${escapeHTML(product.barcode)}" list="manual-options-${escapeHTML(product.barcode)}" autocomplete="off" required value="${escapeHTML(selected[index] || "")}"></label>`).join("")}
+              <datalist id="manual-options-${escapeHTML(product.barcode)}">${inventorySaleUnitsFor(saleBranch, product.barcode, sale?.id).map(unit => `<option value="${escapeHTML(unit.serial)}"></option>`).join("")}</datalist>
+              <label class="check-row"><input type="checkbox" data-confirm-manual required> I confirm any missing serials are from a late sale and were not included in the imported inventory.</label>
+              <small>Missing serials are recorded for this sale only, without deducting current stock. Listed serials follow normal stock rules.</small></div>`
+              : stock?.serialized ? (qty === 1
               ? `<label class="field"><span>Available serial number</span><select data-sale-serial="${escapeHTML(product.barcode)}" required>${serialOptions(product.barcode, selected[0])}</select></label>`
               : `<button class="button button-outline button-small" type="button" data-select-serials="${escapeHTML(product.barcode)}">Choose ${qty} serial numbers (${selected.slice(0, qty).filter(Boolean).length} selected)</button>`) + `<small class="sale-stock-quantity">Available: ${stock.quantity} · current inventory${inventorySaleUnitsFor(saleBranch, product.barcode, sale?.id).some(item => item.status === "absent") ? " · retained serials are for late sales only" : ""}</small>`
               : `<small>${product ? stock ? `Available: ${stock.quantity} · no serial required` : "Inventory not initialized for this product" : ""}</small>`;
+            if (product) host.insertAdjacentHTML("beforeend", `<label class="check-row manual-sale-toggle"><input type="checkbox" data-manual-mode="${escapeHTML(product.barcode)}" ${manual ? "checked" : ""}> Enter a missing serial manually</label>`);
           });
         };
         showSerialFields();
-        const stockState = (product, quantity) => window.BranchlineDelivery.availability(
+        const stockState = (product, quantity) => manualModes.has(product.barcode)
+          ? { blocked: false, warning: "" } : window.BranchlineDelivery.availability(
           inventoryStockFor(saleBranch, product.barcode), inventorySaleUnitsFor(saleBranch, product.barcode, sale?.id), quantity,
           lines.filter(line => line.barcode === product.barcode).reduce((sum, line) => sum + Number(line.quantity || 0), 0));
         const notifyAvailability = (row, force = false) => {
@@ -3755,6 +3768,12 @@
         });
         cityBox.addEventListener("change", fillBarangays);
         form.addEventListener("change", event => {
+          if (event.target.matches("[data-manual-mode]")) {
+            const code = event.target.dataset.manualMode;
+            if (event.target.checked) manualModes.add(code); else manualModes.delete(code);
+            showSerialFields();
+            return;
+          }
           const select = event.target.closest("[data-sale-serial]");
           if (select) serials.set(select.dataset.saleSerial, [select.value]);
         });
@@ -3782,8 +3801,10 @@
           pop.querySelector("select")?.focus();
         });
         form.serialPayload = () => saleGroups().flatMap(group =>
-          inventoryStockFor(saleBranch, group.barcode)?.serialized
-            ? (serials.get(group.barcode) || []).slice(0, group.qty).filter(Boolean).map(serial => ({ barcode: group.barcode, serial })) : []);
+          inventoryStockFor(saleBranch, group.barcode)?.serialized || manualModes.has(group.barcode)
+            ? (serials.get(group.barcode) || []).slice(0, group.qty).filter(Boolean).map(serial => ({ barcode: group.barcode, serial,
+              manual: manualModes.has(group.barcode) && !inventorySaleUnitsFor(saleBranch, group.barcode, sale?.id).some(unit => unit.serial === serial) })) : []);
+        form.manualModes = manualModes;
         const enableCurrencyInput = row => {
           ["price", "srp"].forEach(name => {
             const input = row.querySelector(`[name="${name}"]`);
@@ -3834,12 +3855,19 @@
           enableCurrencyInput(added);
         };
         form.addEventListener("input", event => {
+          if (event.target.matches("[data-manual-serial]")) {
+            const values = serials.get(event.target.dataset.barcode) || [];
+            values[Number(event.target.dataset.manualSerial)] = event.target.value.trim();
+            serials.set(event.target.dataset.barcode, values);
+            event.target.closest(".manual-sale-serials").querySelector("[data-confirm-manual]").checked = false;
+            return;
+          }
           if (event.target.matches("[data-sale-serial]")) {
             serials.set(event.target.dataset.saleSerial, [event.target.value]);
             return;
           }
           if (event.target.name === "product") {
-            form.querySelector("#sale-products").innerHTML = productSuggestions(event.target.value, item => !stockState(item, 1).blocked)
+            form.querySelector("#sale-products").innerHTML = productSuggestions(event.target.value, item => form.elements.show_unavailable.checked || !stockState(item, 1).blocked)
               .map(item => `<option value="${escapeHTML(productLabel(item))}"></option>`).join("");
             syncOutdoor(event.target.closest(".sale-row"));
             const row = event.target.closest(".sale-row");
@@ -3903,6 +3931,11 @@
         if (new Set(rows.map(row => row.barcode)).size !== rows.length) throw new Error("Use one item line per barcode and increase its quantity instead of repeating the product.");
         if (liveData.inventoryError) throw new Error(liveData.inventoryError);
         for (const row of rows) {
+          if (form.manualModes.has(row.barcode)) {
+            const selected = form.serialPayload().filter(unit => unit.barcode === row.barcode);
+            if (selected.length !== row.quantity || new Set(selected.map(unit => unit.serial.toLowerCase())).size !== row.quantity) throw new Error("Enter one different serial number for each unit and confirm adding missing serials.");
+            continue;
+          }
           const previousQuantity = lines.filter(line => line.barcode === row.barcode).reduce((sum, line) => sum + Number(line.quantity || 0), 0);
           const state = window.BranchlineDelivery.availability(inventoryStockFor(sale?.branch_id || currentProfile.branch_id, row.barcode),
             inventorySaleUnitsFor(sale?.branch_id || currentProfile.branch_id, row.barcode, sale?.id), row.quantity, previousQuantity);

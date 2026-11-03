@@ -253,6 +253,7 @@
     }
     Inventory.initialize(tables, today, uid);
     tables.sale_delivery_guaranties ||= [];
+    tables.manual_sale_serial_entries ||= [];
     let actor = tables.profiles.find(p => p.role === "ps" && p.active) || tables.profiles.find(p => p.role === "admin" && p.active);
     if (!actor) throw new Error("No active demo account. Reset the demo to restore sample accounts.");
     const persist = () => storage.setItem(STATE_KEY, JSON.stringify({ version: 1, sampleRevision: SAMPLE_REVISION, tables, catalogLabel: savedLabel, catalogStamp, scenario, sampleThrough }));
@@ -318,7 +319,7 @@
       if (table === "districts") return tables.districts.filter(d => actor.role === "admin" || tables.branches.some(b => ids.includes(b.id) && b.district_id === d.id));
       if (table === "sales") return visibleSales();
       if (table === "products" && actor.role === "ps") return tables.products.filter(product => ids.includes(product.branch_id) && brandMatches(product));
-      if (["sale_lines", "sale_serials", "sale_edit_history", "sale_delivery_guaranties"].includes(table)) {
+      if (["sale_lines", "sale_serials", "sale_edit_history", "sale_delivery_guaranties", "manual_sale_serial_entries"].includes(table)) {
         const sales = new Set(visibleSales().map(s => s.id));
         return tables[table].filter(row => sales.has(row.sale_id));
       }
@@ -336,6 +337,14 @@
     }
     const removeSale = id => {
       const sale = tables.sales.find(row => row.id === id);
+      for (const entry of tables.manual_sale_serial_entries) {
+        if (entry.sale_id !== id) continue;
+        if (!tables.inventory_sale_allocations.some(a => a.sale_id === id && a.barcode === entry.barcode)) {
+          const unit = tables.inventory_serials.find(u => u.branch_id === entry.branch_id && u.barcode === entry.barcode && u.serial === entry.serial);
+          if (unit?.status === "sold") unit.status = "absent";
+        }
+        entry.sale_id = null;
+      }
       if (sale) Inventory.deleteSale(tables, sale);
       tables.sales = tables.sales.filter(s => s.id !== id);
       for (const table of ["sale_lines", "sale_serials", "sale_edit_history", "sale_delivery_guaranties"]) tables[table] = tables[table].filter(row => row.sale_id !== id);
@@ -383,12 +392,50 @@
         return Inventory.execute(name, p, { tables, actor, branchIds: inventoryBranchIds, uid, now, today });
       }
       if (name === "save_sale_with_delivery") {
+        tables.manual_sale_serial_entries ||= [];
+        const branch = tables.sales.find(row => row.id === p.p_sale_id)?.branch_id || actor.branch_id;
+        const manualEntries = [];
+        const key = value => String(value || "").trim().toLowerCase();
+        const selected = p.p_serials || [];
+        if (new Set(selected.map(row => `${I.code(row.barcode)}:${key(row.serial)}`)).size !== selected.length) throw new Error("A serial cannot be selected twice for the same product.");
+        for (const row of selected) {
+          const barcode = I.code(row.barcode), serial = String(row.serial || "").trim();
+          const known = tables.inventory_serials.find(unit => unit.branch_id === branch && unit.barcode === barcode && key(unit.serial) === key(serial));
+          if (known) {
+            if (known.serial !== serial) throw new Error(`Use the exact recorded serial ${known.serial}.`);
+            if (!tables.sale_serials.some(unit => unit.sale_id === p.p_sale_id && unit.barcode === barcode && unit.serial === serial) &&
+              !rpc("inventory_sales_serials", {}).some(unit => unit.branch_id === branch && unit.barcode === barcode && unit.serial === serial)) throw new Error(`Serial ${serial} is not available for sales entry.`);
+            continue;
+          }
+          if (!row.manual) throw new Error(`Confirm adding missing serial ${serial}.`);
+          if (!serial || !p.p_lines.some(line => I.code(line.barcode) === barcode)) throw new Error("Each serial must name a sale product and a nonblank serial.");
+          if (tables.sale_serials.some(unit => unit.barcode === barcode && key(unit.serial) === key(serial) && unit.sale_id !== p.p_sale_id) ||
+            tables.inventory_serials.some(unit => unit.barcode === barcode && key(unit.serial) === key(serial) && ["available","sold","transit"].includes(unit.status)) ||
+            tables.inventory_transfers.some(t => t.barcode === barcode && ["transit","received"].includes(t.status) && t.serials.some(unit => key(unit.serial) === key(serial)))) throw new Error("Serial is already sold, in transit, or recorded at another branch.");
+          tables.inventory_serials.push({ branch_id: branch, barcode, serial, received_on: null, status: "absent" });
+          const entry = { id: uid(), sale_id: null, branch_id: branch, barcode, serial, entered_by: actor.id, entered_at: now() };
+          tables.manual_sale_serial_entries.push(entry); manualEntries.push(entry);
+        }
         const previous = tables.sales.find(row => row.id === p.p_sale_id);
         const method = p.p_fulfillment_method || null, amount = p.p_dg_amount ?? null;
         Delivery.validate(method, amount, !!previous && !previous.fulfillment_method);
         const fee = tables.sale_delivery_guaranties.find(row => row.sale_id === p.p_sale_id)?.amount ?? null;
         const historyIds = new Set(tables.sale_edit_history.map(row => row.id));
+        for (const entry of tables.manual_sale_serial_entries.filter(e => e.sale_id === p.p_sale_id)) {
+          if (!tables.inventory_sale_allocations.some(a => a.sale_id === p.p_sale_id && a.barcode === entry.barcode)) {
+            const unit = tables.inventory_serials.find(u => u.branch_id === branch && u.barcode === entry.barcode && u.serial === entry.serial);
+            if (unit?.status === "sold") unit.status = "absent";
+          }
+        }
         const id = rpc("save_inventory_sale", p);
+        manualEntries.forEach(entry => { entry.sale_id = id; });
+        for (const row of tables.sale_serials.filter(row => row.sale_id === id)) {
+          if (tables.inventory_sale_allocations.some(a => a.sale_id === id && a.barcode === row.barcode)) continue;
+          if (!tables.manual_sale_serial_entries.some(e => e.branch_id === branch && e.barcode === row.barcode && e.serial === row.serial)) throw new Error("Uninitialized inventory requires confirmed manual serials.");
+          const count = tables.sale_serials.filter(unit => unit.sale_id === id && unit.barcode === row.barcode).length;
+          if (count !== tables.sale_lines.filter(line => line.sale_id === id && line.barcode === row.barcode).reduce((sum,line) => sum + line.quantity, 0)) throw new Error("Choose one serial per unit.");
+          tables.inventory_serials.find(u => u.branch_id === branch && u.barcode === row.barcode && u.serial === row.serial).status = "sold";
+        }
         tables.sales.find(row => row.id === id).fulfillment_method = method;
         tables.sale_delivery_guaranties = tables.sale_delivery_guaranties.filter(row => row.sale_id !== id);
         if (amount !== null) tables.sale_delivery_guaranties.push({ sale_id: id, amount });
@@ -403,7 +450,8 @@
         if (!Array.isArray(selectedSerials) || selectedSerials.some(row => !row?.serial?.trim() ||
             !p.p_lines?.some(line => I.code(line.barcode) === I.code(row.barcode)))) throw new Error("Each serial choice must name a sale product and a nonblank available serial.");
         const saleBranch = tables.sales.find(row => row.id === p.p_sale_id)?.branch_id || actor.branch_id;
-        if (selectedSerials.length && !tables.inventory_stock.some(row => row.branch_id === saleBranch)) throw new Error("Import branch inventory before selecting sale serials.");
+        if (selectedSerials.length && !tables.inventory_stock.some(row => row.branch_id === saleBranch) &&
+          selectedSerials.some(row => !(tables.manual_sale_serial_entries || []).some(entry => entry.branch_id === saleBranch && entry.barcode === I.code(row.barcode) && entry.serial === row.serial.trim()))) throw new Error("Import branch inventory before selecting sale serials.");
         const before = [];
         for (const line of tables.sale_lines.filter(row => row.sale_id === p.p_sale_id)) {
           let group = before.find(row => row.barcode === line.barcode);

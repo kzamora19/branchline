@@ -291,19 +291,23 @@
     for (const barcode of codes) {
       const stock = stockFor(barcode);
       const quantity = isTest ? 0 : t.sale_lines.filter(row => row.sale_id === sale.id && row.barcode === barcode).reduce((sum, row) => sum + row.quantity, 0);
-      if (!stock) { if (quantity) throw new Error("This product has no initialized inventory."); continue; }
+      if (!stock) {
+        const units = t.sale_serials.filter(row => row.sale_id === sale.id && row.barcode === barcode);
+        if (quantity && (units.length !== quantity || units.some(row => !(t.manual_sale_serial_entries || []).some(entry => entry.branch_id === sale.branch_id && entry.barcode === barcode && entry.serial === row.serial)))) throw new Error("This product has no initialized inventory.");
+        continue;
+      }
       const allocation = t.inventory_sale_allocations.find(row => row.sale_id === sale.id && row.barcode === barcode);
       const previous = before.find(row => row.barcode === barcode);
       const baseQty = allocation?.base_quantity ?? previous?.quantity ?? 0;
       const baseSerials = allocation?.base_serials ?? previous?.serials ?? [];
-      const selected = quantity && stock.serialized ? t.sale_serials.filter(row => row.sale_id === sale.id && row.barcode === barcode).map(row => ({
+      const serialized = stock.serialized || t.sale_serials.some(row => row.sale_id === sale.id && row.barcode === barcode);
+      const selected = quantity && serialized ? t.sale_serials.filter(row => row.sale_id === sale.id && row.barcode === barcode).map(row => ({
         serial: row.serial, received_on: unitFor(barcode, row.serial)?.received_on || null,
         sales_only: (allocation?.serials ?? baseSerials).some(unit => unit.serial === row.serial)
           ? Boolean((allocation?.serials ?? baseSerials).find(unit => unit.serial === row.serial).sales_only)
           : unitFor(barcode, row.serial)?.status === "absent",
       })) : [];
-      if (quantity && !stock.serialized && t.sale_serials.some(row => row.sale_id === sale.id && row.barcode === barcode)) throw new Error("This product is not serialized; remove its serial selection.");
-      if (stock.serialized && selected.length !== quantity || new Set(selected.map(row => row.serial)).size !== selected.length) throw new Error("Select one different available serial per unit.");
+      if (serialized && selected.length !== quantity || new Set(selected.map(row => row.serial)).size !== selected.length) throw new Error("Select one different available serial per unit.");
       const same = (a,b) => JSON.stringify(a.map(row => row.serial).sort()) === JSON.stringify(b.map(row => row.serial).sort());
       if (baseQty && !reconcile && (quantity !== (allocation?.quantity ?? baseQty) || !same(selected,allocation?.serials ?? baseSerials))) throw new Error("Confirm applying this correction to current inventory.");
       const has = (items, serial) => items.some(row => row.serial === serial);

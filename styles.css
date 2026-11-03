@@ -34,7 +34,13 @@
 }
 .connected-content:has(.record-sale-floating) { padding-bottom: 90px; }
 .sale-stock-quantity { display: block; margin-top: 8px; }
-.delivery-fee-fields { margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.delivery-fee-fields { align-self: end; min-width: 0; display: grid; gap: 5px; }
+.delivery-fee-fields .check-row { margin: 0; font-size: 11px; }
+.delivery-fee-fields .field > span { display: none; }
+.delivery-fee-fields input[name="dg_amount"]:disabled { display: none; }
+.manual-sale-serials { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.manual-sale-toggle, .sale-unlisted-toggle { margin: 8px 0; font-size: 11px; }
+.manual-sale-serials input[data-manual-serial] { text-transform: none; }
 .delivery-fee-fields[hidden] { display: none; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; text-transform: uppercase; }
