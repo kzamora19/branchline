@@ -2406,7 +2406,7 @@
 
   function renderSalesPage(dailyTable = false) {
     const isPs = currentProfile.role === "ps";
-    const canEditSales = isPs || currentProfile.role === "manager";
+    const canEditSales = isPs || ["manager", "admin"].includes(currentProfile.role);
     return mountPage(
       pageHeading("Sales", isPs ? "Your sales for branches you are assigned to." : "Sales visible to your role and assigned branches."),
       "",
@@ -2498,9 +2498,9 @@
           dailyContent, dailyControls);
         return `${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} ·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a column heading to sort.`, totalsCards + tableBlock(
             "sales",
-                      ["Invoice", "Customer", "Products", "Serial numbers", "Qty", "Payment", "Delivery / Pick up", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(canEditSales || isAdmin ? [""] : [])],
+                      ["Invoice", "Customer", "Products / serial numbers / prices", "Qty", "Payment", "Delivery / Pick up", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(canEditSales || isAdmin ? [""] : [])],
             sales,
-                      row => `<tr${row.isTest ? ' class="test-row"' : ""}><td><strong>${escapeHTML(row.sale.invoice_number)}</strong>${row.isTest ? ' <span class="test-badge">TEST – not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}${row.sale.city || row.sale.barangay ? `<br><small>${escapeHTML([row.sale.barangay, row.sale.city].filter(Boolean).join(", "))}</small>` : ""}</td><td>${row.lines.length ? row.lines.map(productLineHTML).join("") : "—"}</td><td>${row.serials.length ? row.serials.map(serial => `<div>${escapeHTML(serial)}</div>`).join("") : "—"}</td><td>${row.qty}</td><td>${escapeHTML(row.sale.payment_mode || "—")}</td><td>${row.sale.fulfillment_method === "delivery" ? "Delivery" : row.sale.fulfillment_method === "pickup" ? "Pick up" : "Not specified"}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td data-sort="${escapeHTML(row.sale.created_at)}">${escapeHTML(new Date(row.sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</td><td><strong>${formatMoney(row.total)}</strong></td>${canEditSales ? `<td><button class="button button-outline button-small" type="button" data-edit-sale="${escapeHTML(row.sale.id)}">Edit</button></td>` : isAdmin ? `<td><button class="button button-outline button-small button-danger" type="button" data-delete-sale="${escapeHTML(row.sale.id)}">Delete</button></td>` : ""}</tr>`,
+                      row => `<tr${row.isTest ? ' class="test-row"' : ""}><td><strong>${escapeHTML(row.sale.invoice_number)}</strong>${row.isTest ? ' <span class="test-badge">TEST – not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}${row.sale.city || row.sale.barangay ? `<br><small>${escapeHTML([row.sale.barangay, row.sale.city].filter(Boolean).join(", "))}</small>` : ""}</td><td>${saleProductsHTML(row.sale.id, row.lines)}</td><td>${row.qty}</td><td>${escapeHTML(row.sale.payment_mode || "—")}</td><td>${row.sale.fulfillment_method === "delivery" ? "Delivery" : row.sale.fulfillment_method === "pickup" ? "Pick up" : "Not specified"}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td data-sort="${escapeHTML(row.sale.created_at)}">${escapeHTML(new Date(row.sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</td><td><strong>${formatMoney(row.total)}</strong></td>${canEditSales || isAdmin ? `<td><div class="sale-log-actions">${canEditSales ? `<button class="button button-outline button-small" type="button" data-edit-sale="${escapeHTML(row.sale.id)}">Edit</button>` : ""}${isAdmin ? `<button class="button button-outline button-small button-danger" type="button" data-delete-sale="${escapeHTML(row.sale.id)}">Delete</button>` : ""}</div></td>` : ""}</tr>`,
             "No sales match these filters.",
           ), tools)}${deliveryMonitoringPanel(sales.filter(row => !row.isTest).map(row => row.sale))}${dailySummary}${isPs ? brandLogPanel() : ""}`;
       },
@@ -2546,6 +2546,22 @@
   function productLineHTML(line) {
     const meta = [line.brand, line.category, line.sub_category].filter(Boolean).map(escapeHTML).join(" · ");
     return `<div class="product-line"><span class="pl-meta">${meta}</span>${escapeHTML(line.model_description)} × ${escapeHTML(line.quantity)}</div>`;
+  }
+
+  function saleProductsHTML(saleId, lines) {
+    if (!lines.length) return "—";
+    const offsets = new Map();
+    return `<div class="sale-product-list">${lines.map(line => {
+      const start = offsets.get(line.barcode) || 0;
+      const quantity = Number(line.quantity);
+      const serials = serialsFor(saleId, line.barcode).slice(start, start + quantity);
+      offsets.set(line.barcode, start + quantity);
+      return `<div class="sale-product-detail">
+        <div>${productLineHTML(line)}</div>
+        <div class="sale-product-serials"><small>Serial numbers</small>${serials.length ? serials.map(serial => `<div>${escapeHTML(serial)}</div>`).join("") : "<span>—</span>"}</div>
+        <div class="sale-product-price"><small>Unit price</small><span>${formatMoney(Number(line.selling_price))}</span><small>Line total</small><strong>${formatMoney(Number(line.selling_price) * quantity)}</strong></div>
+      </div>`;
+    }).join("")}</div>`;
   }
 
   function brandProgressChart(scope) {
@@ -6428,7 +6444,7 @@
     const editSale = event.target.closest("[data-edit-sale]");
     const deliveryPerson = event.target.closest("[data-delivery-person]");
     if (deliveryPerson) openDeliveryDetails(deliveryPerson.dataset.deliveryPerson);
-    if (editSale) {
+    if (editSale && ["ps", "manager", "admin"].includes(currentProfile.role)) {
       const sale = [...liveData.sales, ...liveData.testSales].find(item => item.id === editSale.dataset.editSale);
       if (sale) openSaleModal(sale);
     }

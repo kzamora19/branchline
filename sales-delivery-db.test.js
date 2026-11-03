@@ -22,11 +22,12 @@ test("real DB delivery saves are atomic, fees excluded from sales, edits audited
     const files=fs.readdirSync(directory).filter(name=>name.endsWith(".sql")).sort();
     assert.ok(files.some(name=>name.includes("initial_schema")), "Set BRANCHLINE_MIGRATIONS to the complete migration chain for integration tests.");
     for (const file of files) {
-      if (file==="20261118000000_sales_history_ps_aliases.sql" || file==="20261124000000_delivery_guarranty.sql" || file==="20261125000000_manual_sale_serials.sql") continue;
+      if (file==="20261118000000_sales_history_ps_aliases.sql" || file==="20261124000000_delivery_guarranty.sql" || file==="20261125000000_manual_sale_serials.sql" || file==="20261127000000_admin_sale_edit.sql") continue;
       await db.exec(fs.readFileSync(path.join(directory,file),"utf8").replace(/create extension if not exists pgcrypto with schema extensions;/i,""));
     }
     await db.exec(fs.readFileSync(path.join(__dirname,"supabase","migrations","20261124000000_delivery_guarranty.sql"),"utf8"));
     await db.exec(fs.readFileSync(path.join(__dirname,"supabase","migrations","20261125000000_manual_sale_serials.sql"),"utf8"));
+    await db.exec(fs.readFileSync(path.join(__dirname,"supabase","migrations","20261127000000_admin_sale_edit.sql"),"utf8"));
     await db.exec(`insert into dealers(id,name)values('${dealer}','Fixture');
       insert into districts(id,dealer_id,name)values('${district}','${dealer}','District');
       insert into branches(id,dealer_id,district_id,name,code)values('${branch}','${dealer}','${district}','Santiago','STG'),('${other}','${dealer}','${district}','Other','OTH');

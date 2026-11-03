@@ -62,6 +62,26 @@ the presence of a few October invoices does not prove completeness. This is a
 display/aggregation correction, not a deletion or rewrite of imported records.
 Shell v98 refreshes the corrected aggregation code offline as well.
 
+## Administrator sale corrections and item prices
+
+Administrators can **Edit** or **Delete** an existing sale in the Sales log.
+Editing keeps the original branch and Product Specialist attribution. Active
+administrators can correct sales across their dealer's branches, including older
+sales; they still cannot record new PS sales. Other roles retain their existing
+editing scope. Customer, price, quantity, serial, address, payment, fulfillment
+and Delivery Guarranty corrections use the existing audited, atomic save flow.
+Inventory reconciliation and serial-availability checks remain in force.
+
+Each product occupies one aligned detail row containing its description and
+quantity, matching serial numbers, unit selling price and line total. The invoice
+total remains separate. Non-serialized products show a dash; multiple-unit lines
+keep their serials together. Repeated historical barcode lines consume their
+serials in line order rather than repeating the entire serial list.
+
+Apply `supabase/migrations/20261127000000_admin_sale_edit.sql` before deploying
+shell v99. It changes only function permissions/authorization logic, not existing
+sales records. The migration fails closed if the expected function guards differ.
+
 ## Unified multi-layout importer
 
 Open **Settings > Import Center**. Upload raw Excel

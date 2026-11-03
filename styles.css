@@ -331,6 +331,14 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 @media (max-width: 700px) { .bulk-grid { grid-template-columns: 1fr 1fr; } }
 .product-line { min-width: 240px; max-width: 360px; padding: 3px 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.45; }
 .product-line + .product-line { border-top: 1px dashed var(--line); }
+.sale-product-list { min-width: 580px; max-width: 700px; white-space: normal; }
+.sale-product-detail { display: grid; grid-template-columns: minmax(240px, 1.5fr) minmax(160px, 1fr) minmax(110px, .7fr); gap: 16px; align-items: start; padding: 10px 0; }
+.sale-product-detail + .sale-product-detail { border-top: 1px dashed var(--line); }
+.sale-product-detail .product-line { min-width: 0; max-width: none; padding: 0; }
+.sale-product-serials { overflow-wrap: anywhere; text-transform: none; line-height: 1.5; }
+.sale-product-serials small, .sale-product-price small { display: block; color: var(--muted); font-size: 9px; margin-bottom: 4px; }
+.sale-product-price { display: grid; gap: 3px; white-space: nowrap; }
+.sale-log-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .date-filter { display: flex; gap: 6px; }
 .panel-heading-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .panel-heading-row > div:first-child { flex: 1 1 240px; min-width: 0; }

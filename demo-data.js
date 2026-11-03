@@ -512,7 +512,7 @@
           ps_rank: totals.findIndex(row => row.id === actor.id) + 1, ps_count: people.length, team_share: total ? own / total * 100 : 0 }];
       }
       if (name === "save_ps_sale") {
-        requireRole("ps", "manager");
+        requireRole("ps", "manager", "admin");
         if (!p.p_lines?.length) throw new Error("At least one product line is required.");
         if (!p.p_customer_name?.trim() || !p.p_invoice_number?.trim() || !p.p_sold_on || !p.p_payment_mode) throw new Error("Customer, invoice, date and payment mode are required.");
         let sale = p.p_sale_id && visibleSales().find(s => s.id === p.p_sale_id);
@@ -532,7 +532,7 @@
         return sale.id;
       }
       if (name === "save_sale_extras") {
-        requireRole("ps", "manager");
+        requireRole("ps", "manager", "admin");
         const sale = visibleSales().find(s => s.id === p.p_sale_id);
         if (!sale) throw new Error("Sale not found.");
         Object.assign(sale, { city: p.p_city, barangay: p.p_barangay });
