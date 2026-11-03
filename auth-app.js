@@ -3380,7 +3380,7 @@
     return `<div class="sale-row" data-srp-for="${escapeHTML(product?.barcode || "")}">
       <label class="field sale-product"><span>Product (type a model, brand or barcode)</span><input name="product" list="sale-products" autocomplete="off" placeholder="Start typing…" required value="${product ? escapeHTML(productLabel(product)) : ""}"></label>
       <label class="field"><span>Barcode</span><input name="code" readonly tabindex="-1" value="${escapeHTML(product?.barcode || "")}"></label>
-      <label class="field"><span>SRP (₱)</span><input name="srp" type="number" min="0" step="0.01" value="${line.srp ?? ""}"></label>
+      <label class="field"><span>SRP (₱)</span><input name="srp" type="number" min="0" step="0.01" required value="${line.srp ?? ""}"></label>
       <label class="field"><span>Price (₱)</span><input name="price" type="number" min="0" step="0.01" required value="${line.selling_price ?? ""}"></label>
       <label class="field"><span>Qty</span><input name="quantity" type="number" min="1" step="1" required value="${line.quantity ?? 1}"></label>
       <label class="field"><span>Total</span><input name="linetotal" readonly tabindex="-1" value="${total ? formatMoney(total) : ""}"></label>
@@ -3844,8 +3844,7 @@
           ${fieldHTML("Mode of payment", "payment", paymentSelectHTML(sale?.payment_mode))}
           ${fieldHTML("Delivery / Pick up", "fulfillment", `<select name="fulfillment" ${!sale || sale.fulfillment_method ? "required" : ""}><option value="">${sale ? "Not specified (older sale)" : "Select..."}</option><option value="delivery" ${sale?.fulfillment_method === "delivery" ? "selected" : ""}>Delivery</option><option value="pickup" ${sale?.fulfillment_method === "pickup" ? "selected" : ""}>Pick up</option></select>`)}
         <div class="delivery-fee-fields" ${sale?.fulfillment_method === "delivery" ? "" : "hidden"}>
-          <label class="check-row"><input name="dg" type="checkbox" ${deliveryFee !== null ? "checked" : ""}> DELIVERY GUARRANTY (DG)</label>
-          ${fieldHTML("Delivery Guarranty amount (PHP)", "dg_amount", `<input name="dg_amount" aria-label="Delivery Guarranty amount (PHP)" placeholder="DG amount (PHP)" type="number" inputmode="decimal" min="0" max="9999999999.99" step="0.01" value="${escapeHTML(deliveryFee ?? "")}" ${deliveryFee === null ? "disabled" : "required"}>`)}
+          ${fieldHTML("Delivery Guarranty amount (PHP)", "dg_amount", `<input name="dg_amount" aria-label="Delivery Guarranty amount (PHP)" placeholder="Enter 0.00 for free delivery" type="number" inputmode="decimal" min="0" max="9999999999.99" step="0.01" value="${escapeHTML(deliveryFee ?? "")}" ${sale?.fulfillment_method === "delivery" ? "required" : "disabled"}>`)}
         </div>
         </div>
         <div class="dlg-grid">
@@ -3864,12 +3863,10 @@
         const syncDelivery = () => {
           const delivery = form.elements.fulfillment.value === "delivery";
           form.querySelector(".delivery-fee-fields").hidden = !delivery;
-          if (!delivery) form.elements.dg.checked = false;
-          form.elements.dg_amount.disabled = !delivery || !form.elements.dg.checked;
-          form.elements.dg_amount.required = !form.elements.dg_amount.disabled;
+          form.elements.dg_amount.disabled = !delivery;
+          form.elements.dg_amount.required = delivery;
         };
         form.elements.fulfillment.addEventListener("change", syncDelivery);
-        form.elements.dg.addEventListener("change", syncDelivery);
         syncDelivery();
         const customerPool = new Map();
         [...(liveData.sales || []), ...(liveData.testSales || [])].forEach(item => {
@@ -4148,14 +4145,15 @@
       onSubmit: async form => {
         if (!form.elements.city.value.trim() || !form.elements.barangay.value.trim()) throw new Error("City / municipality and barangay are required.");
         const method = form.elements.fulfillment.value || null;
-        const fee = form.elements.dg.checked ? Number(form.elements.dg_amount.value) : null;
+        const feeText = form.elements.dg_amount.value.trim();
+        const fee = method === "delivery" && feeText !== "" ? Number(feeText) : null;
         window.BranchlineDelivery.validate(method, fee, !!sale && !sale.fulfillment_method);
         const rows = [...form.querySelectorAll(".sale-row")].map(row => {
           const product = resolve(row.querySelector('[name="product"]').value);
           if (!product) throw new Error("Pick each product from the suggestions (or type its exact barcode).");
           const srpInput = row.querySelector('[name="srp"]').value.trim();
           const srp = srpInput === "" ? null : parseCurrency(srpInput);
-          if (srpInput !== "" && (srp === null || srp < 0)) throw new Error("Enter a valid non-negative SRP or leave it blank.");
+          if (srp === null || srp < 0) throw new Error("Enter an SRP for every product. Use a valid non-negative amount.");
           return {
             barcode: product.barcode,
             srp,

@@ -10,9 +10,9 @@ test("real DB delivery saves are atomic, fees excluded from sales, edits audited
   const dealer=id(1),district=id(2),branch=id(3),other=id(4),ps=id(5),admin=id(6),manager=id(7),second=id(8),controller=id(9);
   const call = async (sql, params=[]) => (await db.query(sql,params)).rows;
   const actor = user => call("select set_config('request.jwt.claim.sub',$1,false)",[user]);
-  const save = async (method,fee,saleId=null,qty=1,units=[]) => (await call(
+  const save = async (method,fee,saleId=null,qty=1,units=[],srp=150) => (await call(
     "select save_sale_with_delivery('Customer','DG-TEST',current_date,$1::jsonb,$2,'Cash','City','Barangay',$5::jsonb,false,$3,$4) id",
-    [JSON.stringify([{barcode:"00000101",quantity:qty,selling_price:100,srp:150}]),saleId,method,fee,JSON.stringify(units)]))[0].id;
+    [JSON.stringify([{barcode:"00000101",quantity:qty,selling_price:100,srp}]),saleId,method,fee,JSON.stringify(units)]))[0].id;
   try {
     await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;
       create schema auth;create schema extensions;create table auth.users(id uuid primary key);
@@ -22,13 +22,15 @@ test("real DB delivery saves are atomic, fees excluded from sales, edits audited
     const files=fs.readdirSync(directory).filter(name=>name.endsWith(".sql")).sort();
     assert.ok(files.some(name=>name.includes("initial_schema")), "Set BRANCHLINE_MIGRATIONS to the complete migration chain for integration tests.");
     for (const file of files) {
-      if (file==="20261118000000_sales_history_ps_aliases.sql" || file==="20261124000000_delivery_guarranty.sql" || file==="20261125000000_manual_sale_serials.sql" || file==="20261127000000_admin_sale_edit.sql" || file==="20261129000000_free_delivery_guarranty.sql") continue;
+      if (file==="20261118000000_sales_history_ps_aliases.sql" || file==="20261124000000_delivery_guarranty.sql" || file==="20261125000000_manual_sale_serials.sql" || file==="20261127000000_admin_sale_edit.sql" || file==="20261129000000_free_delivery_guarranty.sql" || file==="20261201000000_manual_sale_required_srp.sql" || file==="20261202000000_delivery_required_dg.sql") continue;
       await db.exec(fs.readFileSync(path.join(directory,file),"utf8").replace(/create extension if not exists pgcrypto with schema extensions;/i,""));
     }
     await db.exec(fs.readFileSync(path.join(__dirname,"supabase","migrations","20261124000000_delivery_guarranty.sql"),"utf8"));
     await db.exec(fs.readFileSync(path.join(__dirname,"supabase","migrations","20261125000000_manual_sale_serials.sql"),"utf8"));
     await db.exec(fs.readFileSync(path.join(__dirname,"supabase","migrations","20261127000000_admin_sale_edit.sql"),"utf8"));
     await db.exec(fs.readFileSync(path.join(__dirname,"supabase","migrations","20261129000000_free_delivery_guarranty.sql"),"utf8"));
+    await db.exec(fs.readFileSync(path.join(__dirname,"supabase","migrations","20261201000000_manual_sale_required_srp.sql"),"utf8"));
+    await db.exec(fs.readFileSync(path.join(__dirname,"supabase","migrations","20261202000000_delivery_required_dg.sql"),"utf8"));
     await db.exec(`insert into dealers(id,name)values('${dealer}','Fixture');
       insert into districts(id,dealer_id,name)values('${district}','${dealer}','District');
       insert into branches(id,dealer_id,district_id,name,code)values('${branch}','${dealer}','${district}','Santiago','STG'),('${other}','${dealer}','${district}','Other','OTH');
@@ -45,10 +47,22 @@ test("real DB delivery saves are atomic, fees excluded from sales, edits audited
     await actor(admin);
     await call("select import_inventory($1,now(),'fixture',$2::jsonb)",[branch,JSON.stringify([{barcode:"00000101",description:"TCL TEST UNIT",brand:"TCL",category:"TV",quantity:5,serialized:false,serials:[]}])]);
     await actor(ps);await db.exec("set role authenticated");
-    for (const [method,fee] of [[null,null],["unknown",null],["pickup",10],["pickup",0],["delivery",-1],["delivery",1.001],["delivery","NaN"],["delivery","Infinity"],["delivery",10000000000]]) {
+    for (const srp of [null, "", "150", -1, "NaN", "Infinity"]) {
+      await assert.rejects(save("delivery",0,null,1,[],srp), /Enter an SRP/);
+    }
+    assert.equal((await call("select count(*)::int n from sales"))[0].n,0);
+    assert.equal((await call("select quantity from inventory_stock where branch_id=$1 and barcode='00000101'",[branch]))[0].quantity,5);
+    for (const [method,fee] of [[null,null],["unknown",null],["pickup",10],["pickup",0],["delivery",null],["delivery",-1],["delivery",1.001],["delivery","NaN"],["delivery","Infinity"],["delivery",10000000000]]) {
       await assert.rejects(save(method,fee));
     }
     const sale=await save("delivery",200);
+    await assert.rejects(save("delivery",null,sale), /Use 0.00 for free delivery/);
+    assert.equal((await call("select amount from sale_delivery_guaranties where sale_id=$1",[sale]))[0].amount,"200.00");
+    await assert.rejects(save("delivery",0,sale,1,[],null), /Enter an SRP/);
+    assert.equal((await call("select srp from sale_lines where sale_id=$1",[sale]))[0].srp,"150.00");
+    await save("delivery",0,sale,1,[],0);
+    assert.equal((await call("select srp from sale_lines where sale_id=$1",[sale]))[0].srp,"0.00");
+    await save("delivery",200,sale);
     await assert.rejects(save(null,null,sale),/Choose Delivery or Pick up/);
     assert.equal((await call("select sum(quantity*selling_price)::numeric amount from sale_lines where sale_id=$1",[sale]))[0].amount,"100.00");
     assert.equal((await call("select amount from sale_delivery_guaranties where sale_id=$1",[sale]))[0].amount,"200.00");

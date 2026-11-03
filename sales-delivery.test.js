@@ -10,6 +10,7 @@ test("delivery fees validate without becoming product sales", () => {
   D.validate("delivery", 0);
   D.validate("pickup", null);
   D.validate(null, null, true);
+  assert.throws(() => D.validate("delivery", null), /Use 0.00 for free delivery/);
   for (const [method, fee] of [["pickup", 10], ["pickup", 0], [null, 10], ["", null], ["other", null], ["delivery", -1], ["delivery", NaN], ["delivery", Infinity], ["delivery", 1.001], ["delivery", 10000000000]]) {
     assert.throws(() => D.validate(method, fee));
   }
@@ -71,8 +72,8 @@ test("demo records, edits and removes DG independently and keeps fees scoped to 
     p_serials: [], p_fulfillment_method: "delivery", p_dg_amount: 200 };
   const before = (await data(demo.client.from("sales"))).length;
   for (const lines of [
-    [{ barcode: "00990100", quantity: 1, selling_price: 100 }],
-    [...params.p_lines, { barcode: "00990100", quantity: 1, selling_price: 0 }],
+    [{ barcode: "00990100", quantity: 1, selling_price: 100, srp: 100 }],
+    [...params.p_lines, { barcode: "00990100", quantity: 1, selling_price: 0, srp: 0 }],
     [{ ...params.p_lines[0], quantity: 4 }],
   ]) {
     const unavailable = await demo.client.rpc("save_sale_with_delivery", { ...params, p_lines: lines });
@@ -81,6 +82,17 @@ test("demo records, edits and removes DG independently and keeps fees scoped to 
     assert.equal((await data(demo.client.from("inventory_stock"))).find(row => row.barcode === "00990099").quantity, 3);
   }
   const id = await data(demo.client.rpc("save_sale_with_delivery", params));
+  const missingDg = await demo.client.rpc("save_sale_with_delivery", { ...params, p_sale_id: id, p_dg_amount: null });
+  assert.match(missingDg.error.message, /Use 0.00 for free delivery/);
+  assert.equal((await data(demo.client.from("sale_delivery_guaranties"))).find(row => row.sale_id === id).amount, 200);
+  for (const srp of [null, undefined, "", "100", -1, NaN, Infinity]) {
+    const invalidSrp = await demo.client.rpc("save_sale_with_delivery", { ...params, p_sale_id: id, p_lines: [{ ...params.p_lines[0], srp }] });
+    assert.match(invalidSrp.error.message, /Enter an SRP/);
+    assert.equal((await data(demo.client.from("sale_lines"))).find(row => row.sale_id === id).srp, 100);
+  }
+  await data(demo.client.rpc("save_sale_with_delivery", { ...params, p_sale_id: id, p_lines: [{ ...params.p_lines[0], srp: 0 }] }));
+  assert.equal((await data(demo.client.from("sale_lines"))).find(row => row.sale_id === id).srp, 0);
+  await data(demo.client.rpc("save_sale_with_delivery", { ...params, p_sale_id: id }));
   assert.equal((await data(demo.client.from("sale_delivery_guaranties"))).find(row => row.sale_id === id).amount, 200);
   assert.equal((await data(demo.client.from("sale_lines"))).filter(row => row.sale_id === id).reduce((sum, row) => sum + row.quantity * row.selling_price, 0), 100);
   await data(demo.client.rpc("save_sale_with_delivery", { ...params, p_sale_id: id, p_dg_amount: 0 }));
@@ -91,8 +103,8 @@ test("demo records, edits and removes DG independently and keeps fees scoped to 
   await data(demo.client.rpc("save_sale_with_delivery", { ...params, p_sale_id: id, p_fulfillment_method: "pickup", p_dg_amount: null }));
   assert.equal((await data(demo.client.from("sale_delivery_guaranties"))).some(row => row.sale_id === id), false);
   assert.equal((await data(demo.client.from("sale_edit_history"))).find(row => row.sale_id === id).previous_values.delivery_guarranty_amount, 200);
-  const manual = { ...params, p_invoice_number:"MANUAL-TEST", p_dg_amount:null,
-    p_lines:[{barcode:"00990100",quantity:1,selling_price:100}],p_serials:[{barcode:"00990100",serial:"Missing-From-Import",manual:true}] };
+  const manual = { ...params, p_invoice_number:"MANUAL-TEST", p_dg_amount:0,
+    p_lines:[{barcode:"00990100",quantity:1,selling_price:100,srp:100}],p_serials:[{barcode:"00990100",serial:"Missing-From-Import",manual:true}] };
   const missingConfirmation=await demo.client.rpc("save_sale_with_delivery",{...manual,p_serials:[{...manual.p_serials[0],manual:false}]});
   assert.match(missingConfirmation.error.message,/Confirm adding missing serial/);
   const manualId=await data(demo.client.rpc("save_sale_with_delivery",manual));
@@ -115,6 +127,11 @@ test("frontend exposes monitoring only to managers, and caches the shared module
   assert.doesNotMatch(source, /<button[^>]*data-delivery-person/);
   assert.match(source, /closest\("\[data-sale-details\], \[data-delivery-person\]"\)/);
   assert.match(source, /name="dg_amount"[^>]*min="0"[^>]*step="0.01"/);
+  assert.match(source, /name="srp"[^>]*min="0"[^>]*required/);
+  assert.doesNotMatch(source, /name="dg" type="checkbox"|elements.dg.checked/);
+  assert.match(source, /dg_amount.required = delivery/);
+  assert.match(source, /method === "delivery" && feeText !== "" \? Number\(feeText\) : null/);
+  assert.doesNotMatch(source, /SRP or leave it blank/);
   assert.match(source, /Available: \$\{stock.quantity\} · current inventory/);
   assert.match(source, /aria-label="Item availability"/);
   assert.match(source, /client.rpc\("save_sale_with_delivery"/);

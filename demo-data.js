@@ -389,6 +389,10 @@
         return Inventory.execute(name, p, { tables, actor, branchIds: inventoryBranchIds, uid, now, today });
       }
       if (name === "save_sale_with_delivery") {
+        if (!Array.isArray(p.p_lines)) throw new Error("Sale products must be an array.");
+        if (p.p_lines.some(line => typeof line.srp !== "number" || !Number.isFinite(line.srp) || line.srp < 0)) {
+          throw new Error("Enter an SRP for every product. Use a valid non-negative amount.");
+        }
         tables.manual_sale_serial_entries ||= [];
         const branch = tables.sales.find(row => row.id === p.p_sale_id)?.branch_id || actor.branch_id;
         const manualEntries = [];

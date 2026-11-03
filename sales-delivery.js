@@ -2,6 +2,7 @@
   "use strict";
   function validate(method, amount, allowUnspecified = false) {
     if (!["delivery", "pickup"].includes(method) && !(allowUnspecified && !method)) throw new Error("Choose Delivery or Pick up.");
+    if (method === "delivery" && amount === null) throw new Error("Enter a Delivery Guarranty amount. Use 0.00 for free delivery.");
     if (amount !== null && (!Number.isFinite(amount) || amount < 0 || amount > 9999999999.99 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.0001)) {
       throw new Error("Delivery Guarranty must be zero or a positive amount with at most two decimal places.");
     }
