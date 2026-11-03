@@ -6,6 +6,7 @@
   const BRANDS = ["TCL", "LG", "Samsung", "Panasonic", "Hanabishi", "Camel", "Sharp", "Sony", "Devant", "Skyworth"];
   const Inventory = typeof module !== "undefined" && module.exports ? require("./inventory-demo.js") : root.BranchlineInventoryDemo;
   const I = typeof module !== "undefined" && module.exports ? require("./inventory.js") : root.BranchlineInventory;
+  const Delivery = typeof module !== "undefined" && module.exports ? require("./sales-delivery.js") : root.BranchlineDelivery;
   const roles = ["ps", "manager", "district_manager", "admin", "inventory_controller", "stock_custodian"];
   const copy = value => JSON.parse(JSON.stringify(value));
   const uid = () => root.crypto.randomUUID();
@@ -251,6 +252,7 @@
       }
     }
     Inventory.initialize(tables, today, uid);
+    tables.sale_delivery_guaranties ||= [];
     let actor = tables.profiles.find(p => p.role === "ps" && p.active) || tables.profiles.find(p => p.role === "admin" && p.active);
     if (!actor) throw new Error("No active demo account. Reset the demo to restore sample accounts.");
     const persist = () => storage.setItem(STATE_KEY, JSON.stringify({ version: 1, sampleRevision: SAMPLE_REVISION, tables, catalogLabel: savedLabel, catalogStamp, scenario, sampleThrough }));
@@ -316,7 +318,7 @@
       if (table === "districts") return tables.districts.filter(d => actor.role === "admin" || tables.branches.some(b => ids.includes(b.id) && b.district_id === d.id));
       if (table === "sales") return visibleSales();
       if (table === "products" && actor.role === "ps") return tables.products.filter(product => ids.includes(product.branch_id) && brandMatches(product));
-      if (["sale_lines", "sale_serials", "sale_edit_history"].includes(table)) {
+      if (["sale_lines", "sale_serials", "sale_edit_history", "sale_delivery_guaranties"].includes(table)) {
         const sales = new Set(visibleSales().map(s => s.id));
         return tables[table].filter(row => sales.has(row.sale_id));
       }
@@ -336,7 +338,7 @@
       const sale = tables.sales.find(row => row.id === id);
       if (sale) Inventory.deleteSale(tables, sale);
       tables.sales = tables.sales.filter(s => s.id !== id);
-      for (const table of ["sale_lines", "sale_serials", "sale_edit_history"]) tables[table] = tables[table].filter(row => row.sale_id !== id);
+      for (const table of ["sale_lines", "sale_serials", "sale_edit_history", "sale_delivery_guaranties"]) tables[table] = tables[table].filter(row => row.sale_id !== id);
     };
     function brandMatches(line, person = actor) {
       const parts = assignment => String(assignment || "").split("/").map(part => {
@@ -379,6 +381,21 @@
       if (name === "dispatch_inventory") throw new Error("Use the whole-transfer approval/receipt workflow.");
       if (["inventory_catalog", "inventory_destinations", "inventory_sales_serials", "claim_inventory_reminder", "assign_inventory_branches", "classify_inventory_product", "import_inventory", "adjust_inventory", "submit_inventory_transfer", "review_inventory_transfer", "resolve_inventory_transfer"].includes(name)) {
         return Inventory.execute(name, p, { tables, actor, branchIds: inventoryBranchIds, uid, now, today });
+      }
+      if (name === "save_sale_with_delivery") {
+        const previous = tables.sales.find(row => row.id === p.p_sale_id);
+        const method = p.p_fulfillment_method || null, amount = p.p_dg_amount ?? null;
+        Delivery.validate(method, amount, !!previous && !previous.fulfillment_method);
+        const fee = tables.sale_delivery_guaranties.find(row => row.sale_id === p.p_sale_id)?.amount ?? null;
+        const historyIds = new Set(tables.sale_edit_history.map(row => row.id));
+        const id = rpc("save_inventory_sale", p);
+        tables.sales.find(row => row.id === id).fulfillment_method = method;
+        tables.sale_delivery_guaranties = tables.sale_delivery_guaranties.filter(row => row.sale_id !== id);
+        if (amount !== null) tables.sale_delivery_guaranties.push({ sale_id: id, amount });
+        for (const row of tables.sale_edit_history.filter(row => row.sale_id === id && !historyIds.has(row.id))) {
+          row.previous_values.delivery_guarranty_amount = fee;
+        }
+        return id;
       }
       if (name === "save_inventory_sale") {
         if (!String(p.p_city || "").trim() || !String(p.p_barangay || "").trim()) throw new Error("City / municipality and barangay are required.");

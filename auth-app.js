@@ -440,6 +440,7 @@
         return;
       }
       const isPsUser = profile.role === "ps";
+      const deliveryRequest = fetchAll("sale_delivery_guaranties", "sale_id,amount", [["sale_id", true]]);
       const inventoryRequest = loadInventoryData(client).then(
         data => ({ data, error: null }),
         error => ({ data: null, error }));
@@ -456,7 +457,7 @@
         fetchAll("branches", "id,name,district_id,code,transfer_sequence", [["name", true], ["id", true]]),
         fetchAll("districts", "id,name", [["name", true], ["id", true]]),
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
-        fetchAll("sales",         "id,branch_id,ps_id,ps_name,customer_name,invoice_number,sold_on,payment_mode,city,barangay,created_at,updated_at", [["sold_on", false], ["id", true]]),
+        fetchAll("sales",         "id,branch_id,ps_id,ps_name,customer_name,invoice_number,sold_on,payment_mode,city,barangay,fulfillment_method,created_at,updated_at", [["sold_on", false], ["id", true]]),
                 fetchAll("products", "id,branch_id,barcode,model_description,brand,category,sub_category,active,srp", [["model_description", true], ["id", true]], query => (catalogBranch ? query.eq("branch_id", catalogBranch) : query).eq("active", true)),
         fetchAll("profiles", "id,full_name,role,branch_id,district_id,assigned_brand,active,login_id,email", [["id", true]]),
         fetchAll("brand_targets", "id,branch_id,month,brand,amount", [["month", false], ["id", true]]),
@@ -526,6 +527,7 @@
       });
 
       liveData = {
+        deliveryGuaranties: checkResult(await deliveryRequest, "Unable to load Delivery Guarranty fees"),
         branches: visibleBranches,
         districts: visibleDistricts,
         targets: visibleTargets,
@@ -2265,7 +2267,7 @@
         district: true,
         branch: true,
         period: true,
-        actions: isPs ? '<button class="button button-primary" type="button" data-open="sale">+ Record sale</button>' : "",
+        actions: isPs ? '<button class="button button-primary record-sale-floating" type="button" data-open="sale">+ Record sale</button>' : "",
       }),
       () => {
         const ids = scopeBranchIds();
@@ -2348,13 +2350,48 @@
           dailyContent, dailyControls);
         return `${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} ·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a column heading to sort.`, totalsCards + tableBlock(
             "sales",
-                      ["Invoice", "Customer", "Products", "Serial numbers", "Qty", "Payment", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(canEditSales || isAdmin ? [""] : [])],
+                      ["Invoice", "Customer", "Products", "Serial numbers", "Qty", "Payment", "Delivery / Pick up", "Product Specialist", "Branch", "Sale date", "Recorded", "Total", ...(canEditSales || isAdmin ? [""] : [])],
             sales,
-                      row => `<tr${row.isTest ? ' class="test-row"' : ""}><td><strong>${escapeHTML(row.sale.invoice_number)}</strong>${row.isTest ? ' <span class="test-badge">TEST – not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}${row.sale.city || row.sale.barangay ? `<br><small>${escapeHTML([row.sale.barangay, row.sale.city].filter(Boolean).join(", "))}</small>` : ""}</td><td>${row.lines.length ? row.lines.map(productLineHTML).join("") : "—"}</td><td>${row.serials.length ? row.serials.map(serial => `<div>${escapeHTML(serial)}</div>`).join("") : "—"}</td><td>${row.qty}</td><td>${escapeHTML(row.sale.payment_mode || "—")}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td data-sort="${escapeHTML(row.sale.created_at)}">${escapeHTML(new Date(row.sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</td><td><strong>${formatMoney(row.total)}</strong></td>${canEditSales ? `<td><button class="button button-outline button-small" type="button" data-edit-sale="${escapeHTML(row.sale.id)}">Edit</button></td>` : isAdmin ? `<td><button class="button button-outline button-small button-danger" type="button" data-delete-sale="${escapeHTML(row.sale.id)}">Delete</button></td>` : ""}</tr>`,
+                      row => `<tr${row.isTest ? ' class="test-row"' : ""}><td><strong>${escapeHTML(row.sale.invoice_number)}</strong>${row.isTest ? ' <span class="test-badge">TEST – not counted</span>' : ""}</td><td>${escapeHTML(row.sale.customer_name)}${row.sale.city || row.sale.barangay ? `<br><small>${escapeHTML([row.sale.barangay, row.sale.city].filter(Boolean).join(", "))}</small>` : ""}</td><td>${row.lines.length ? row.lines.map(productLineHTML).join("") : "—"}</td><td>${row.serials.length ? row.serials.map(serial => `<div>${escapeHTML(serial)}</div>`).join("") : "—"}</td><td>${row.qty}</td><td>${escapeHTML(row.sale.payment_mode || "—")}</td><td>${row.sale.fulfillment_method === "delivery" ? "Delivery" : row.sale.fulfillment_method === "pickup" ? "Pick up" : "Not specified"}</td><td>${escapeHTML(row.person)}</td><td>${escapeHTML(row.branch)}</td><td>${escapeHTML(row.sale.sold_on)}</td><td data-sort="${escapeHTML(row.sale.created_at)}">${escapeHTML(new Date(row.sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</td><td><strong>${formatMoney(row.total)}</strong></td>${canEditSales ? `<td><button class="button button-outline button-small" type="button" data-edit-sale="${escapeHTML(row.sale.id)}">Edit</button></td>` : isAdmin ? `<td><button class="button button-outline button-small button-danger" type="button" data-delete-sale="${escapeHTML(row.sale.id)}">Delete</button></td>` : ""}</tr>`,
             "No sales match these filters.",
-          ), tools)}${dailySummary}${isPs ? brandLogPanel() : ""}`;
+          ), tools)}${deliveryMonitoringPanel(sales.filter(row => !row.isTest).map(row => row.sale))}${dailySummary}${isPs ? brandLogPanel() : ""}`;
       },
     );
+  }
+
+  let deliveryGroups = [];
+  function fulfillmentLabel(sale) {
+    return sale.fulfillment_method === "delivery" ? "Delivery" : sale.fulfillment_method === "pickup" ? "Pick up" : "Not specified";
+  }
+
+  function deliveryExport(sales) {
+    const groups = window.BranchlineDelivery.monitoring(sales.filter(sale => !isTestSale(sale, liveData.testPsIds)), liveData.deliveryGuaranties, liveData.profiles);
+    return { name: "Delivery Guarranty", rows: [
+      ["PS", "Customer", "Address", "Invoice", "Date", "Branch", "DG qty", "DG amount (not sales)"],
+      ...groups.flatMap(group => group.sales.map(sale => [group.name, sale.customer_name, addressOf(sale), sale.invoice_number, sale.sold_on, branchName(sale.branch_id), 1, sale.dg_amount])),
+      ["TOTAL", "", "", "", "", "", groups.reduce((sum, group) => sum + group.quantity, 0), groups.reduce((sum, group) => sum + group.amount, 0)],
+    ] };
+  }
+  function deliveryMonitoringPanel(sales) {
+    deliveryGroups = [];
+    if (!["manager", "district_manager", "admin"].includes(currentProfile.role)) return "";
+    deliveryGroups = window.BranchlineDelivery.monitoring(sales, liveData.deliveryGuaranties, liveData.profiles);
+    const total = deliveryGroups.reduce((sum, group) => sum + group.amount, 0);
+    const quantity = deliveryGroups.reduce((sum, group) => sum + group.quantity, 0);
+    return panel("DELIVERY GUARRANTY", `${quantity} invoice(s) · Total amount: ${formatMoney(total)} · DG fees only, excluded from sales and targets. Uses the sales log's branch, date and search filters.`,
+      tableBlock("delivery-guarranty", ["PS name", "Qty of sales with DG", "Total amount"], deliveryGroups,
+        group => `<tr><td><button class="text-link" type="button" data-delivery-person="${escapeHTML(group.key)}">${escapeHTML(group.name)}</button></td><td>${group.quantity}</td><td>${formatMoney(group.amount)}</td></tr>`,
+        "No Delivery Guarranty fees match these filters."));
+  }
+
+  function openDeliveryDetails(key) {
+    if (!["manager", "district_manager", "admin"].includes(currentProfile.role)) return;
+    const group = deliveryGroups.find(item => item.key === key);
+    if (!group) throw new Error("Delivery Guarranty summary changed. Refresh the sales view.");
+    openModal({ title: `DELIVERY GUARRANTY · ${group.name}`, readOnly: true, wide: true,
+      body: `<p>${group.quantity} invoice(s) · DG fees only</p>${tableBlock("delivery-customers", ["Customer", "Address", "Invoice", "Date", "Amount"],
+        group.sales, sale => `<tr><td>${escapeHTML(sale.customer_name)}</td><td>${escapeHTML(addressOf(sale) || "Not recorded")}</td><td>${escapeHTML(sale.invoice_number)}</td><td>${escapeHTML(sale.sold_on)}</td><td>${formatMoney(sale.dg_amount)}</td></tr>`, "No matching fees.")}
+        <p><strong>Total amount: ${formatMoney(group.amount)}</strong></p>` });
   }
 
   // One product line: brand · category · sub-category, then the description and quantity.
@@ -3549,6 +3586,7 @@
   // Records a new sale, or corrects an existing one when `sale` is given.
   function openSaleModal(sale) {
     const lines = sale ? linesForSale(sale.id) : [{}];
+    const deliveryFee = liveData.deliveryGuaranties.find(item => item.sale_id === sale?.id)?.amount ?? null;
     const catalog = saleProducts();
     const resolve = text => {
       const value = String(text || "").trim().toLowerCase();
@@ -3566,6 +3604,12 @@
           ${fieldHTML("Invoice number", "invoice", `<input name="invoice" autocomplete="off" required value="${escapeHTML(sale?.invoice_number || "")}">`)}
           ${fieldHTML("Date", "date", `<input name="date" type="date" required value="${escapeHTML(sale?.sold_on || localISODate())}">`)}
           ${fieldHTML("Mode of payment", "payment", paymentSelectHTML(sale?.payment_mode))}
+          ${fieldHTML("Delivery / Pick up", "fulfillment", `<select name="fulfillment" ${!sale || sale.fulfillment_method ? "required" : ""}><option value="">${sale ? "Not specified (older sale)" : "Select..."}</option><option value="delivery" ${sale?.fulfillment_method === "delivery" ? "selected" : ""}>Delivery</option><option value="pickup" ${sale?.fulfillment_method === "pickup" ? "selected" : ""}>Pick up</option></select>`)}
+        </div>
+        <div class="delivery-fee-fields" ${sale?.fulfillment_method === "delivery" ? "" : "hidden"}>
+          <label class="check-row"><input name="dg" type="checkbox" ${deliveryFee !== null ? "checked" : ""}> DELIVERY GUARRANTY (DG)</label>
+          ${fieldHTML("Delivery Guarranty amount (PHP)", "dg_amount", `<input name="dg_amount" type="number" inputmode="decimal" min="0.01" max="9999999999.99" step="0.01" value="${escapeHTML(deliveryFee ?? "")}" ${deliveryFee === null ? "disabled" : "required"}>`)}
+          <small>Separate fee only. Not added to product sales, targets or PS sales totals. One invoice counts as one DG sale.</small>
         </div>
         <div class="dlg-grid">
           ${fieldHTML("City / municipality", "city", `<input name="city" list="sale-cities" autocomplete="off" required placeholder="e.g. Santiago City" value="${escapeHTML(sale?.city || "")}">`)}
@@ -3579,6 +3623,16 @@
         <div class="sale-footer"><span class="sale-footer-actions"><button class="button button-outline button-small" type="button" data-add-line>+ Add product line</button></span><strong>Sale total: <span id="sale-total">${formatMoney(lines.reduce((sum, line) => sum + Number(line.selling_price || 0) * Number(line.quantity || 0), 0))}</span></strong></div>
         ${sale ? '<label class="check-row"><input name="reconcile" type="checkbox"> Apply quantity/serial corrections to current inventory if this sale was included in a replacement snapshot. Prices and customer corrections do not require this.</label>' : ""}`,
       onReady: form => {
+        const syncDelivery = () => {
+          const delivery = form.elements.fulfillment.value === "delivery";
+          form.querySelector(".delivery-fee-fields").hidden = !delivery;
+          if (!delivery) form.elements.dg.checked = false;
+          form.elements.dg_amount.disabled = !delivery || !form.elements.dg.checked;
+          form.elements.dg_amount.required = !form.elements.dg_amount.disabled;
+        };
+        form.elements.fulfillment.addEventListener("change", syncDelivery);
+        form.elements.dg.addEventListener("change", syncDelivery);
+        syncDelivery();
         const customerPool = new Map();
         [...(liveData.sales || []), ...(liveData.testSales || [])].forEach(item => {
           const name = titleCase(String(item.customer_name || "").trim());
@@ -3634,11 +3688,37 @@
             host.dataset.key = key;
             host.innerHTML = stock?.serialized ? (qty === 1
               ? `<label class="field"><span>Available serial number</span><select data-sale-serial="${escapeHTML(product.barcode)}" required>${serialOptions(product.barcode, selected[0])}</select></label>`
-              : `<button class="button button-outline button-small" type="button" data-select-serials="${escapeHTML(product.barcode)}">Choose ${qty} serial numbers (${selected.slice(0, qty).filter(Boolean).length} selected)</button>`)
+              : `<button class="button button-outline button-small" type="button" data-select-serials="${escapeHTML(product.barcode)}">Choose ${qty} serial numbers (${selected.slice(0, qty).filter(Boolean).length} selected)</button>`) + `<small class="sale-stock-quantity">Available: ${stock.quantity} · current inventory${inventorySaleUnitsFor(saleBranch, product.barcode, sale?.id).some(item => item.status === "absent") ? " · retained serials are for late sales only" : ""}</small>`
               : `<small>${product ? stock ? `Available: ${stock.quantity} · no serial required` : "Inventory not initialized for this product" : ""}</small>`;
           });
         };
         showSerialFields();
+        const stockState = (product, quantity) => window.BranchlineDelivery.availability(
+          inventoryStockFor(saleBranch, product.barcode), inventorySaleUnitsFor(saleBranch, product.barcode, sale?.id), quantity,
+          lines.filter(line => line.barcode === product.barcode).reduce((sum, line) => sum + Number(line.quantity || 0), 0));
+        const notifyAvailability = row => {
+          const product = resolve(row.querySelector('[name="product"]').value);
+          if (!product) { delete row.dataset.stockNotice; return; }
+          const quantity = Number(row.querySelector('[name="quantity"]').value);
+          if (!Number.isInteger(quantity) || quantity < 1) return;
+          const state = stockState(product, quantity);
+          const notice = `${product.barcode}:${quantity}:${state.warning}`;
+          if (row.dataset.stockNotice === notice) return;
+          row.dataset.stockNotice = notice;
+          if (!state.warning) return;
+          const pop = document.createElement("div");
+          pop.className = "serial-pop";
+          pop.innerHTML = `<div class="serial-card" role="dialog" aria-modal="true" aria-label="Item availability" tabindex="-1"><h3>${state.blocked ? "Item unavailable" : "Check item availability"}</h3><p>${escapeHTML(product.model_description)}</p><p>${escapeHTML(state.warning)}</p><button class="button button-primary" type="button" data-stock-dismiss>OK</button></div>`;
+          const dismiss = () => { pop.remove(); row.querySelector('[name="product"]').focus(); };
+          pop.addEventListener("click", event => { if (event.target.closest("[data-stock-dismiss]")) dismiss(); });
+          pop.addEventListener("keydown", event => {
+            if (event.key === "Escape") { event.stopPropagation(); dismiss(); }
+            if (event.key === "Tab") { event.preventDefault(); pop.querySelector("button").focus(); }
+          });
+          form.closest(".dlg-backdrop").querySelectorAll('[aria-label="Item availability"]').forEach(el => el.parentElement.remove());
+          form.closest(".dlg-backdrop").appendChild(pop);
+          pop.querySelector("button").focus();
+        };
         let places = [];
         let placeCode = "";
         const cityBox = form.elements.city;
@@ -3752,6 +3832,9 @@
             form.querySelector("#sale-products").innerHTML = productSuggestions(event.target.value)
               .map(item => `<option value="${escapeHTML(productLabel(item))}"></option>`).join("");
             syncOutdoor(event.target.closest(".sale-row"));
+            const row = event.target.closest(".sale-row");
+            notifyAvailability(row);
+            if (row.dataset.outdoorRow) notifyAvailability(form.querySelector(`[data-outdoor-of="${row.dataset.outdoorRow}"]`));
           }
           if (event.target.name === "quantity") {
             const row = event.target.closest(".sale-row");
@@ -3759,6 +3842,9 @@
             if (linked) linked.value = event.target.value;
           }
           recalc();
+        });
+        form.addEventListener("change", event => {
+          if (["product", "quantity"].includes(event.target.name)) notifyAvailability(event.target.closest(".sale-row"));
         });
         form.addEventListener("focusout", event => {
           if (event.target.name === "price" || event.target.name === "srp") {
@@ -3783,6 +3869,9 @@
       },
       onSubmit: async form => {
         if (!form.elements.city.value.trim() || !form.elements.barangay.value.trim()) throw new Error("City / municipality and barangay are required.");
+        const method = form.elements.fulfillment.value || null;
+        const fee = form.elements.dg.checked ? Number(form.elements.dg_amount.value) : null;
+        window.BranchlineDelivery.validate(method, fee, !!sale && !sale.fulfillment_method);
         const rows = [...form.querySelectorAll(".sale-row")].map(row => {
           const product = resolve(row.querySelector('[name="product"]').value);
           if (!product) throw new Error("Pick each product from the suggestions (or type its exact barcode).");
@@ -3801,7 +3890,15 @@
         }
         if (new Set(rows.map(row => row.barcode)).size !== rows.length) throw new Error("Use one item line per barcode and increase its quantity instead of repeating the product.");
         if (liveData.inventoryError) throw new Error(liveData.inventoryError);
-        mustRpc(await client.rpc("save_inventory_sale", {
+        for (const row of rows) {
+          const previousQuantity = lines.filter(line => line.barcode === row.barcode).reduce((sum, line) => sum + Number(line.quantity || 0), 0);
+          const state = window.BranchlineDelivery.availability(inventoryStockFor(sale?.branch_id || currentProfile.branch_id, row.barcode),
+            inventorySaleUnitsFor(sale?.branch_id || currentProfile.branch_id, row.barcode, sale?.id), row.quantity, previousQuantity);
+          if (state.blocked) throw new Error(`${row.barcode}: ${state.warning}`);
+        }
+        mustRpc(await client.rpc("save_sale_with_delivery", {
+          p_fulfillment_method: method,
+          p_dg_amount: fee,
           p_customer_name: uppercaseEntry(form.elements.customer.value),
           p_invoice_number: form.elements.invoice.value.trim(),
           p_sold_on: form.elements.date.value,
@@ -5612,13 +5709,14 @@
     records("Branches", liveData.branches, [["Branch ID", "id"], ["Branch", "name"], ["District ID", "district_id"]]);
     const districtIds = new Set(liveData.branches.map(branch => branch.district_id));
     records("Districts", liveData.districts.filter(district => districtIds.has(district.id)), [["District ID", "id"], ["District", "name"]]);
-    add(isPs ? "My sales" : "Sales", ["Date", "Invoice", "Customer", "Branch", "PS", "Payment", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "City", "Barangay", "Serials", "Test"],
+    add(isPs ? "My sales" : "Sales", ["Date", "Invoice", "Customer", "Branch", "PS", "Payment", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "City", "Barangay", "Serials", "Test", "Delivery / Pick up"],
       sales.flatMap(sale => linesForSale(sale.id).map(line => [
         sale.sold_on, sale.invoice_number, sale.customer_name, branchName(sale.branch_id), psNameOf(sale.ps_id, sale.ps_name), sale.payment_mode,
         line.brand, line.category, line.sub_category, line.model_description, line.barcode, Number(line.quantity), line.srp ?? "",
         Number(line.selling_price), Number(line.quantity) * Number(line.selling_price), sale.city || "", sale.barangay || "",
-        serialsFor(sale.id, line.barcode).join(", "), isTestSale(sale, liveData.testPsIds) ? "Yes" : "No",
+        serialsFor(sale.id, line.barcode).join(", "), isTestSale(sale, liveData.testPsIds) ? "Yes" : "No", fulfillmentLabel(sale),
       ])));
+    if (["manager", "district_manager", "admin"].includes(currentProfile.role)) sheets.push(deliveryExport(sales));
     if (isPs) {
       records("Brand branch-wide", completeBrandLog.filter(row => ids.has(row.branch_id)), [
         ["Date", "sold_on"], ["Invoice", "invoice_number"], ["PS", "ps_name"], ["Brand", "brand"], ["Category", "category"], ["Sub-category", "sub_category"], ["Product", "model_description"], ["Qty", "quantity"],
@@ -5702,18 +5800,19 @@
   function exportSales() {
     const stamp = localISODate();
     const sales = visibleSales().filter(sale => !salesLogExport || salesLogExport.has(sale.id));
-    const detail = [["Sale date", "Invoice", "Customer", "District", "Branch", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment", "City / town", "Barangay", "Serial numbers"]];
+    const detail = [["Sale date", "Invoice", "Customer", "District", "Branch", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment", "City / town", "Barangay", "Serial numbers", "Delivery / Pick up"]];
     const byBranch = new Map();
     const byBrand = new Map();
     sales.forEach(sale => {
       linesForSale(sale.id).forEach(line => {
         const amount = Number(line.selling_price) * Number(line.quantity);
-        detail.push([sale.sold_on, sale.invoice_number, sale.customer_name, branchDistrictName(sale.branch_id), branchName(sale.branch_id), psNameOf(sale.ps_id, sale.ps_name), line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), amount, sale.payment_mode || "", sale.city || "", sale.barangay || "", serialsFor(sale.id, line.barcode).join(", ")]);
+        detail.push([sale.sold_on, sale.invoice_number, sale.customer_name, branchDistrictName(sale.branch_id), branchName(sale.branch_id), psNameOf(sale.ps_id, sale.ps_name), line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), amount, sale.payment_mode || "", sale.city || "", sale.barangay || "", serialsFor(sale.id, line.barcode).join(", "), fulfillmentLabel(sale)]);
         addTo(byBranch, branchName(sale.branch_id), amount);
         addTo(byBrand, (line.brand || "Unbranded").trim(), amount);
       });
     });
     const sheets = [{ name: currentProfile.role === "ps" ? "My sales" : "Sales", rows: detail }];
+    if (["manager", "district_manager", "admin"].includes(currentProfile.role)) sheets.push(deliveryExport(sales));
     if (currentProfile.role === "ps") {
       sheets.push({
         name: "Brand branch-wide",
@@ -6105,6 +6204,8 @@
       if (product) openProductModal(product);
     }
     const editSale = event.target.closest("[data-edit-sale]");
+    const deliveryPerson = event.target.closest("[data-delivery-person]");
+    if (deliveryPerson) openDeliveryDetails(deliveryPerson.dataset.deliveryPerson);
     if (editSale) {
       const sale = [...liveData.sales, ...liveData.testSales].find(item => item.id === editSale.dataset.editSale);
       if (sale) openSaleModal(sale);

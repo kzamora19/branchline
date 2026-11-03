@@ -110,6 +110,20 @@ The `import-engine/` modules are a first-party snapshot of the standalone Extrac
 Files are processed locally in the browser. The sample demo stores edits only in
 browser-local storage and does not write to Supabase.
 
+## Sale delivery and DELIVERY GUARRANTY
+
+Apply `20261124000000_delivery_guarranty.sql` before deploying cache v92. New manual sales require **Delivery / Pick up**. Existing sales remain unspecified until edited; existing unspecified sales can retain that value. Fulfillment can be changed through the existing PS/BM sale-edit permissions.
+
+For Delivery, the PS can select **DELIVERY GUARRANTY (DG)** and enter a positive fee (up to two decimal places). Switching to Pick up removes DG when saved. Fees are stored separately from product lines and never contribute to product sales, targets, payment-mix sales, brand performance, inventory quantities or PS sales totals. A fee has no inventory barcode. Each invoice with DG counts once, regardless of product-unit count.
+
+The Sales menu shows DG monitoring only to Branch Managers, District Managers and Administrators within their existing branch scope. It follows the sales log's date, branch and search filters and excludes test sales. Click a PS name for customer, address, invoice/date, fee and total. Manager sales exports include a separate DG worksheet; product sales worksheets remain fee-free. PS accounts can load their own fee only for entry/editing, not other PS fees or the management monitoring.
+
+`save_sale_with_delivery` atomically validates fulfillment/fee, delegates existing address/role/stock/serial checks, and writes the fee. Edits retain the previous fulfillment and fee in edit history. Deleting a sale cascades its fee. Direct fee writes and the old client-facing save API are denied; older clients must reload. No existing sales or imports are reclassified or given DG fees.
+
+PS **+ Record sale** stays at the bottom-right while scrolling. Serialized lines show current available quantity separately from retained sales-only choices. Selecting unavailable stock opens an availability modal and prevents saving unavailable quantities; zero-current-stock items can still use eligible retained serials for late sales. Uninitialized inventory is explicitly unknown, not assumed zero.
+
+Focused validation: `node --test sales-delivery.test.js inventory-source-branch.test.js`. Real PostgreSQL integration also uses `sales-delivery-db.test.js` with `BRANCHLINE_PGLITE` and `BRANCHLINE_MIGRATIONS` pointing to the existing PGlite installation and complete foundational migration chain.
+
 ## Required sale address and retained serial choices
 
 Inventory report locations must match the selected branch name/code in both the paired-report and unified importers. Explicit mappings cannot relabel Santiago reports as another branch. Current clients attach `source_location` to inventory items; apply [`20261123000000_inventory_source_branch.sql`](supabase/migrations/20261123000000_inventory_source_branch.sql) before deploying cache v91. Both backend import APIs atomically validate supplied provenance, including mixed or blank provenance; older clients that omit it remain compatible.
