@@ -2570,7 +2570,7 @@
     const quantity = deliveryGroups.reduce((sum, group) => sum + group.quantity, 0);
     return panel("DELIVERY GUARRANTY", `${quantity} invoice(s) · Total amount: ${formatMoney(total)} · DG fees only, excluded from sales and targets. Uses the sales log's branch, date and search filters.`,
       tableBlock("delivery-guarranty", ["PS name", "Qty of sales with DG", "Total amount"], deliveryGroups,
-        group => `<tr><td><button class="text-link" type="button" data-delivery-person="${escapeHTML(group.key)}">${escapeHTML(group.name)}</button></td><td>${group.quantity}</td><td>${formatMoney(group.amount)}</td></tr>`,
+        group => `<tr class="sale-summary-row" data-delivery-person="${escapeHTML(group.key)}" tabindex="0" aria-label="View Delivery Guarranty for ${escapeHTML(group.name)}"><td>${escapeHTML(group.name)}</td><td>${group.quantity}</td><td>${formatMoney(group.amount)}</td></tr>`,
         "No Delivery Guarranty fees match these filters."));
   }
 
@@ -3832,7 +3832,7 @@
           ${fieldHTML("Delivery / Pick up", "fulfillment", `<select name="fulfillment" ${!sale || sale.fulfillment_method ? "required" : ""}><option value="">${sale ? "Not specified (older sale)" : "Select..."}</option><option value="delivery" ${sale?.fulfillment_method === "delivery" ? "selected" : ""}>Delivery</option><option value="pickup" ${sale?.fulfillment_method === "pickup" ? "selected" : ""}>Pick up</option></select>`)}
         <div class="delivery-fee-fields" ${sale?.fulfillment_method === "delivery" ? "" : "hidden"}>
           <label class="check-row"><input name="dg" type="checkbox" ${deliveryFee !== null ? "checked" : ""}> DELIVERY GUARRANTY (DG)</label>
-          ${fieldHTML("Delivery Guarranty amount (PHP)", "dg_amount", `<input name="dg_amount" aria-label="Delivery Guarranty amount (PHP)" placeholder="DG amount (PHP)" type="number" inputmode="decimal" min="0.01" max="9999999999.99" step="0.01" value="${escapeHTML(deliveryFee ?? "")}" ${deliveryFee === null ? "disabled" : "required"}>`)}
+          ${fieldHTML("Delivery Guarranty amount (PHP)", "dg_amount", `<input name="dg_amount" aria-label="Delivery Guarranty amount (PHP)" placeholder="DG amount (PHP)" type="number" inputmode="decimal" min="0" max="9999999999.99" step="0.01" value="${escapeHTML(deliveryFee ?? "")}" ${deliveryFee === null ? "disabled" : "required"}>`)}
         </div>
         </div>
         <div class="dlg-grid">
@@ -6934,7 +6934,7 @@
   });
 
   connectedContent.addEventListener("keydown", event => {
-    const saleRow = event.target.closest("[data-sale-details]");
+    const saleRow = event.target.closest("[data-sale-details], [data-delivery-person]");
     if (saleRow && ["Enter", " "].includes(event.key)) {
       event.preventDefault();
       saleRow.click();

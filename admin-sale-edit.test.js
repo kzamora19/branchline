@@ -80,9 +80,10 @@ test("transaction summary stays compact and accessible; details respect visible 
   assert.throws(() => c.openSaleDetails("sale"), /no longer available/);
 });
 
-test("plain transaction rows support Enter and Space like ranking rows", () => {
+test("plain transaction and DG rows support Enter and Space like ranking rows", () => {
   const c = vm.createContext({});
-  const start = source.indexOf('    const saleRow = event.target.closest("[data-sale-details]");');
+  const start = source.indexOf('    const saleRow = event.target.closest("[data-sale-details], [data-delivery-person]");');
+  assert.ok(start >= 0);
   const handler = source.slice(start, source.indexOf('    const pie = ', start));
   let clicked = 0, prevented = 0;
   for (const key of ["Enter", " ", "Tab"]) {

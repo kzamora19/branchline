@@ -7,11 +7,21 @@ const Demo = require("./demo-data.js");
 
 test("delivery fees validate without becoming product sales", () => {
   D.validate("delivery", 500);
+  D.validate("delivery", 0);
   D.validate("pickup", null);
   D.validate(null, null, true);
-  for (const [method, fee] of [["pickup", 10], [null, 10], ["", null], ["other", null], ["delivery", 0], ["delivery", -1], ["delivery", NaN], ["delivery", Infinity], ["delivery", 1.001]]) {
+  for (const [method, fee] of [["pickup", 10], ["pickup", 0], [null, 10], ["", null], ["other", null], ["delivery", -1], ["delivery", NaN], ["delivery", Infinity], ["delivery", 1.001], ["delivery", 10000000000]]) {
     assert.throws(() => D.validate(method, fee));
   }
+});
+
+test("free delivery is counted and retained distinctly from no DG", () => {
+  const groups = D.monitoring([{ id: "free", ps_id: "one" }, { id: "none", ps_id: "one" }],
+    [{ sale_id: "free", amount: "0.00" }], [{ id: "one", full_name: "PS One" }]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].quantity, 1);
+  assert.equal(groups[0].amount, 0);
+  assert.equal(groups[0].sales[0].dg_amount, 0);
 });
 
 test("availability blocks unavailable quantities but permits retained serials and unchanged edits", () => {
@@ -73,6 +83,9 @@ test("demo records, edits and removes DG independently and keeps fees scoped to 
   const id = await data(demo.client.rpc("save_sale_with_delivery", params));
   assert.equal((await data(demo.client.from("sale_delivery_guaranties"))).find(row => row.sale_id === id).amount, 200);
   assert.equal((await data(demo.client.from("sale_lines"))).filter(row => row.sale_id === id).reduce((sum, row) => sum + row.quantity * row.selling_price, 0), 100);
+  await data(demo.client.rpc("save_sale_with_delivery", { ...params, p_sale_id: id, p_dg_amount: 0 }));
+  assert.equal((await data(demo.client.from("sale_delivery_guaranties"))).find(row => row.sale_id === id).amount, 0);
+  await data(demo.client.rpc("save_sale_with_delivery", { ...params, p_sale_id: id }));
   const invalid = await demo.client.rpc("save_sale_with_delivery", { ...params, p_sale_id: id, p_fulfillment_method: "pickup" });
   assert.match(invalid.error.message, /Delivery sales only/);
   await data(demo.client.rpc("save_sale_with_delivery", { ...params, p_sale_id: id, p_fulfillment_method: "pickup", p_dg_amount: null }));
@@ -98,6 +111,10 @@ test("frontend exposes monitoring only to managers, and caches the shared module
   assert.doesNotMatch(css, /\.connected-filters \.record-sale-floating/);
   assert.match(source, /function deliveryMonitoringPanel[\s\S]*?\["manager", "district_manager", "admin"\]/);
   assert.match(source, /data-delivery-person/);
+  assert.match(source, /<tr class="sale-summary-row" data-delivery-person="\$\{escapeHTML\(group.key\)\}" tabindex="0"/);
+  assert.doesNotMatch(source, /<button[^>]*data-delivery-person/);
+  assert.match(source, /closest\("\[data-sale-details\], \[data-delivery-person\]"\)/);
+  assert.match(source, /name="dg_amount"[^>]*min="0"[^>]*step="0.01"/);
   assert.match(source, /Available: \$\{stock.quantity\} · current inventory/);
   assert.match(source, /aria-label="Item availability"/);
   assert.match(source, /client.rpc\("save_sale_with_delivery"/);

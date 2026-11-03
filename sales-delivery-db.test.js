@@ -22,12 +22,13 @@ test("real DB delivery saves are atomic, fees excluded from sales, edits audited
     const files=fs.readdirSync(directory).filter(name=>name.endsWith(".sql")).sort();
     assert.ok(files.some(name=>name.includes("initial_schema")), "Set BRANCHLINE_MIGRATIONS to the complete migration chain for integration tests.");
     for (const file of files) {
-      if (file==="20261118000000_sales_history_ps_aliases.sql" || file==="20261124000000_delivery_guarranty.sql" || file==="20261125000000_manual_sale_serials.sql" || file==="20261127000000_admin_sale_edit.sql") continue;
+      if (file==="20261118000000_sales_history_ps_aliases.sql" || file==="20261124000000_delivery_guarranty.sql" || file==="20261125000000_manual_sale_serials.sql" || file==="20261127000000_admin_sale_edit.sql" || file==="20261129000000_free_delivery_guarranty.sql") continue;
       await db.exec(fs.readFileSync(path.join(directory,file),"utf8").replace(/create extension if not exists pgcrypto with schema extensions;/i,""));
     }
     await db.exec(fs.readFileSync(path.join(__dirname,"supabase","migrations","20261124000000_delivery_guarranty.sql"),"utf8"));
     await db.exec(fs.readFileSync(path.join(__dirname,"supabase","migrations","20261125000000_manual_sale_serials.sql"),"utf8"));
     await db.exec(fs.readFileSync(path.join(__dirname,"supabase","migrations","20261127000000_admin_sale_edit.sql"),"utf8"));
+    await db.exec(fs.readFileSync(path.join(__dirname,"supabase","migrations","20261129000000_free_delivery_guarranty.sql"),"utf8"));
     await db.exec(`insert into dealers(id,name)values('${dealer}','Fixture');
       insert into districts(id,dealer_id,name)values('${district}','${dealer}','District');
       insert into branches(id,dealer_id,district_id,name,code)values('${branch}','${dealer}','${district}','Santiago','STG'),('${other}','${dealer}','${district}','Other','OTH');
@@ -44,13 +45,16 @@ test("real DB delivery saves are atomic, fees excluded from sales, edits audited
     await actor(admin);
     await call("select import_inventory($1,now(),'fixture',$2::jsonb)",[branch,JSON.stringify([{barcode:"00000101",description:"TCL TEST UNIT",brand:"TCL",category:"TV",quantity:5,serialized:false,serials:[]}])]);
     await actor(ps);await db.exec("set role authenticated");
-    for (const [method,fee] of [[null,null],["unknown",null],["pickup",10],["delivery",-1],["delivery",0],["delivery",1.001],["delivery","NaN"]]) {
+    for (const [method,fee] of [[null,null],["unknown",null],["pickup",10],["pickup",0],["delivery",-1],["delivery",1.001],["delivery","NaN"],["delivery","Infinity"],["delivery",10000000000]]) {
       await assert.rejects(save(method,fee));
     }
     const sale=await save("delivery",200);
     await assert.rejects(save(null,null,sale),/Choose Delivery or Pick up/);
     assert.equal((await call("select sum(quantity*selling_price)::numeric amount from sale_lines where sale_id=$1",[sale]))[0].amount,"100.00");
     assert.equal((await call("select amount from sale_delivery_guaranties where sale_id=$1",[sale]))[0].amount,"200.00");
+    await save("delivery",0,sale);
+    assert.equal((await call("select amount from sale_delivery_guaranties where sale_id=$1",[sale]))[0].amount,"0.00");
+    await save("delivery",200,sale);
     await assert.rejects(call("update sale_delivery_guaranties set amount=999 where sale_id=$1",[sale]),/permission denied/);
     await assert.rejects(save("delivery",300,sale,10),/Insufficient/);
     assert.equal((await call("select amount from sale_delivery_guaranties where sale_id=$1",[sale]))[0].amount,"200.00");
@@ -82,7 +86,8 @@ test("real DB delivery saves are atomic, fees excluded from sales, edits audited
     await actor(ps);
     const units = [{barcode:"00000101",serial:"MISSED-IMPORT",manual:true}];
     await assert.rejects(save("pickup",null,null,1,[{...units[0],manual:false}]),/Confirm adding missing serial/);
-    const manual=await save("delivery",50,null,1,units);
+    const manual=await save("delivery",0,null,1,units);
+    assert.equal((await call("select amount from sale_delivery_guaranties where sale_id=$1",[manual]))[0].amount,"0.00");
     assert.equal((await call("select quantity from inventory_stock where branch_id=$1 and barcode='00000101'",[branch]))[0].quantity,5);
     assert.equal((await call("select count(*)::int n from manual_sale_serial_entries where sale_id=$1",[manual]))[0].n,1);
     await db.exec("reset role");
