@@ -1474,12 +1474,23 @@
     return currentProfile.role === "admin" ? `<section class="panel danger-zone"><h2>Danger zone</h2><p>Permanently delete all districts, branches, staff logins, products, sales, targets and history. Administrator accounts and payment modes are kept. This cannot be undone.</p><button class="button button-danger" type="button" data-open="wipe">Delete all data</button></section>` : "";
   }
 
+  function storeClosedDatesPanel() {
+    if (!["ps", "manager", "district_manager", "admin"].includes(currentProfile.role)) return "";
+    const canEditHolidays = ["admin", "district_manager"].includes(currentProfile.role);
+    const holidayRows = liveData.holidays.map(item => `<tr><td>${escapeHTML(item.date)}</td><td>${escapeHTML(item.label || "")}</td>${canEditHolidays ? `<td><button class="button button-outline" type="button" data-holiday-delete="${escapeHTML(item.date)}">Delete</button></td>` : ""}</tr>`).join("");
+    const holidayTable = liveData.holidays.length
+      ? `<div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Date</th><th>Label</th>${canEditHolidays ? "<th></th>" : ""}</tr></thead><tbody>${holidayRows}</tbody></table></div>`
+      : '<p class="an-note">No store-closed dates set.</p>';
+    return panel("Store-closed dates", canEditHolidays ? "Company-wide. These dates are skipped in forecasts." : "Company-wide. Managed by district managers and admins.",
+      `${canEditHolidays ? '<p><button class="button" type="button" data-open="holiday">Add date</button></p>' : ""}${holidayTable}`);
+  }
+
   function renderSettingsPage() {
     mountPage(pageHeading("Settings", "Imports, alerts and account settings available to your role."), "", "", () =>
       (managesInventory() ? panel("Imports", "Import tools remain restricted to your role and assigned branches. Review and confirm before saving.",
         '<button class="button button-primary" type="button" data-open="import-center">Import Center</button>') : "") +
       panel("Account and device", demoStore ? "Password changes and device notifications are available after signing in to a real account." : "Change your password or manage this device's notifications.", '<div class="filter-actions" id="settings-account-controls"></div>') +
-      pushMessagesPanel() + dangerZonePanel());
+      storeClosedDatesPanel() + pushMessagesPanel() + dangerZonePanel());
     const slot = connectedContent.querySelector("#settings-account-controls");
     for (const id of ["change-password", "push-toggle"]) {
       const control = document.getElementById(id);
@@ -2143,7 +2154,6 @@
       `<option value="${month}" ${ui.month === month ? "selected" : ""}>${escapeHTML(monthLabel(month))}</option>`).join("")}</select></label>`;
     const basisSelect = `<label class="field"><span>Forecast selling days</span><select data-filter="anBasis">${Object.entries(A.RULES).map(([value, rule]) =>
       `<option value="${value}" ${ui.anBasis === value ? "selected" : ""}>${escapeHTML(rule.label)}</option>`).join("")}</select></label>`;
-    const canEditHolidays = ["admin", "district_manager"].includes(currentProfile.role);
     const walkInButton = isPs
       ? '<button class="button button-outline" type="button" data-open="walkin-ps">Log clients assisted</button>'
       : "";
@@ -2362,14 +2372,8 @@
         });
 
         const missing = `<p class="an-note">Walk-in traffic and conversion use only days with a recorded count. A store count entered by a manager overrides the sum of PS counts. Nothing is estimated.</p>`;
-        const holidayRows = liveData.holidays.map(item => `<tr><td>${escapeHTML(item.date)}</td><td>${escapeHTML(item.label || "")}</td>${canEditHolidays ? `<td><button class="button button-outline" type="button" data-holiday-delete="${escapeHTML(item.date)}">Delete</button></td>` : ""}</tr>`).join("");
-        const holidayTable = liveData.holidays.length
-          ? `<div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Date</th><th>Label</th>${canEditHolidays ? "<th></th>" : ""}</tr></thead><tbody>${holidayRows}</tbody></table></div>`
-          : '<p class="an-note">No store-closed dates set.</p>';
-        const holidayPanel = panel("Store-closed dates", canEditHolidays ? "Company-wide. These dates are skipped in forecasts." : "Company-wide. Managed by district managers and admins.",
-          `${canEditHolidays ? '<p><button class="button" type="button" data-open="holiday">Add date</button></p>' : ""}${holidayTable}`);
         return `${warning}${cards}${insightsPanel(insights)}${panel("Period comparison", "Growth compares like-for-like elapsed days.", comparisonTable, manualExport("an-compare", "Period comparison", ["Period", "Comparison", "Dates", "Actual", "Prior", "Growth"], comparisons,
-          ([name, dates, current, prior, note]) => { const g = A.growth(current, prior); return `<tr><td>${escapeHTML(name)}</td><td>${escapeHTML(note)}</td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${g === null ? "n/a" : (g * 100).toFixed(1) + "%"}</td></tr>`; }))}${traffic.compare}${traffic.trend}${paymentMixPanels(month, mixView, mixLabel, `${panelBranchSelect("bpMix", ids)}${periodControl("pdMix", through)}`)}${trendPanel}${psPanel}${holidayPanel}${missing}${inventoryAnalyticsPanels(ids, facts, monthStart, through, today)}`;
+          ([name, dates, current, prior, note]) => { const g = A.growth(current, prior); return `<tr><td>${escapeHTML(name)}</td><td>${escapeHTML(note)}</td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${g === null ? "n/a" : (g * 100).toFixed(1) + "%"}</td></tr>`; }))}${traffic.compare}${traffic.trend}${paymentMixPanels(month, mixView, mixLabel, `${panelBranchSelect("bpMix", ids)}${periodControl("pdMix", through)}`)          }${trendPanel}${psPanel}${missing}${inventoryAnalyticsPanels(ids, facts, monthStart, through, today)}`;
       },
     );
   }

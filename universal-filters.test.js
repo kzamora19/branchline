@@ -103,7 +103,7 @@ test("navigation preserves the shared account scope and clears only menu-local s
 });
 
 test("Settings is available to every role but imports and danger zone remain role-limited", () => {
-  const c = vm.createContext({ currentProfile: { role: "admin" }, liveData: {}, demoStore: null, connectedContent: { querySelector: () => ({ append() {} }) },
+  const c = vm.createContext({ currentProfile: { role: "admin" }, liveData: { holidays: [{ date: "2026-12-25", label: "<Christmas>" }] }, escapeHTML: value => String(value).replaceAll("<", "&lt;"), demoStore: null, connectedContent: { querySelector: () => ({ append() {} }) },
     document: { getElementById: () => null }, managesInventory: () => ["admin", "manager", "district_manager", "inventory_controller", "stock_custodian"].includes(c.currentProfile.role),
     pageHeading: () => "", panel: (title, detail, body) => `${title}${body}`,
     pushMessagesPanel: () => c.currentProfile.role === "admin" ? "Alert messages" : "",
@@ -120,5 +120,16 @@ test("Settings is available to every role but imports and danger zone remain rol
     assert.equal(c.output.includes("Danger zone"), role === "admin");
     assert.equal(c.output.includes("Alert messages"), role === "admin");
     assert.match(c.output, /settings-account-controls/);
+    const datesVisible = ["ps", "manager", "district_manager", "admin"].includes(role);
+    const datesEditable = ["district_manager", "admin"].includes(role);
+    assert.equal(c.output.includes("Store-closed dates"), datesVisible);
+    assert.equal(c.output.includes('data-open="holiday"'), datesEditable);
+    assert.equal(c.output.includes('data-holiday-delete="2026-12-25"'), datesEditable);
+    if (datesVisible) assert.match(c.output, /2026-12-25[\s\S]*&lt;Christmas>/);
   }
+  c.currentProfile.role = "admin"; c.liveData.holidays = [];
+  c.renderSettingsPage();
+  assert.match(c.output, /No store-closed dates set/);
+  const analytics = source.slice(source.indexOf("  function renderAnalyticsPage("), source.indexOf("  function renderTargetsPage("));
+  assert.doesNotMatch(analytics, /Store-closed dates|data-holiday-delete|data-open="holiday"/);
 });

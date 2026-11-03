@@ -31,6 +31,10 @@ authorization remain unchanged. Shell v97 includes these UI-only changes.
 
 ## Settings
 
+**Store-closed dates** now lives in Settings instead of Analytics (shell v104).
+PS and branch managers can view the dates; district managers and administrators
+retain Add/Delete. Existing dates, forecasts and export data remain unchanged.
+
 The **Settings** menu collects Import Center (including the existing catalog,
 Sales History, Daily Monitoring and branch inventory import tools), alert messages
 and push schedules, device notification preferences, Change password and the
