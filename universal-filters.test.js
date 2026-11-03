@@ -19,6 +19,32 @@ function preferences() {
   return { context, store, warnings };
 }
 
+test("floating filters preserve layout, fit the viewport, and dismiss only outside or on Escape", () => {
+  const listeners = {};
+  const summary = { getBoundingClientRect: () => ({ bottom: 200 }), focus() { summary.focused = true; } };
+  const inside = {};
+  const details = { open: true, querySelector: () => summary, contains: target => target === inside,
+    style: { setProperty: (key, value) => { details.height = [key, value]; } } };
+  const c = vm.createContext({ ui: { filtersOpen: true }, connectedContent: { querySelector: () => details.open ? details : null },
+    document: { addEventListener: (type, fn) => { listeners[type] = fn; } },
+    window: { innerHeight: 700, addEventListener() {} } });
+  vm.runInContext(source.slice(source.indexOf("  function positionFloatingFilters("), source.indexOf("  let capturingPieResults")), c);
+  c.positionFloatingFilters();
+  assert.deepEqual(details.height, ["--filter-available-height", "484px"]);
+  listeners.pointerdown({ type: "pointerdown", target: inside });
+  assert.equal(details.open, true);
+  listeners.keydown({ type: "keydown", key: "Tab" });
+  assert.equal(details.open, true);
+  listeners.pointerdown({ type: "pointerdown", target: {} });
+  assert.equal(details.open, false); assert.equal(c.ui.filtersOpen, false);
+  details.open = true; c.ui.filtersOpen = true;
+  listeners.keydown({ type: "keydown", key: "Escape" });
+  assert.equal(details.open, false); assert.equal(summary.focused, true);
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  assert.match(css, /\.universal-filter-body \{ position: absolute; top: 100%;/);
+  assert.match(css, /max-height: var\(--filter-available-height, 65vh\); overflow-y: auto/);
+});
+
 test("preferences are isolated by account/dealer/demo and survive a new session", () => {
   const { context: c, store } = preferences();
   c.restoreAccountFilters();

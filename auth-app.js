@@ -1342,8 +1342,33 @@
     const period = activePage === "analytics" ? (ui.anRange === "all" ? "All-time" : monthLabel(ui.month)) : statusLabel();
     const range = activePage === "sales" && (ui.logFrom || ui.logTo) ? `${ui.logFrom || "Start"} to ${ui.logTo || "Today"} (sales log)` : "";
     details.querySelector("[data-filter-summary]").textContent = [district, branch, period, range, ui.search ? `Search: ${ui.search}` : ""].filter(Boolean).join(" · ");
-    details.ontoggle = () => { ui.filtersOpen = details.open; };
+    details.ontoggle = () => {
+      ui.filtersOpen = details.open;
+      positionFloatingFilters();
+    };
+    positionFloatingFilters();
   }
+
+  function positionFloatingFilters() {
+    const details = connectedContent.querySelector(".universal-filters[open]");
+    if (!details) return;
+    const bottom = details.querySelector("summary").getBoundingClientRect().bottom;
+    details.style.setProperty("--filter-available-height", `${Math.max(0, window.innerHeight - Math.max(0, bottom) - 16)}px`);
+  }
+
+  function dismissFloatingFilters(event) {
+    const details = connectedContent.querySelector(".universal-filters[open]");
+    if (!details) return;
+    if (event.type === "keydown" ? event.key !== "Escape" : details.contains(event.target)) return;
+    details.open = false;
+    ui.filtersOpen = false;
+    if (event.type === "keydown") details.querySelector("summary").focus();
+  }
+
+  document.addEventListener("pointerdown", dismissFloatingFilters);
+  document.addEventListener("keydown", dismissFloatingFilters);
+  window.addEventListener("resize", positionFloatingFilters);
+  window.addEventListener("scroll", positionFloatingFilters, { passive: true });
 
   let capturingPieResults = false;
   let collectingExports = false;

@@ -6,6 +6,9 @@ Branchline is a sales tracker for Product Specialists and branch teams.
 
 Overview, Sales, Analytics and Targets use one collapsed **Filters** summary.
 Expand it to change district, branch, period/month and the current menu's options.
+Expanded filters float over the next panel without shifting page content.
+Click outside, press Escape, or click the Filters header to collapse them.
+The expanded body scrolls within the available viewport height on small screens.
 Panel-specific search, date ranges, ranking and analysis controls are grouped
 inside it under their panel names; exports and other actions stay outside.
 The single branch selection applies across panels instead of separate overrides.
