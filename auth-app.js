@@ -486,12 +486,14 @@
       restoreAccountFilters();
       loading.update(10, "Loading your workspace...");
       if (inventoryOnly()) {
-        const [branches, districts, inventory] = await Promise.all([
+        const [branches, districts, inventory, calendar, holidays] = await Promise.all([
           fetchAll("branches", "id,name,district_id,code,transfer_sequence", [["id", true]]),
           fetchAll("districts", "id,name", [["id", true]]), loadInventoryData(client, fraction => loading.update(10 + fraction * 80, "Loading inventory...")),
+          loadEventCalendar(client), fetchAll("company_holidays","holiday_date,label",[["holiday_date",true]]),
         ]);
         if (sequence !== loadSequence || !currentSession) return;
-        liveData = { branches: checkResult(branches, "Unable to load inventory branches"), districts: checkResult(districts, "Unable to load districts"), profiles: [currentProfile], products: [], ...inventory };
+        liveData = { branches: checkResult(branches, "Unable to load inventory branches"), districts: checkResult(districts, "Unable to load districts"), profiles: [currentProfile], products: [], ...inventory,
+          calendar, holidays:checkResult(holidays,"Unable to load store-closed dates").map(row=>({date:row.holiday_date,label:row.label})) };
         sanitizeAccountScope();
         document.querySelector("#connected-user-name").textContent = connectedUserLabel();
         document.querySelector("#connected-user-role").textContent = roleLabels[profile.role];
@@ -1577,7 +1579,7 @@
       && row.approved_at <= new Date().toISOString() && row.event_ids.length
       && row.event_ids.every(id => context.events.some(event => event.id === id && !event.cancelled_at && !event.closed
         && event.updated_at <= row.approved_at && (!event.branch_ids.length || event.branch_ids.includes(row.branch_id))
-        && event.starts_on <= window.BranchlineAnalytics.monthEnd(month) && event.ends_on >= `${month}-01`)));
+        && window.BranchlineAnalytics.calendarOccursBetween(event, `${month}-01`, window.BranchlineAnalytics.monthEnd(month)))));
   }
 
   function eventCalendarPanel(ids) {
@@ -1594,7 +1596,7 @@
       const day = index-offset+1;
       if (day<1 || day>days) return "<td></td>";
       const date = `${month}-${String(day).padStart(2,"0")}`;
-      const entries = active.filter(row=>row.starts_on<=date && row.ends_on>=date);
+      const entries = active.filter(row=>A.calendarOccursOn(row,date));
       const holidays = legacy.filter(row=>row.date===date);
       const hasEvents = entries.length || holidays.length;
       const closed = entries.some(row=>row.closed) || holidays.length;
@@ -1615,17 +1617,25 @@
     const context = liveData.calendar;
     if (!context || context.error) return alert(context?.error || "Event calendar unavailable. Reload the workspace.");
     const ids = new Set(branches);
-    const events = context.events.filter(row=>!row.cancelled_at && row.starts_on<=date && row.ends_on>=date
+    const events = context.events.filter(row=>!row.cancelled_at && window.BranchlineAnalytics.calendarOccursOn(row,date)
       && (!row.branch_ids.length || row.branch_ids.some(id=>ids.has(id))));
     const holidays = (liveData.holidays || []).filter(row=>row.date===date);
     const applied = new Set(activeEventAdjustments(date.slice(0,7)).map(row=>row.id));
     const reviews = context.adjustments.filter(row=>row.month.slice(0,7)===date.slice(0,7) && ids.has(row.branch_id)
       && row.event_ids.some(id=>events.some(event=>event.id===id)));
     openModal({title:`Events - ${date}`,readOnly:true,wide:true,
-      body:events.map(row=>`<section class="calendar-event-detail"><h3>${escapeHTML(row.title)}</h3><p>${escapeHTML(row.starts_on)} to ${escapeHTML(row.ends_on)} / ${escapeHTML(row.kind.replaceAll("_"," "))} / ${row.closed ? "Store closed" : "Store open"}</p><p>${row.branch_ids.length ? escapeHTML(row.branch_ids.map(id=>liveData.branches.find(b=>b.id===id)?.name || "Other scoped branch").join(", ")) : "Company-wide"}</p>${row.notes ? `<p>${escapeHTML(row.notes)}</p>` : ""}${!context.demo && canManageCalendarEvent(row) ? `<div class="filter-actions"><button type="button" class="button" data-event-edit="${escapeHTML(row.id)}">Edit</button><button type="button" class="button" data-event-cancel="${escapeHTML(row.id)}">Cancel event</button></div>` : ""}</section>`).join("")
+      body:events.map(row=>`<section class="calendar-event-detail"><h3>${escapeHTML(row.title)}</h3><p>${escapeHTML(row.starts_on)} to ${escapeHTML(row.ends_on)} / ${escapeHTML(row.campaign_type || row.kind.replaceAll("_"," "))} / ${row.closed ? "Store closed" : "Store open"}</p><p>${escapeHTML(calendarScheduleLabel(row))}</p><p>${row.branch_ids.length ? escapeHTML(row.branch_ids.map(id=>liveData.branches.find(b=>b.id===id)?.name || "Other scoped branch").join(", ")) : "Company-wide"}</p>${row.notes ? `<p>${escapeHTML(row.notes)}</p>` : ""}${calendarMemoLinks(row)}${!context.demo && canManageCalendarEvent(row) ? `<div class="filter-actions"><button type="button" class="button" data-event-edit="${escapeHTML(row.id)}">Edit</button><button type="button" class="button" data-event-cancel="${escapeHTML(row.id)}">Cancel event</button></div>` : ""}</section>`).join("")
         + holidays.map(row=>`<section class="calendar-event-detail"><h3>${escapeHTML(row.label || "Store closed")}</h3><p>Company-wide / Store closed</p></section>`).join("")
         + (!events.length && !holidays.length ? "<p>No active events on this date.</p>" : "")
         + (reviews.length ? `<details><summary>Event adjustment history</summary><ul>${reviews.map(row=>`<li>${escapeHTML(branchName(row.branch_id))} / ${escapeHTML(row.category)}: ${escapeHTML(row.percent)}% - ${escapeHTML(row.reason)}. ${row.revoked_at ? "Revoked/superseded" : applied.has(row.id) ? "Applied" : "Not applied"}.${["admin","district_manager","manager"].includes(currentProfile.role) && !context.demo && !row.revoked_at ? ` <button type="button" class="button" data-event-revoke="${escapeHTML(row.id)}">Revoke</button>` : ""}</li>`).join("")}</ul></details>` : ""),
+      onReady:form=>form.addEventListener("click",event=>{
+        const edit=event.target.closest("[data-event-edit]");
+        if(edit) { openCalendarEvent(edit.dataset.eventEdit); return; }
+        const cancel=event.target.closest("[data-event-cancel]");
+        if(cancel) { openEventAction(cancel.dataset.eventCancel); return; }
+        const revoke=event.target.closest("[data-event-revoke]");
+        if(revoke) openEventAction(revoke.dataset.eventRevoke,true);
+      }),
     });
   }
 
@@ -1635,29 +1645,69 @@
     if (liveData.calendar.error) throw new Error(liveData.calendar.error);
   }
 
+  function calendarScheduleLabel(event) {
+    return event.weekdays?.length ? `Weekly: ${event.weekdays.map(day=>["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][day]).join(", ")}` : "Every day within the date range";
+  }
+
+  function validCalendarMemoURL(value) {
+    if (!/^https?:\/\/[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]+)?([/?#][^\s<>"\\]*)?$/.test(value)) return false;
+    try { const url = new URL(value); return Boolean(url.hostname) && !url.username && !url.password; }
+    catch { return false; }
+  }
+
+  function calendarMemoLinks(event) {
+    const links = event.memo_links || [];
+    if (!links.length) return "";
+    return `<ul class="calendar-memo-links">${links.map(link=>validCalendarMemoURL(link.url)
+      ? `<li><a href="${escapeHTML(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHTML(link.label)}</a></li>`
+      : `<li role="alert">Invalid memo link: ${escapeHTML(link.label)}. Ask an event manager to correct it.</li>`).join("")}</ul>`;
+  }
+
   function openCalendarEvent(id) {
     if (!["admin","district_manager","manager"].includes(currentProfile.role) || demoStore) return;
     const event = id ? liveData.calendar.events.find(row=>row.id===id) : null;
     if (id && (!event || !canManageCalendarEvent(event))) return alert("This event is outside your management scope.");
     const company = ["admin","district_manager"].includes(currentProfile.role);
     const start = event?.starts_on || `${ui.eventCalendarMonth || localISODate().slice(0,7)}-01`;
+    const campaignTypes = ["Major Campaign","Major Sale Event","Special Campaign","Regular Campaign"];
+    const campaign = event?.campaign_type || "";
+    const memoRow = (link={label:"",url:""}) => `<div class="calendar-memo-row">
+      <label class="field"><span>Memo / mechanics name</span><input data-memo-label maxlength="120" value="${escapeHTML(link.label)}" required></label>
+      <label class="field"><span>Memo link (http/https)</span><input data-memo-url type="url" value="${escapeHTML(link.url)}" required></label>
+      <button type="button" class="button" data-remove-memo>Remove link</button></div>`;
     openModal({title:event ? "Edit calendar event" : "Add calendar event / closure",
-      intro:"Select all affected branches, or choose company-wide. Dates include both start and end. Saving an edit revokes related demand approvals; they must be reviewed again. A holiday is not automatically a closure.",
+      intro:"Enter a promo once with start/end dates and optional weekly days. Editing changes the entire series and revokes related demand approvals. Memo links are visible to everyone allowed to view the event; document sharing permissions still apply.",
       body:`${company ? `<label><input name="company" type="checkbox" ${event && !event.branch_ids.length ? "checked" : ""}> Company-wide</label>` : ""}
       <fieldset><legend>Affected branches</legend>${liveData.branches.map(branch=>`<label><input type="checkbox" name="branches" value="${escapeHTML(branch.id)}" ${event?.branch_ids.includes(branch.id) || !event && liveData.branches.length===1 ? "checked" : ""}> ${escapeHTML(branch.name)}</label>`).join("<br>")}</fieldset>
       <label class="field"><span>Event title</span><input name="title" maxlength="120" value="${escapeHTML(event?.title || "")}" required></label>
       <label class="field"><span>Event type</span>${selectHTML("kind",["promotion","mall_sale","holiday","local_event","closure","other"].map(value=>[value,value.replaceAll("_"," ")]),event?.kind || "promotion","required")}</label>
+      <label class="field"><span>Campaign type (optional)</span>${selectHTML("campaign",[["","Not specified"],...campaignTypes.map(value=>[value,value]),["__custom","Custom campaign type"]],campaignTypes.includes(campaign) ? campaign : campaign ? "__custom" : "")}</label>
+      <label class="field" data-custom-campaign><span>Custom campaign type</span><input name="customCampaign" maxlength="120" value="${escapeHTML(campaignTypes.includes(campaign) ? "" : campaign)}"></label>
       <label class="field"><span>Start date</span><input name="starts" type="date" value="${escapeHTML(start)}" required></label>
       <label class="field"><span>End date</span><input name="ends" type="date" value="${escapeHTML(event?.ends_on || start)}" required></label>
-      <label><input name="closed" type="checkbox" ${event?.closed ? "checked" : ""}> Store closed for the entire date range</label>
-      <label class="field"><span>Details / evidence / promotion mechanics</span><textarea name="notes">${escapeHTML(event?.notes || "")}</textarea></label>`,
+      <label class="field"><span>Repeat</span>${selectHTML("repeat",[["daily","Every day in the range"],["weekly","Selected weekdays (weekly)"]],event?.weekdays?.length ? "weekly" : "daily")}</label>
+      <fieldset data-repeat-days><legend>Repeat on</legend>${["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"].map((day,index)=>`<label><input name="weekdays" type="checkbox" value="${index}" ${event?.weekdays?.includes(index) ? "checked" : ""}> ${day}</label>`).join(" ")}
+      <button type="button" class="button" data-weekend>Every weekend (Sat + Sun)</button></fieldset>
+      <p data-occurrence-preview role="status"></p>
+      <label><input name="closed" type="checkbox" ${event?.closed ? "checked" : ""}> Store closed on the scheduled dates</label>
+      <label class="field"><span>Details / evidence / promotion mechanics</span><textarea name="notes">${escapeHTML(event?.notes || "")}</textarea></label>
+      <fieldset><legend>Memo / mechanics links</legend><div data-memo-rows>${(event?.memo_links || []).map(memoRow).join("")}</div>
+      <button type="button" class="button" data-add-memo>Add memo link</button></fieldset>`,
       onSubmit:async form=>{
         const branches = form.elements.company?.checked ? [] : [...form.querySelectorAll('[name="branches"]:checked')].map(input=>input.value);
         if (!form.elements.company?.checked && !branches.length) throw new Error("Event calendar: select at least one branch.");
         if (form.elements.ends.value<form.elements.starts.value) throw new Error("Event calendar: end date cannot be before start date.");
-        checkResult(await client.rpc("save_calendar_event",{p_id:event?.id || null,p_branches:branches,p_title:form.elements.title.value,
+        const weekdays = form.elements.repeat.value==="weekly" ? [...form.querySelectorAll('[name="weekdays"]:checked')].map(input=>Number(input.value)) : [];
+        if(form.elements.repeat.value==="weekly" && !weekdays.length) throw new Error("Event calendar: select at least one weekday.");
+        if(!window.BranchlineAnalytics.calendarOccursBetween({starts_on:form.elements.starts.value,ends_on:form.elements.ends.value,weekdays},form.elements.starts.value,form.elements.ends.value))
+          throw new Error("Event calendar: the date range has no selected weekdays.");
+        const links = [...form.querySelectorAll(".calendar-memo-row")].map(row=>({label:row.querySelector("[data-memo-label]").value.trim(),url:row.querySelector("[data-memo-url]").value.trim()}));
+        if(links.some(link=>!link.label || !validCalendarMemoURL(link.url))) throw new Error("Event calendar: each memo needs a name and a valid http/https link without credentials or whitespace.");
+        const campaignType = form.elements.campaign.value==="__custom" ? form.elements.customCampaign.value.trim() : form.elements.campaign.value;
+        if(form.elements.campaign.value==="__custom" && !campaignType) throw new Error("Event calendar: enter a custom campaign type.");
+        checkResult(await client.rpc("save_calendar_campaign",{p_id:event?.id || null,p_branches:branches,p_title:form.elements.title.value,
           p_kind:form.elements.kind.value,p_from:form.elements.starts.value,p_to:form.elements.ends.value,
-          p_closed:form.elements.closed.checked,p_notes:form.elements.notes.value}),"Unable to save event calendar");
+          p_closed:form.elements.closed.checked,p_notes:form.elements.notes.value,p_weekdays:weekdays,p_campaign_type:campaignType,p_memo_links:links}),"Unable to save event calendar");
         await refreshEventCalendar();
       },
       onReady:form=>{
@@ -1665,8 +1715,30 @@
           form.querySelectorAll('[name="branches"]').forEach(input=>{input.disabled=Boolean(form.elements.company?.checked);});
           if(form.elements.kind.value==="closure") form.elements.closed.checked=true;
           form.elements.closed.disabled=form.elements.kind.value==="closure";
+          const custom=form.elements.campaign.value==="__custom";
+          form.querySelector("[data-custom-campaign]").hidden=!custom;
+          form.elements.customCampaign.required=custom;
+          form.querySelector("[data-repeat-days]").hidden=form.elements.repeat.value!=="weekly";
+          const weekdays=[...form.querySelectorAll('[name="weekdays"]:checked')].map(input=>Number(input.value));
+          const from=form.elements.starts.value,to=form.elements.ends.value;
+          let count=0;
+          if(from && to && from<=to && (form.elements.repeat.value!=="weekly" || weekdays.length)){
+            const start=new Date(`${from}T00:00:00Z`),end=new Date(`${to}T00:00:00Z`);
+            const days=Math.floor((end-start)/86400000)+1;
+            if(form.elements.repeat.value==="daily") count=days;
+            else for(const day of weekdays) {const offset=(day-start.getUTCDay()+7)%7;if(offset<days)count+=Math.floor((days-1-offset)/7)+1;}
+          }
+          form.querySelector("[data-occurrence-preview]").textContent=`${count} scheduled date${count===1 ? "" : "s"} in this range.`;
         };
-        form.elements.company?.addEventListener("change",update); form.elements.kind.addEventListener("change",update); update();
+        form.addEventListener("change",update);
+        form.addEventListener("click",event=>{
+          if(event.target.closest("[data-weekend]")){
+            form.elements.repeat.value="weekly";form.querySelectorAll('[name="weekdays"]').forEach(input=>{input.checked=["0","6"].includes(input.value);});update();
+          }
+          if(event.target.closest("[data-add-memo]")) form.querySelector("[data-memo-rows]").insertAdjacentHTML("beforeend",memoRow());
+          event.target.closest("[data-remove-memo]")?.closest(".calendar-memo-row").remove();
+        });
+        update();
       },
     });
   }
@@ -1688,7 +1760,7 @@
           const month=form.elements.month.value, branch=form.elements.branch.value;
           if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) { form.querySelector("[data-event-choices]").textContent="Choose a valid forecast month."; return; }
           const events=(liveData.calendar?.events || []).filter(row=>!row.cancelled_at && !row.closed
-            && (!row.branch_ids.length || row.branch_ids.includes(branch)) && row.starts_on<=window.BranchlineAnalytics.monthEnd(month) && row.ends_on>=`${month}-01`);
+            && (!row.branch_ids.length || row.branch_ids.includes(branch)) && window.BranchlineAnalytics.calendarOccursBetween(row,`${month}-01`,window.BranchlineAnalytics.monthEnd(month)));
           form.querySelector("[data-event-choices]").innerHTML=events.length ? events.map(row=>`<label><input name="events" type="checkbox" value="${escapeHTML(row.id)}"> ${escapeHTML(row.title)} (${escapeHTML(row.starts_on)} to ${escapeHTML(row.ends_on)})</label>`).join("<br>") : "<p>No eligible events. Add an open-store event for this branch and month first.</p>";
         };
         form.elements.branch.addEventListener("change",fill);form.elements.month.addEventListener("change",fill);fill();
@@ -6494,8 +6566,9 @@
     }
     records("Clients assisted", liveData.psWalkins.filter(row => ids.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id)), [["Branch ID", "branch_id"], ["PS ID", "ps_id"], ["Date", "counted_on"], ["Clients assisted", "clients_assisted"]]);
     records("Store-closed dates", liveData.holidays, [["Date", "date"], ["Label", "label"]]);
-    records("Event calendar", (liveData.calendar?.events || []).filter(row=>!row.branch_ids.length || row.branch_ids.some(id=>ids.has(id))).map(row=>({...row,scope:row.branch_ids.length ? row.branch_ids.map(id=>liveData.branches.find(b=>b.id===id)?.name || "Other scoped branch").join(", ") : "Company-wide"})),
-      [["Event ID","id"],["Event","title"],["Type","kind"],["Start","starts_on"],["End","ends_on"],["Scope","scope"],["Store closed","closed"],["Notes","notes"],["Cancelled","cancelled_at"]]);
+    records("Event calendar", (liveData.calendar?.events || []).filter(row=>!row.branch_ids.length || row.branch_ids.some(id=>ids.has(id))).map(row=>({...row,scope:row.branch_ids.length ? row.branch_ids.map(id=>liveData.branches.find(b=>b.id===id)?.name || "Other scoped branch").join(", ") : "Company-wide",
+      schedule:calendarScheduleLabel(row),memos:(row.memo_links || []).map(link=>`${link.label}: ${link.url}`).join("\n")})),
+      [["Event ID","id"],["Event","title"],["Type","kind"],["Campaign type","campaign_type"],["Start","starts_on"],["End","ends_on"],["Schedule","schedule"],["Scope","scope"],["Store closed","closed"],["Notes","notes"],["Memo links","memos"],["Cancelled","cancelled_at"]]);
     records("Event approval audit",(liveData.calendar?.adjustments || []).filter(row=>ids.has(row.branch_id)).map(row=>({...row,events:row.event_snapshot.map(event=>event.title).join(", ")})),
       [["Branch ID","branch_id"],["Category","category"],["Month","month"],["Events","events"],["Adjustment %","percent"],["Justification","reason"],["Approved by","approved_by"],["Approved at","approved_at"],["Revoked at","revoked_at"]]);
     records("Payment modes", liveData.paymentModes, [["Name", "name"], ["Position", "position"]]);
@@ -6908,12 +6981,6 @@
     }
     const calendarDate = event.target.closest("[data-event-date]");
     if (calendarDate) { openCalendarDate(calendarDate.dataset.eventDate, JSON.parse(calendarDate.dataset.eventBranches)); return; }
-    const editEvent = event.target.closest("[data-event-edit]");
-    if (editEvent) { openCalendarEvent(editEvent.dataset.eventEdit); return; }
-    const cancelEvent = event.target.closest("[data-event-cancel]");
-    if (cancelEvent) { openEventAction(cancelEvent.dataset.eventCancel); return; }
-    const revokeEvent = event.target.closest("[data-event-revoke]");
-    if (revokeEvent) { openEventAction(revokeEvent.dataset.eventRevoke,true); return; }
     const revokeClimate = event.target.closest("[data-climate-revoke]");
     if (revokeClimate) { openClimateRevoke(revokeClimate.dataset.climateRevoke); return; }
     const open = event.target.closest("[data-open]")?.dataset.open;

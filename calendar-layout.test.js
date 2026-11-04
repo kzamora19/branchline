@@ -13,6 +13,7 @@ function harness(role) {
     canManageCalendarEvent:()=>role!=="ps",activeEventAdjustments:()=>[],openModal:options=>{context.modal=options;},
   });
   vm.runInContext(source.slice(source.indexOf("  function eventCalendarPanel("),source.indexOf("  async function refreshEventCalendar(")),context);
+  vm.runInContext(source.slice(source.indexOf("  function calendarScheduleLabel("),source.indexOf("  function openCalendarEvent(")),context);
   return context;
 }
 test("calendar dates contain numbers only; event details and management move into a scoped date popup for every role",()=>{
@@ -33,4 +34,16 @@ test("calendar dates contain numbers only; event details and management move int
 test("monitoring notice leaves Analytics while Settings retains monitoring management",()=>{
   assert.match(source,/const productTable = eventCalendarPanel\(ids\) \+ demandWarning/);
   assert.match(source,/eventCalendarPanel\(\) \+ climateReviewPanel\(\) \+ storeClosedDatesPanel\(\)/);
+});
+test("Edit, Cancel event and Revoke are delegated inside the date dialog, outside the page container",()=>{
+  const c=harness("manager"),calls=[];
+  c.openCalendarEvent=id=>calls.push(["edit",id]);
+  c.openEventAction=(id,revoke=false)=>calls.push([revoke ? "revoke" : "cancel",id]);
+  vm.runInContext('openCalendarDate("2026-11-02",["one"])',c);
+  let click;
+  c.modal.onReady({addEventListener:(name,handler)=>{assert.equal(name,"click");click=handler;}});
+  for(const [attribute,key] of [["edit","eventEdit"],["cancel","eventCancel"],["revoke","eventRevoke"]]){
+    click({target:{closest:selector=>selector===`[data-event-${attribute}]` ? {dataset:{[key]:"event-one"}} : null}});
+  }
+  assert.deepEqual(calls,[["edit","event-one"],["cancel","event-one"],["revoke","event-one"]]);
 });

@@ -79,13 +79,14 @@ test("event RPCs enforce scope, immutable approvals, snapshots and invalidation"
       create table dealers(id uuid primary key);create table profiles(id uuid primary key,role text,active boolean,dealer_id uuid);
       create table branches(id uuid primary key,dealer_id uuid);create table products(branch_id uuid,category text,active boolean);
       insert into dealers values('${id(100)}'),('${id(101)}');
-      insert into profiles values('${id(1)}','admin',true,'${id(100)}'),('${id(2)}','manager',true,'${id(100)}'),('${id(3)}','district_manager',true,'${id(100)}'),('${id(4)}','ps',true,'${id(100)}'),('${id(5)}','admin',false,'${id(100)}');
+      insert into profiles values('${id(1)}','admin',true,'${id(100)}'),('${id(2)}','manager',true,'${id(100)}'),('${id(3)}','district_manager',true,'${id(100)}'),('${id(4)}','ps',true,'${id(100)}'),('${id(5)}','admin',false,'${id(100)}'),('${id(6)}','inventory_controller',true,'${id(100)}'),('${id(7)}','stock_custodian',true,'${id(100)}');
       insert into branches values('${id(10)}','${id(100)}'),('${id(11)}','${id(100)}'),('${id(12)}','${id(101)}');
       insert into products values('${id(10)}','TV',true);
       create function is_dealer_member(d uuid) returns boolean language sql stable security definer as $$select exists(select 1 from profiles where id=auth.uid() and active and dealer_id=d)$$;
       create function can_access_branch(b uuid) returns boolean language sql stable security definer as $$select exists(select 1 from branches x join profiles p on p.dealer_id=x.dealer_id where x.id=b and p.id=auth.uid() and p.active and (p.role='admin' or x.id='${id(10)}'))$$;
       create function can_manage_branch(b uuid) returns boolean language sql stable security definer as $$select can_access_branch(b) and exists(select 1 from profiles where id=auth.uid() and role in ('admin','manager','district_manager'))$$;`);
     await db.exec(fs.readFileSync(path.join(__dirname,"supabase","migrations","20261207000000_event_calendar.sql"),"utf8"));
+    await db.exec(fs.readFileSync(path.join(__dirname,"supabase","migrations","20261208000000_recurring_calendar_memos.sql"),"utf8"));
     const dates=(await db.query("select date_trunc('month',now() at time zone 'Asia/Manila')::date::text as month")).rows[0];
     const save=(branches,event=null,title="Fixture sale",closed=false)=>db.query("select save_calendar_event($1,$2,$3,'promotion',$4::date,$4::date,$5,'Fixture evidence') as id",[event,branches,title,dates.month,closed]);
     const approve=(events,branch=10,pct=20)=>db.query("select approve_event_adjustment($1,$2,'TV',$3::date,$4,'Combined local event estimate justified') as id",[id(branch),events,dates.month,pct]);
@@ -113,9 +114,42 @@ test("event RPCs enforce scope, immutable approvals, snapshots and invalidation"
     const closed=(await save([id(10)],null,"Closed store",true)).rows[0].id;
     await assert.rejects(approve([closed]),/Every selected event/);
     await actor(3);await save([]);
+    const campaign=(event,from,to,days,links=[{label:"Mechanics",url:"https://example.com/PromoCase.pdf?Key=AbC"}],scope=[id(10)])=>db.query(
+      "select save_calendar_campaign($1,$2,'Weekend promo','promotion',$3::date,$4::date,false,'Details',$5,'Regular Campaign',$6::jsonb) as id",
+      [event,scope,from,to,days,JSON.stringify(links)]);
+    await actor(2);
+    await assert.rejects(campaign(null,"2026-11-01","2026-11-30",[0,6],[],[]),/management access/);
+    await assert.rejects(campaign(null,"2026-11-01","2026-11-30",[8]),/valid weekdays/);
+    await assert.rejects(campaign(null,"2026-11-02","2026-11-06",[0,6]),/at least one selected weekday/);
+    for(const url of ["javascript:alert(1)","data:text/html,test","https://user:pass@example.com/doc","https://example.com/bad path","https://example.com\\evil"]){
+      await assert.rejects(campaign(null,"2026-11-01","2026-11-30",[0,6],[{label:"Bad",url}]),/valid http\/https/);
+    }
+    const recurring=(await campaign(null,"2026-11-01","2026-11-30",[6,0,6])).rows[0].id;
+    const stored=(await db.query("select weekdays,memo_links,campaign_type from calendar_events where id=$1",[recurring])).rows[0];
+    assert.deepEqual(stored.weekdays,[0,6]);assert.equal(stored.campaign_type,"Regular Campaign");
+    assert.equal(stored.memo_links[0].url,"https://example.com/PromoCase.pdf?Key=AbC");
+    await actor(4);
+    assert.equal((await db.query("select memo_links from calendar_events where id=$1",[recurring])).rows[0].memo_links[0].label,"Mechanics");
+    for(const n of [6,7]){
+      await actor(n);
+      assert.equal((await db.query("select memo_links from calendar_events where id=$1",[recurring])).rows[0].memo_links[0].label,"Mechanics");
+      await assert.rejects(campaign(recurring,"2026-11-01","2026-11-30",[0,6]),/outside your management scope/);
+    }
+    await actor(2);
+    await campaign(recurring,"2026-11-02","2026-11-02",[1]);
+    const boundary=(await db.query("select (($1::date+interval '1 month')::date-1)::text as starts,(($1::date+interval '1 month')::date+6)::text as ends,extract(dow from ($1::date+interval '1 month')::date)::int as weekday",[dates.month])).rows[0];
+    const noOccurrence=(await campaign(null,boundary.starts,boundary.ends,[boundary.weekday])).rows[0].id;
+    await assert.rejects(approve([noOccurrence]),/scheduled occurrence/);
+    await campaign(recurring,dates.month,dates.month,[]);
+    await approve([recurring]);
+    const snapshot=(await db.query("select event_snapshot from forecast_event_adjustments where revoked_at is null")).rows[0].event_snapshot;
+    assert.equal(snapshot[0].memo_links[0].label,"Mechanics");
+    await campaign(recurring,dates.month,dates.month,[],[{label:"Updated memo",url:"https://example.com/new.pdf"}]);
+    assert.equal((await db.query("select count(*)::int n from forecast_event_adjustments where revoked_at is null")).rows[0].n,0);
     await actor(4);await assert.rejects(save([id(10)]),/management access/);await assert.rejects(approve([company]),/access is required/);
     await actor(5);assert.equal((await db.query("select count(*)::int n from calendar_events")).rows[0].n,0);
     await db.exec("reset role;set role anon");await assert.rejects(db.exec("select * from calendar_events"),/permission denied/);
     await assert.rejects(save([]),/permission denied/);
+    await assert.rejects(campaign(null,"2026-11-01","2026-11-30",[0,6]),/permission denied/);
   }finally{await db.close();}
 });

@@ -1,5 +1,35 @@
 # Branchline
 
+## Recurring promotions and memo links (v127)
+
+In the Event calendar, choose **Add event / closure**, enter the required start
+and end dates, then choose **Every weekend (Sat + Sun)** or select other weekly
+days. The app saves one event series and highlights only its scheduled dates.
+The form previews the number of dates; editing or cancelling affects the whole
+series. Existing events continue to occur every day within their date range.
+
+Campaign types include Major Campaign, Major Sale Event, Special Campaign and
+Regular Campaign, plus a custom campaign type. These are descriptive
+classifications, separate from the event's store-open/closed status.
+
+Add any number of named memo/mechanics links. Clicking a highlighted calendar
+date shows the campaign, schedule and links; links open in a new tab for all
+users allowed to view that event, including inventory roles through Settings.
+Only HTTP(S) links without embedded login credentials are accepted. Google Drive,
+SharePoint or other document permissions must separately allow recipients to
+open them; Branchline cannot override external sharing restrictions.
+
+Apply `supabase/migrations/20261208000000_recurring_calendar_memos.sql` after the
+event-calendar migration before deploying this UI. It preserves existing events
+and approval snapshots. Weekday recurrence applies to store closures, forecast
+exposure, calendar details and monthly approval eligibility. Promotion schedules
+do not invent sales uplift: an authorized reviewer must still approve a combined
+monthly demand adjustment. Edits revoke previous related approvals. Export All
+includes campaign types, weekday schedules and named links.
+
+Event-detail Edit, Cancel event and Revoke buttons are handled inside their
+dialog rather than the underlying page, so they open their respective forms.
+
 ### Date-driven calendar layout (shell v126)
 
 Analytics no longer displays the external monitoring notice; monitoring setup,

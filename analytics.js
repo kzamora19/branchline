@@ -106,10 +106,24 @@
     return { weekdays: preset.weekdays, holidays: holidayDates || [], branchClosures };
   }
 
+  function calendarOccursOn(event, date) {
+    return event.starts_on <= date && event.ends_on >= date
+      && (!event.weekdays?.length || event.weekdays.includes(weekday(date)));
+  }
+
+  function calendarOccursBetween(event, from, to) {
+    const start = event.starts_on > from ? event.starts_on : from;
+    const end = event.ends_on < to ? event.ends_on : to;
+    for (let day = 0; day < 7 && addDays(start, day) <= end; day += 1) {
+      if (calendarOccursOn(event, addDays(start, day))) return true;
+    }
+    return false;
+  }
+
   function sellingDayWeight(iso, rules) {
     if (!rules.weekdays.includes(weekday(iso)) || rules.holidays.includes(iso)) return 0;
     const groups = rules.branchClosures || [];
-    return groups.length ? groups.filter(ranges => !ranges.some(row => row.starts_on <= iso && row.ends_on >= iso)).length / groups.length : 1;
+    return groups.length ? groups.filter(ranges => !ranges.some(row => calendarOccursOn(row, iso))).length / groups.length : 1;
   }
 
   function isSellingDay(iso, rules) {
@@ -701,7 +715,7 @@
     RULES, addDays, weekday, daysInMonth, monthStart, monthEnd, shiftMonth, weekStart,
     sameDayPriorMonth, sameDayPriorYear, growth, sumDaily, dailyTotals, parseHolidays, makeRules,
     isSellingDay, countSellingDays, forecastMonth, requiredPace, expectedFraction, cumulativeSeries,
-    groupTrend, achievement, topAndBottom, average, walkInSummary,
+    groupTrend, achievement, topAndBottom, average, walkInSummary, calendarOccursOn, calendarOccursBetween,
   };
 
   if (typeof module !== "undefined" && module.exports) module.exports = api;
