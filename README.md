@@ -1,5 +1,10 @@
 # Branchline
 
+### Event status labels (shell v128)
+
+Event details omit the redundant "Store open" label. Only closures display
+"Store closed"; closure calculations and event management are unchanged.
+
 ## Recurring promotions and memo links (v127)
 
 In the Event calendar, choose **Add event / closure**, enter the required start

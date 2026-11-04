@@ -25,8 +25,12 @@ test("calendar dates contain numbers only; event details and management move int
     for(const text of ["Sale event","Popup only","No calendar events","No approved event","One combined event adjustment","Inclusive dates"])assert.ok(!html.includes(text),text);
     vm.runInContext('openCalendarDate("2026-11-02",["one"])',c);
     assert.match(c.modal.body,/Sale event/);assert.match(c.modal.body,/Popup only/);
+    assert.doesNotMatch(c.modal.body,/Store open|Store closed| \/ <\/p>/);
     assert.doesNotMatch(c.modal.body,/Excluded other branch/);
     assert.equal(c.modal.body.includes('data-event-edit="e"'),role!=="ps");
+    c.liveData.calendar.events[0].closed=true;
+    vm.runInContext('openCalendarDate("2026-11-02",["one"])',c);
+    assert.match(c.modal.body,/ \/ Store closed<\/p>/);
     vm.runInContext('openCalendarDate("2026-11-01",["one"])',c);
     assert.match(c.modal.body,/Company holiday/);assert.match(c.modal.body,/Store closed/);
   }
