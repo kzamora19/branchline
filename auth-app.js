@@ -1586,8 +1586,7 @@
     if (context.error) return panel("Event calendar", "", `<p class="connected-error" role="alert">${escapeHTML(context.error)} Item forecasts are unavailable until calendar data can be loaded.</p>`);
     const A = window.BranchlineAnalytics, month = ui.eventCalendarMonth || ui.inventoryForecastMonth || localISODate().slice(0,7);
     const events = context.events.filter(row => !ids || !row.branch_ids.length || row.branch_ids.some(id => ids.has(id)));
-    const visible = events.filter(row => row.starts_on <= A.monthEnd(month) && row.ends_on >= `${month}-01`);
-    const active = visible.filter(row => !row.cancelled_at);
+    const active = events.filter(row => !row.cancelled_at && row.starts_on <= A.monthEnd(month) && row.ends_on >= `${month}-01`);
     const legacy = (liveData.holidays || []).filter(row => row.date.slice(0,7) === month);
     const weekdays = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
     const offset = new Date(`${month}-01T00:00:00Z`).getUTCDay(), days = Number(A.monthEnd(month).slice(8));
@@ -1595,22 +1594,39 @@
       const day = index-offset+1;
       if (day<1 || day>days) return "<td></td>";
       const date = `${month}-${String(day).padStart(2,"0")}`;
-      const labels = active.filter(row=>row.starts_on<=date && row.ends_on>=date).map(row=>`${row.closed ? "CLOSED: " : ""}${row.title}`);
-      legacy.filter(row=>row.date===date).forEach(row=>labels.push(`CLOSED (company): ${row.label || "Store closed"}`));
-      return `<td><strong>${day}</strong>${labels.map(label=>`<div><small>${escapeHTML(label)}</small></div>`).join("")}</td>`;
+      const entries = active.filter(row=>row.starts_on<=date && row.ends_on>=date);
+      const holidays = legacy.filter(row=>row.date===date);
+      const hasEvents = entries.length || holidays.length;
+      const closed = entries.some(row=>row.closed) || holidays.length;
+      const today = date === localISODate();
+      return `<td${today ? ' class="calendar-today"' : ""}>${hasEvents
+        ? `<button type="button" class="calendar-date calendar-date-event${closed ? " calendar-date-closed" : ""}" data-event-date="${date}" data-event-branches="${escapeHTML(JSON.stringify(ids ? [...ids] : liveData.branches.map(row=>row.id)))}" aria-label="${escapeHTML(`${date}: ${entries.length+holidays.length} event(s)${closed ? ", includes store closure" : ""}. View details`)}"${today ? ' aria-current="date"' : ""}>${day}</button>`
+        : `<span class="calendar-date"${today ? ' aria-current="date"' : ""}>${day}</span>`}</td>`;
     });
-    const grid = `<div class="connected-table-wrap"><table class="connected-table" aria-label="Event calendar ${escapeHTML(month)}"><thead><tr>${weekdays.map(day=>`<th>${day}</th>`).join("")}</tr></thead><tbody>${Array.from({length:cells.length/7},(_,i)=>`<tr>${cells.slice(i*7,i*7+7).join("")}</tr>`).join("")}</tbody></table></div>`;
-    const rows = visible.map(row => `<tr><td>${escapeHTML(row.title)}${row.cancelled_at ? " (Cancelled)" : ""}</td><td>${escapeHTML(row.starts_on)} to ${escapeHTML(row.ends_on)}</td><td>${row.branch_ids.length ? escapeHTML(row.branch_ids.map(id=>liveData.branches.find(b=>b.id===id)?.name || "Other scoped branch").join(", ")) : "Company-wide"}</td><td>${escapeHTML(row.kind.replaceAll("_"," "))}${row.closed ? " / CLOSED" : " / Open"}</td><td>${escapeHTML(row.notes)}</td><td>${!context.demo && !row.cancelled_at && canManageCalendarEvent(row) ? `<button type="button" class="button button-outline button-small" data-event-edit="${escapeHTML(row.id)}">Edit</button> <button type="button" class="button button-outline button-small" data-event-cancel="${escapeHTML(row.id)}">Cancel event</button>` : ""}</td></tr>`).join("");
-    const applied = new Set(activeEventAdjustments(month).map(row=>row.id));
-    const reviews = context.adjustments.filter(row => row.month.slice(0,7)===month && (!ids || ids.has(row.branch_id))).map(row =>
-      `<li>${escapeHTML(branchName(row.branch_id))} / ${escapeHTML(row.category)}: ${escapeHTML(row.percent)}% - ${escapeHTML(row.reason)}. ${row.revoked_at ? "Revoked/superseded" : applied.has(row.id) ? "Applied" : "Not applied (event changed or unavailable)"}. Events: ${escapeHTML(row.event_snapshot.map(event=>event.title).join(", "))}. Approved ${escapeHTML(row.approved_at.slice(0,10))}${["admin","district_manager","manager"].includes(currentProfile.role) && !context.demo && !row.revoked_at ? ` <button type="button" class="button button-outline button-small" data-event-revoke="${escapeHTML(row.id)}">Revoke</button>` : ""}</li>`).join("");
-    return panel("Event calendar", "Inclusive dates. Existing company store-closed dates remain in effect. Closures adjust selling days; open-store events do not change demand without approval.",
+    const grid = `<table class="event-calendar" aria-label="Event calendar ${escapeHTML(month)}"><thead><tr>${weekdays.map(day=>`<th scope="col">${day}</th>`).join("")}</tr></thead><tbody>${Array.from({length:cells.length/7},(_,i)=>`<tr>${cells.slice(i*7,i*7+7).join("")}</tr>`).join("")}</tbody></table>`;
+    return panel("Event calendar", "",
       `${context.demo ? "<p>Demo: calendar is empty; editing is available in a real account.</p>" : ""}
       <label class="field"><span>Calendar month</span><input type="month" data-event-month value="${escapeHTML(month)}" required></label>
       <div class="filter-actions">${["admin","district_manager","manager"].includes(currentProfile.role) && !context.demo ? '<button type="button" class="button" data-open="calendar-event">Add event / closure</button><button type="button" class="button button-outline" data-open="event-review">Review event demand adjustment</button>' : ""}</div>
-      ${grid}${rows ? `<div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Event</th><th>Dates</th><th>Scope</th><th>Type / store status</th><th>Notes</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>` : "<p>No calendar events this month.</p>"}
-      ${reviews ? `<details><summary>Event adjustment audit for ${escapeHTML(month)}</summary><ul>${reviews}</ul></details>` : "<p>No approved event adjustments for this month.</p>"}
-      <p>One combined event adjustment per branch/category/month prevents multiple event boosts from stacking. Climate and event percentages multiply separately; do not include the same cause twice. Multi-branch sales projections use average open branch-days.</p>`);
+      ${grid}`);
+  }
+
+  function openCalendarDate(date, branches) {
+    const context = liveData.calendar;
+    if (!context || context.error) return alert(context?.error || "Event calendar unavailable. Reload the workspace.");
+    const ids = new Set(branches);
+    const events = context.events.filter(row=>!row.cancelled_at && row.starts_on<=date && row.ends_on>=date
+      && (!row.branch_ids.length || row.branch_ids.some(id=>ids.has(id))));
+    const holidays = (liveData.holidays || []).filter(row=>row.date===date);
+    const applied = new Set(activeEventAdjustments(date.slice(0,7)).map(row=>row.id));
+    const reviews = context.adjustments.filter(row=>row.month.slice(0,7)===date.slice(0,7) && ids.has(row.branch_id)
+      && row.event_ids.some(id=>events.some(event=>event.id===id)));
+    openModal({title:`Events - ${date}`,readOnly:true,wide:true,
+      body:events.map(row=>`<section class="calendar-event-detail"><h3>${escapeHTML(row.title)}</h3><p>${escapeHTML(row.starts_on)} to ${escapeHTML(row.ends_on)} / ${escapeHTML(row.kind.replaceAll("_"," "))} / ${row.closed ? "Store closed" : "Store open"}</p><p>${row.branch_ids.length ? escapeHTML(row.branch_ids.map(id=>liveData.branches.find(b=>b.id===id)?.name || "Other scoped branch").join(", ")) : "Company-wide"}</p>${row.notes ? `<p>${escapeHTML(row.notes)}</p>` : ""}${!context.demo && canManageCalendarEvent(row) ? `<div class="filter-actions"><button type="button" class="button" data-event-edit="${escapeHTML(row.id)}">Edit</button><button type="button" class="button" data-event-cancel="${escapeHTML(row.id)}">Cancel event</button></div>` : ""}</section>`).join("")
+        + holidays.map(row=>`<section class="calendar-event-detail"><h3>${escapeHTML(row.label || "Store closed")}</h3><p>Company-wide / Store closed</p></section>`).join("")
+        + (!events.length && !holidays.length ? "<p>No active events on this date.</p>" : "")
+        + (reviews.length ? `<details><summary>Event adjustment history</summary><ul>${reviews.map(row=>`<li>${escapeHTML(branchName(row.branch_id))} / ${escapeHTML(row.category)}: ${escapeHTML(row.percent)}% - ${escapeHTML(row.reason)}. ${row.revoked_at ? "Revoked/superseded" : applied.has(row.id) ? "Applied" : "Not applied"}.${["admin","district_manager","manager"].includes(currentProfile.role) && !context.demo && !row.revoked_at ? ` <button type="button" class="button" data-event-revoke="${escapeHTML(row.id)}">Revoke</button>` : ""}</li>`).join("")}</ul></details>` : ""),
+    });
   }
 
   async function refreshEventCalendar() {
@@ -2424,7 +2440,7 @@
         : row[14] === "Critical stock" ? "inventory-stock-alert" : "" : "";
     const demandWarning = demandError ? `<p class="connected-error" role="alert">Forecast unavailable: ${escapeHTML(demandError)}</p>` : "";
     const forecastControls = `<label class="field"><span>Forecast month</span><input type="month" data-filter="inventoryForecastMonth" value="${escapeHTML(forecast.targetMonth)}" required></label><label class="field"><span>Forecast from (optional)</span><input type="date" data-filter="inventoryForecastFrom" value="${escapeHTML(ui.inventoryForecastFrom || "")}"></label><label class="field"><span>Forecast to (optional)</span><input type="date" data-filter="inventoryForecastTo" value="${escapeHTML(ui.inventoryForecastTo || "")}"></label>`;
-    const productTable = eventCalendarPanel(ids) + climateReviewPanel(ids) + demandWarning + analyticsDataTable("an-inventory-products", "Inventory and product sales", note + forecastNote + " Calendar closures (including old company-wide dates) are deduplicated. History months are open-day equivalents; target demand is scaled by open days / calendar days. With no remaining open days, no reorder is recommended. Otherwise every day is assumed open. Approved climate and combined event percentages multiply the unrounded calendar-adjusted seasonal estimate before rounding and deducting fulfilled demand. Avoid counting the same cause twice.",
+    const productTable = eventCalendarPanel(ids) + demandWarning + analyticsDataTable("an-inventory-products", "Inventory and product sales", note + forecastNote + " Calendar closures (including old company-wide dates) are deduplicated. History months are open-day equivalents; target demand is scaled by open days / calendar days. With no remaining open days, no reorder is recommended. Otherwise every day is assumed open. Approved climate and combined event percentages multiply the unrounded calendar-adjusted seasonal estimate before rounding and deducting fulfilled demand. Avoid counting the same cause twice.",
       ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Units sold", "Sales", "90+ day serials", "Observation", "Branch units sold", "Monthly forecast", "Re-order qty", "Stock alert", "Forecast month", "Seasonal factor", "Forecast basis", "Branch units sold in forecast month", "Remaining demand", "Product history from", "History months", "Baseline monthly forecast", "Approved external adjustment %", "Adjustment justification","Open days in forecast month","Remaining open days","Calendar factor","Approved event adjustment %","Event adjustment justification"], products, stockCellClass, forecastControls);
     const aging = analyticsDataTable("an-inventory-aging", "Current stock aging", "Available serialized units only. Missing/invalid receipt dates are unknown; nonserialized units have no receipt-age data.",
       ["Age band", "Available serials"], [["Current (0-29 days)", summary.current], ["30 days (30-59)", summary.days30],
@@ -6890,6 +6906,8 @@
       openPieTable(pie.dataset.pieTable, pie);
       return;
     }
+    const calendarDate = event.target.closest("[data-event-date]");
+    if (calendarDate) { openCalendarDate(calendarDate.dataset.eventDate, JSON.parse(calendarDate.dataset.eventBranches)); return; }
     const editEvent = event.target.closest("[data-event-edit]");
     if (editEvent) { openCalendarEvent(editEvent.dataset.eventEdit); return; }
     const cancelEvent = event.target.closest("[data-event-cancel]");

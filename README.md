@@ -1,5 +1,18 @@
 # Branchline
 
+### Date-driven calendar layout (shell v126)
+
+Analytics no longer displays the external monitoring notice; monitoring setup,
+approval controls and health remain in Settings. Forecast eligibility, failure
+handling and numerical calculations are unchanged.
+
+The calendar uses seven equal weekday columns. Event dates are bold blue;
+dates including store closures are bold red. Click or keyboard-activate a date
+to view all applicable events, company closure details, permitted edit/cancel
+actions and related approval history. Date cells contain numbers only; the
+event list, empty-state messages and explanatory notes below the grid are removed.
+Existing closure records, approval audit and exports are retained.
+
 ### Contribution chart details (shell v125)
 
 PS contribution-chart clicks render the authorized price-free branch brand log
