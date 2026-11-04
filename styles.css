@@ -426,6 +426,22 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .select-cell { width: 34px; text-align: center; }
 .button.danger:not(:disabled) { color: var(--red); border-color: #f0caca; }
 .button:disabled { opacity: .5; cursor: not-allowed; }
+:is(.button, .mini-button):not([aria-pressed]):not([aria-selected]):not([role="switch"]):not(.danger):not(.button-danger) {
+  color: #fff;
+  background: var(--blue);
+  border-color: var(--blue);
+  box-shadow: 0 3px 8px #355ee82a;
+}
+:is(.button, .mini-button):not([aria-pressed]):not([aria-selected]):not([role="switch"]):not(.danger):not(.button-danger):hover:not(:disabled) {
+  color: #fff;
+  background: var(--blue-dark);
+  border-color: var(--blue-dark);
+  transform: none;
+}
+:is(.button, .mini-button):focus-visible {
+  outline: 2px solid var(--blue-dark);
+  outline-offset: 3px;
+}
 .sale-row[data-outdoor-of] { margin-left: 18px; border-left: 3px solid var(--line); padding-left: 8px; }
 .mode-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .mode-list li { display: flex; align-items: center; justify-content: space-between; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }

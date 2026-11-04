@@ -1,5 +1,18 @@
 # Branchline
 
+### Workspace loading and action buttons (shell v124)
+
+Live calendar/climate loaders use the shared paginated query helper with an
+explicit client, including initial sign-in and later refreshes. Query failures
+remain visible; the demo never queries live monitoring tables.
+
+Normal action buttons use solid brand blue with white text, consistent hover
+and visible keyboard focus. Destructive actions keep red styling; disabled
+buttons retain their disabled appearance/behavior. Stateful toggle buttons
+(including stock availability) retain distinct selected/unselected styles.
+Navigation, tabs and icon-only controls retain their existing purpose-specific
+styles.
+
 ### Event calendar and store closures (shell v123)
 
 **Settings > Event calendar** and the **Analytics inventory section** display

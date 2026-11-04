@@ -665,7 +665,7 @@
             : "Reload to retry. If this continues, share this error with your administrator.";
         liveData.inventoryError = `Inventory is unavailable: ${error.message}. ${advice}`;
       }
-      const [climate, calendar] = await Promise.all([loadClimateContext(), loadEventCalendar()]);
+      const [climate, calendar] = await Promise.all([loadClimateContext(client), loadEventCalendar(client)]);
       if (sequence !== loadSequence || !currentSession) return;
       liveData.climate = climate;
       liveData.calendar = calendar;
@@ -1538,11 +1538,11 @@
     }
   }
 
-  async function loadEventCalendar() {
+  async function loadEventCalendar(dataClient = client) {
     if (demoStore) return { demo: true, events: [], adjustments: [] };
     const [events, adjustments] = await Promise.all([
-      fetchAll("calendar_events", "*", [["id", true]]),
-      fetchAll("forecast_event_adjustments", "*", [["id", true]]),
+      fetchAllFrom(dataClient, "calendar_events", "*", [["id", true]]),
+      fetchAllFrom(dataClient, "forecast_event_adjustments", "*", [["id", true]]),
     ]);
     const failed = [events, adjustments].find(result => result.error);
     if (failed) {
@@ -1698,10 +1698,10 @@
     });
   }
 
-  async function loadClimateContext() {
+  async function loadClimateContext(dataClient = client) {
     if (demoStore) return { demo: true, locations: [], evidence: [], adjustments: [], status: [] };
     const tables = ["forecast_locations", "forecast_climate_evidence", "forecast_adjustments", "forecast_monitor_status"];
-    const results = await Promise.all(tables.map(table => fetchAll(table, "*", [[table === "forecast_monitor_status" ? "checked_at" : table === "forecast_locations" ? "branch_id" : "id", true]])));
+    const results = await Promise.all(tables.map(table => fetchAllFrom(dataClient, table, "*", [[table === "forecast_monitor_status" ? "checked_at" : table === "forecast_locations" ? "branch_id" : "id", true]])));
     const failed = results.find(result => result.error);
     if (failed) {
       console.error("Climate review data unavailable", failed.error);
