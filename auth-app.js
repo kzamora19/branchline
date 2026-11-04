@@ -2103,13 +2103,13 @@
     const forecast = window.BranchlineAnalytics.inventoryForecast({
       products: summary.products, facts: demandFacts, branchIds: ids, today,
       from: ui.inventoryForecastFrom || from, to: ui.inventoryForecastTo || to, unavailable: Boolean(demandError),
-      targetMonth: ui.inventoryForecastMonth || window.BranchlineAnalytics.shiftMonth(today.slice(0, 7), 1),
+      targetMonth: ui.inventoryForecastMonth || today.slice(0, 7),
     });
     const metric = (label, value) => `<article class="connected-metric"><span>${escapeHTML(label)}</span><strong>${value}</strong></article>`;
     const cards = `<div class="connected-metrics">${metric("Available units now", summary.units)}${metric("Tracked branch / product pairs", summary.tracked)}${metric("Out-of-stock branch / product pairs", summary.stockouts)}${metric("Not initialized", summary.uninitialized)}${metric("Awaiting classification", summary.unclassified)}${metric("Available serials aged 90+ days", summary.days90)}${!isPs ? metric("Missing SRP (unset or zero)", summary.missingSrp) : ""}</div>`;
     const rangeLabel = from === "0001-01-01" && to === "9999-12-31" ? "all recorded dates" : `${from} to ${to}`;
     const note = `Current inventory as of ${today}; sales/activity dates: ${rangeLabel}. Stock is not a historical balance. ${isPs ? "Your assigned brand/category stock; sold units and sales are your own, not branch-wide demand." : "Available quantities exclude reserved/in-transit stock."} Uninitialized inventory is unknown, not zero. No cost, profit or historical stock valuation is inferred.`;
-    const forecastNote = ` Forecast month: ${forecast.targetMonth}. Monthly forecast = recorded branch/product monthly average x seasonal category factor, rounded up. The factor compares the target calendar month's category units with its overall monthly average in this branch, using at least two complete prior calendar years in the forecast history, with recorded category sales in every month; otherwise the unadjusted average is labelled. No preset summer multiplier. Blank Forecast from/to follows Analytics; partial months use elapsed calendar-day fractions. History stops before the target month and never after today. ${forecast.months ? `Forecast history: ${forecast.from} to ${forecast.to} (${forecast.months.toFixed(3)} months).` : "No elapsed forecast history is available."} All-time starts at the first recorded branch product sale. Re-order qty = max(0, forecast - available now). Red = below forecast; red/bold = zero stock with demand. Summary-only sales cannot supply product units; no lost sales, lead times or orders are inferred.`;
+    const forecastNote = ` Forecast month: ${forecast.targetMonth} (defaults to this month). Monthly forecast = recorded branch/product monthly average x seasonal category factor, rounded up. The factor compares the target calendar month's category units with its overall monthly average in this branch, using at least two complete prior calendar years in the forecast history, with recorded category sales in every month; otherwise the unadjusted average is labelled. No preset summer multiplier. Blank Forecast from/to follows Analytics; partial months use elapsed calendar-day fractions. Current-month forecasts include history through today; other months use history before the target month, never after today. ${forecast.months ? `Forecast history: ${forecast.from} to ${forecast.to} (${forecast.months.toFixed(3)} months).` : "No elapsed forecast history is available."} All-time starts at the first recorded branch product sale. Re-order qty = max(0, forecast for the displayed month - available now). Red = below forecast; red/bold = zero stock with demand. Summary-only sales cannot supply product units; no lost sales, lead times or orders are inferred.`;
     const products = forecast.products.map(row => [branchName(row.branch_id), row.barcode, row.model_description,
       row.brand, row.category || "Unclassified", row.sub_category || "", row.quantity ?? "Not initialized",
       row.sold, formatMoney(row.sales), row.days90,
@@ -7009,7 +7009,7 @@
     const key = control.dataset.filter;
     if (key === "inventoryForecastMonth" && !/^\d{4}-(0[1-9]|1[0-2])$/.test(control.value)) {
       alert("Choose a valid forecast month.");
-      control.value = ui.inventoryForecastMonth || window.BranchlineAnalytics.shiftMonth(localISODate().slice(0, 7), 1);
+      control.value = ui.inventoryForecastMonth || localISODate().slice(0, 7);
       return;
     }
     if (key === "inventoryForecastFrom" || key === "inventoryForecastTo") {
@@ -7076,11 +7076,14 @@
     const sortButton = event.target.closest("[data-sort-table]");
     if (sortButton) {
       const { sortTable: tableKey, sortCol } = sortButton.dataset;
+      const scrollLeft = sortButton.closest(".connected-table-wrap")?.scrollLeft || 0;
       const current = ui.sort[tableKey];
       const col = Number(sortCol);
       ui.sort[tableKey] = current?.col === col ? { col, dir: current.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" };
       ui.pages[tableKey] = 1;
       refreshResults();
+      const table = connectedContent.querySelector(`[data-sort-table="${tableKey}"]`)?.closest(".connected-table-wrap");
+      if (table) table.scrollLeft = scrollLeft;
       return;
     }
     if (event.target.closest("[data-delete-products]") && currentProfile.role === "admin" && productSelection.size) {

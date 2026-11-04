@@ -533,10 +533,10 @@
       missingSrp: products.filter(row => row.missing_srp).length };
   }
 
-  function inventoryForecast({ products, facts, branchIds, from, to, today, targetMonth = shiftMonth(today.slice(0, 7), 1), unavailable = false }) {
+  function inventoryForecast({ products, facts, branchIds, from, to, today, targetMonth = today.slice(0, 7), unavailable = false }) {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(targetMonth)) throw new Error("Choose a valid forecast month.");
     const cutoff = addDays(monthStart(targetMonth), -1);
-    const through = cutoff < today ? cutoff : today;
+    const through = targetMonth === today.slice(0, 7) ? today : cutoff < today ? cutoff : today;
     const demand = facts.filter(row => branchIds.has(row.branchId) && !row.summary && row.date <= through);
     const allTime = from === "0001-01-01";
     let start = allTime ? "" : from;

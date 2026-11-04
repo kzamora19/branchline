@@ -1,8 +1,8 @@
 # Branchline
 
-### Seasonal product stock forecasts (shell v119)
+### Seasonal product stock forecasts (shell v120)
 
-**Forecast month** defaults to next month and can be changed in **Filters >
+**Forecast month** defaults to the current month and can be changed in **Filters >
 Inventory and product sales**. The forecast multiplies each item's recorded
 monthly average by its branch/category's seasonal factor before rounding up.
 The factor is target-calendar-month units divided by overall average monthly
@@ -14,8 +14,9 @@ At least two complete prior calendar years must lie inside Forecast from/to,
 with recorded positive category-unit sales in all twelve months of each year.
 Missing months are not assumed to be zero. Incomplete years, unknown categories
 or insufficient history use factor 1 and **Monthly average (insufficient seasonal
-history)**. No hardcoded summer boost is applied. Learning dates stop before the
-forecast month and never after today, preventing target-month hindsight.
+history)**. No hardcoded summer boost is applied. Current-month forecasts include
+elapsed sales through today. For other target months, learning dates stop before
+the forecast month and never after today, preventing historical target-month hindsight.
 **Forecast month**, numeric **Seasonal factor**, and **Forecast basis** accompany
 each row and its downloads, including Export All. The target-month choice is
 saved per account; clear/invalid months are rejected or reset on restore.
@@ -28,7 +29,8 @@ inclusive elapsed days divided by that calendar month's days; future days do not
 count. All-time uses the first recorded authorized branch product sale through
 the learning cutoff above. For example, 100 units over ten full months averages 10 units; five
 available units require five more before any seasonal adjustment.
-Re-order qty is `max(0, forecast - available)`.
+Re-order qty is `max(0, forecast for the displayed month - available)`.
+Sorting tables preserves their horizontal scroll position.
 In **Filters > Inventory and product sales**, optional **Forecast from/to**
 calendars override only the demand/forecast history (for example January 1 to
 October 31 for ten months). Blank calendars follow the selected Analytics

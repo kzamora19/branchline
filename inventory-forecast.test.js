@@ -165,7 +165,7 @@ test("PS forecasts use branch units while personal Units sold and Sales stay unc
   assert.equal(row[7], 20);
   assert.equal(row[8], "P200");
   assert.deepEqual(Array.from(row.slice(11, 15)), [100, 10, 5, "Critical stock"]);
-  assert.deepEqual(Array.from(row.slice(15)), ["2026-12", 1, "Monthly average (insufficient seasonal history)"]);
+  assert.deepEqual(Array.from(row.slice(15)), ["2026-11", 1, "Monthly average (insufficient seasonal history)"]);
   assert.doesNotMatch(html, /Peer name must not leak|PEER-SECRET|foreign/);
   assert.ok(table.rows.every(row => row[0] === "one" && row[3] === "TCL"));
   assert.equal(table.sortValue(row, 13), 5);

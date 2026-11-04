@@ -97,9 +97,9 @@ test("fallback has no preset aircon summer boost, failed loads and zero history 
   assert.equal(empty.seasonalFactor, 1);
 });
 
-test("default forecast month rolls into the next year and invalid month is rejected", () => {
+test("default forecast month stays in the current month and invalid month is rejected", () => {
   const options = { targetMonth: undefined, today: "2026-12-31" };
-  assert.equal(forecast(options).targetMonth, "2027-01");
+  assert.equal(forecast(options).targetMonth, "2026-12");
   for (const targetMonth of ["", "2027-00", "2027-13", "April", "2027-04-01"]) {
     assert.throws(() => forecast({ targetMonth }), /valid forecast month/);
   }
@@ -130,7 +130,7 @@ test("actual inventory table wires target month, seasonal metadata, branch-only 
       ids: new Set(["one"]), inputFacts: role === "ps" ? personal : history().map(row => ({ ...row, amount: 100 })),
     });
 
-    test("forecast month is persisted per account and invalid stored month resets to automatic next month", () => {
+    test("forecast month is persisted per account and invalid stored month resets to automatic current month", () => {
       const store = new Map(), ui = {};
       const context = vm.createContext({
         ui, demoStore: null, currentProfile: { id: "one", dealer_id: "dealer" },
@@ -138,6 +138,48 @@ test("actual inventory table wires target month, seasonal metadata, branch-only 
         resetUi: () => Object.assign(ui, { period: "month", month: "2026-11", date: "", district: "", branch: "", anRange: "month" }),
         localStorage: { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value) },
         console,
+      });
+
+      test("current-month forecast uses elapsed sales through today for the same month's re-order", () => {
+        const result = forecast({ targetMonth: undefined, from: "2026-11-01", to: "2026-11-30", facts: [
+          { ...history()[0], date: "2026-11-04", quantity: 2 },
+          { ...history()[0], date: "2026-11-05", quantity: 999 },
+        ] });
+        assert.equal(result.targetMonth, "2026-11");
+        assert.equal(result.to, "2026-11-04");
+        assert.equal(result.months, 4 / 30);
+        assert.equal(result.products[0].branchSold, 2);
+        assert.equal(result.products[0].forecast, 15);
+        assert.equal(result.products[0].reorder, 10);
+        const firstDay = forecast({ targetMonth: undefined, today: "2026-01-01",
+          from: "2026-01-01", to: "2026-01-31", facts: [{ ...history()[0], date: "2026-01-01", quantity: 1 }] });
+        assert.equal(firstDay.targetMonth, "2026-01");
+        assert.equal(firstDay.products[0].forecast, 31);
+      });
+
+      test("sorting restores the replaced table's horizontal position in both directions", () => {
+        const start = source.indexOf("    if (sortButton) {", source.indexOf('const sortButton = event.target.closest("[data-sort-table]")'));
+        const handler = source.slice(start, source.indexOf('    if (event.target.closest("[data-delete-products]")', start));
+        for (const tableKey of ["an-inventory-products", "products"]) {
+          const ui = { sort: {}, pages: { [tableKey]: 3 } };
+          for (const position of [850, 850, 0]) {
+            const replacement = { scrollLeft: 0 };
+            let refreshed = false;
+            vm.runInNewContext(`(function () { ${handler} })()`, {
+              ui, sortButton: { dataset: { sortTable: tableKey, sortCol: "13" }, closest: () => ({ scrollLeft: position }) },
+              refreshResults: () => { refreshed = true; },
+              connectedContent: { querySelector: selector => {
+                assert.ok(refreshed);
+                assert.equal(selector, `[data-sort-table="${tableKey}"]`);
+                return { closest: () => replacement };
+              } },
+            });
+            assert.equal(replacement.scrollLeft, position);
+            assert.equal(ui.pages[tableKey], 1);
+            assert.equal(ui.sort[tableKey].col, 13);
+          }
+          assert.equal(ui.sort[tableKey].dir, "asc");
+        }
       });
       vm.runInContext(source.slice(source.indexOf("  const universalPages"), source.indexOf("  let productsFiltered")), context);
       context.restoreAccountFilters();
