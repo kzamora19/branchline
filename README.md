@@ -4,6 +4,18 @@ Branchline is a sales tracker for Product Specialists and branch teams.
 
 ## Compact filters and staff actions
 
+Brand targets and PS brand matching recognize slash-separated groups, such as
+FUJIDENZO / WHIRLPOOL and MIDEA / TOSHIBA. Each row has one combined target.
+A category suffix belongs only to its part: CARRIER / CONDURA - AIRCON includes
+all Carrier products and only Condura air conditioners. In that branch/month,
+a separate general CONDURA target excludes the category claimed by the scoped
+target. General PS assignments likewise exclude active peers' category scopes.
+CON- brand prefixes are ignored for matching (CON-DEVANT = DEVANT), including
+targets, PS contributions, branch-wide brand logs and PS inventory views.
+Other known hyphenated brand names remain intact. Stored product/sale/assignment
+labels are not rewritten. Apply migration 20261203000000_canonical_brand_matching.sql
+with shell v115 to align the live contribution/log RPCs with client matching.
+
 The PS Sales **+ Record sale** button stays fixed at the lower-right corner
 while scrolling, independently of the filter container (shell v103).
 

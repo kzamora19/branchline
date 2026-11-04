@@ -356,18 +356,10 @@
       for (const table of ["sale_lines", "sale_serials", "sale_edit_history", "sale_delivery_guaranties"]) tables[table] = tables[table].filter(row => row.sale_id !== id);
     };
     function brandMatches(line, person = actor) {
-      const parts = assignment => String(assignment || "").split("/").map(part => {
-        const text = norm(part);
-        const known = tables.products.some(p => norm(p.brand) === text);
-        const at = known ? -1 : text.indexOf("-");
-        return { brand: at < 0 ? text : text.slice(0, at).trim(), scope: at < 0 ? "" : text.slice(at + 1).trim() };
-      });
-      const inScope = scope => norm(`${line.category} ${line.sub_category} ${line.model_description}`).includes(scope);
-      return parts(person.assigned_brand).some(part => part.brand === norm(line.brand) &&
-        (part.scope ? inScope(part.scope) : !tables.profiles.filter(p => p.id !== person.id && p.active && p.role === "ps" && p.branch_id === person.branch_id)
-          .flatMap(p => parts(p.assigned_brand)).some(other => other.brand === part.brand && other.scope && inScope(other.scope))));
+      return I.brandMatches(line, person, tables.profiles, tables.products);
     }
     function brandLines() {
+      const brandMatches = I.brandMatcher(actor, tables.profiles, tables.products);
       return tables.sales.filter(s => s.branch_id === actor.branch_id && !testName(s.customer_name) && !testName(s.invoice_number) &&
         !tables.profiles.some(person => person.id === s.ps_id && testProfile(person))).flatMap(sale =>
         tables.sale_lines.filter(l => l.sale_id === sale.id && brandMatches(l)).map(line => ({ sale, line })));

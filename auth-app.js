@@ -780,11 +780,7 @@
   // An assignment can list several brands separated by "/" (e.g. "Fujidenzo / Whirlpool"), and each one can be limited
   // to a category with "Brand - Scope" (e.g. "Carrier / Condura - Aircon").
   function psBrandParts(assigned) {
-    return String(assigned || "").split("/").map(part => part.trim()).filter(Boolean).map(full => {
-      const at = full.indexOf("-");
-      const isBrand = liveData.products.some(product => product.brand.trim().toLowerCase() === full.toLowerCase());
-      return at < 0 || isBrand ? { full, base: full, scope: "" } : { full, base: full.slice(0, at).trim(), scope: full.slice(at + 1).trim() };
-    });
+    return window.BranchlineInventory.brandParts(assigned, liveData.products);
   }
 
   function scopeBranchIds() {
@@ -879,10 +875,28 @@
 
   function brandRows(scope) {
     const ids = scope || scopeBranchIds();
+    const I = window.BranchlineInventory;
     const actual = new Map();
     const target = new Map();
     const categories = new Map();
     const subs = new Map();
+    const labels = new Map();
+    const definitions = liveData.brandTargets.filter(row => ids.has(row.branch_id) && targetInPeriod(row.month)).map(row => {
+      const parts = I.brandParts(row.brand, liveData.products);
+      const key = parts.map(part => `${part.brand}${part.scope ? ` - ${part.scope}` : ""}`).sort().join(" / ");
+      labels.set(key, parts.map(part => part.full).join(" / "));
+      addTo(target, key, Number(row.amount));
+      return { row, parts, key };
+    });
+    const byPeriod = new Map();
+    definitions.forEach(item => {
+      const period = `${item.row.branch_id}|${item.row.month.slice(0, 7)}`;
+      if (!byPeriod.has(period)) byPeriod.set(period, []);
+      byPeriod.get(period).push(item);
+    });
+    byPeriod.forEach(items => items.forEach(item => {
+      item.others = items.filter(other => other.key !== item.key).flatMap(other => other.parts);
+    }));
     const remember = (map, brand, value) => {
       if (!value) return;
       if (!map.has(brand)) map.set(brand, new Set());
@@ -890,20 +904,23 @@
     };
     liveData.sales.forEach(sale => {
       if (!ids.has(sale.branch_id) || !inStatus(sale.sold_on)) return;
+      const applicable = byPeriod.get(`${sale.branch_id}|${sale.sold_on.slice(0, 7)}`) || [];
       linesForSale(sale.id).forEach(line => {
-        const brand = (line.brand || "Unbranded").trim();
-        addTo(actual, brand, window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis));
-        remember(categories, brand, line.category);
-        remember(subs, brand, line.sub_category);
+        const matched = applicable.filter(item => I.matchesBrandParts(line, item.parts, item.others));
+        const fallback = I.brandKey(line.brand) || "unbranded";
+        if (!labels.has(fallback)) labels.set(fallback, (line.brand || "Unbranded").trim().replace(/^con\s*-\s*/i, "").trim());
+        const keys = new Set(matched.length ? matched.map(item => item.key) : [fallback]);
+        keys.forEach(key => {
+          addTo(actual, key, window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis));
+          remember(categories, key, line.category);
+          remember(subs, key, line.sub_category);
+        });
       });
-    });
-    liveData.brandTargets.forEach(row => {
-      if (ids.has(row.branch_id) && targetInPeriod(row.month)) addTo(target, row.brand.trim(), Number(row.amount));
     });
     const list = brand => [...(categories.get(brand) || [])].sort(natural).join(", ") || "—";
     const subList = brand => [...(subs.get(brand) || [])].sort(natural).join(", ") || "—";
     return [...new Set([...actual.keys(), ...target.keys()])]
-      .map(brand => ({ brand, category: list(brand), subCategory: subList(brand), actual: actual.get(brand) || 0, target: target.get(brand) || 0 }))
+      .map(key => ({ brand: labels.get(key), category: list(key), subCategory: subList(key), actual: actual.get(key) || 0, target: target.get(key) || 0 }))
       .sort((a, b) => {
         const progress = row => (row.target > 0 ? row.actual / row.target : -1);
         if (ui.brandSort === "target") return b.target - a.target || natural(a.brand, b.brand);
@@ -5276,7 +5293,7 @@
     const month = existing ? existing.month.slice(0, 7) : ui.month || currentMonth();
     openModal({
       title: existing ? "Edit target" : "Set target",
-      intro: "Targets apply to the branches you manage.",
+      intro: "Targets apply to the branches you manage. Use / to combine brands (MIDEA / TOSHIBA). A category suffix applies only to its own brand (CARRIER / CONDURA - AIRCON). Scoped targets take that category out of the general brand target. CON- prefixes count with the base brand.",
       submitLabel: "Save target",
       body: `${fieldHTML("Type", "type", selectHTML("type", [["branch", "Branch target (all brands)"], ["brand", "Brand target"]], "branch", existing ? "disabled" : ""))}
         ${fieldHTML("Branch", "branch", selectHTML("branch", [...(branches.length > 1 && !existing ? [["all", `All my branches (${branches.length})`]] : []), ...branches.map(branch => [branch.id, branch.name])], existing ? existing.branch_id : branches.length > 1 ? "all" : branches[0]?.id, existing ? "disabled" : ""))}
@@ -5325,7 +5342,7 @@
     const rowHTML = index => `${selectHTML(`t${index}_branch`, options, "", `aria-label="Branch, row ${index + 1}"`)}<input name="t${index}_brand" list="brand-options" placeholder="Brand" aria-label="Brand, row ${index + 1}" autocomplete="off"><input name="t${index}_amount" type="number" min="0" step="0.01" placeholder="Target amount (₱)" aria-label="Target amount, row ${index + 1}">`;
     openModal({
       title: "Add multiple targets",
-      intro: "Fill one row per target. Blank rows are ignored. A target that already exists for the same branch, month and brand is replaced.",
+      intro: "Fill one row per target. Blank rows are ignored. A target that already exists for the same branch, month and brand is replaced. Use / to combine brands; a category suffix applies only to its own brand. Scoped targets exclude that category from general brand targets. CON- prefixes count with the base brand.",
       submitLabel: "Save targets",
       wide: true,
       body: `${fieldHTML("Type", "type", selectHTML("type", [["branch", "Branch targets (all brands)"], ["brand", "Brand targets"]], "branch"))}
@@ -6176,11 +6193,24 @@
   // Pop-up with one brand's sales in the current view, broken down by category and sub-category.
   function openBrandDetailModal(brand) {
     const ids = scopeBranchIds();
+    const I = window.BranchlineInventory;
+    const assigned = I.brandParts(brand, liveData.products);
+    const keyOf = parts => parts.map(part => `${part.brand}${part.scope ? ` - ${part.scope}` : ""}`).sort().join(" / ");
+    const key = keyOf(assigned);
+    const claimed = new Map();
+    liveData.brandTargets.filter(row => ids.has(row.branch_id)).forEach(row => {
+      const parts = I.brandParts(row.brand, liveData.products);
+      if (keyOf(parts) === key) return;
+      const period = `${row.branch_id}|${row.month.slice(0, 7)}`;
+      if (!claimed.has(period)) claimed.set(period, []);
+      claimed.get(period).push(...parts);
+    });
     const all = [];
     liveData.sales.forEach(sale => {
       if (!ids.has(sale.branch_id) || !inStatus(sale.sold_on)) return;
       linesForSale(sale.id).forEach(line => {
-        if ((line.brand || "Unbranded").trim() === brand) all.push({ sale, line });
+        const item = { ...line, brand: line.brand || "Unbranded" };
+        if (I.matchesBrandParts(item, assigned, claimed.get(`${sale.branch_id}|${sale.sold_on.slice(0, 7)}`) || [])) all.push({ sale, line });
       });
     });
     openBreakdownModal({
@@ -6190,7 +6220,7 @@
       state: { brand: "", category: "", sub: "" },
       fileBase: `branchline-${brand.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-sales`,
       sheet: "Brand sales",
-      showBrand: false,
+      showBrand: true,
     });
   }
 
