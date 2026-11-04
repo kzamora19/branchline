@@ -101,20 +101,26 @@
     return { dates, invalid };
   }
 
-  function makeRules(basis, holidayDates) {
+  function makeRules(basis, holidayDates, branchClosures = []) {
     const preset = RULES[basis] || RULES.all;
-    return { weekdays: preset.weekdays, holidays: holidayDates || [] };
+    return { weekdays: preset.weekdays, holidays: holidayDates || [], branchClosures };
+  }
+
+  function sellingDayWeight(iso, rules) {
+    if (!rules.weekdays.includes(weekday(iso)) || rules.holidays.includes(iso)) return 0;
+    const groups = rules.branchClosures || [];
+    return groups.length ? groups.filter(ranges => !ranges.some(row => row.starts_on <= iso && row.ends_on >= iso)).length / groups.length : 1;
   }
 
   function isSellingDay(iso, rules) {
-    return rules.weekdays.includes(weekday(iso)) && !rules.holidays.includes(iso);
+    return sellingDayWeight(iso, rules) > 0;
   }
 
   function countSellingDays(from, to, rules) {
     if (!from || !to || to < from) return 0;
     let count = 0;
     for (let ms = toMs(from); ms <= toMs(to); ms += DAY_MS) {
-      if (isSellingDay(fromMs(ms), rules)) count += 1;
+      count += sellingDayWeight(fromMs(ms), rules);
     }
     return count;
   }
@@ -136,7 +142,7 @@
     const rateThrough = partialDay ? addDays(refDate, -1) : refDate;
     const elapsedDays = countSellingDays(start, rateThrough, rules);
     const remainingDays = countSellingDays(addDays(refDate, 1), end, rules);
-    const paceDays = remainingDays + (partialDay && isSellingDay(refDate, rules) ? 1 : 0);
+    const paceDays = remainingDays + (partialDay ? sellingDayWeight(refDate, rules) : 0);
     if (!totalDays || elapsedDays < minDays) {
       return { status: "insufficient", value: null, rate: null, totalDays, elapsedDays, remainingDays, paceDays };
     }
@@ -173,7 +179,7 @@
         actual.push({ day, value: running });
         if (date === refDate) forecast.push({ day, value: running });
       } else if (refDate && rate != null) {
-        if (isSellingDay(date, rules)) running += rate;
+        running += rate * sellingDayWeight(date, rules);
         forecast.push({ day, value: running });
       }
     }
@@ -533,7 +539,7 @@
       missingSrp: products.filter(row => row.missing_srp).length };
   }
 
-  function inventoryForecast({ products, facts, branchIds, from, to, today, targetMonth = today.slice(0, 7), unavailable = false, adjustments = [] }) {
+  function inventoryForecast({ products, facts, branchIds, from, to, today, targetMonth = today.slice(0, 7), unavailable = false, adjustments = [], closures = [], holidays = [], eventAdjustments = [] }) {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(targetMonth)) throw new Error("Choose a valid forecast month.");
     const cutoff = addDays(monthStart(targetMonth), -1);
     const through = targetMonth === today.slice(0, 7) ? today : cutoff < today ? cutoff : today;
@@ -563,17 +569,30 @@
       const key = `${row.branchId}\0${row.barcode}`;
       monthSold.set(key, (monthSold.get(key) || 0) + quantity);
     }
+    const closureRules = new Map(), openMonthCounts = new Map(), remainingOpenCounts = new Map();
+    const rulesFor = branch => {
+      if (!closureRules.has(branch)) closureRules.set(branch, makeRules("all", holidays,
+        [closures.filter(row => !row.branch_ids.length || row.branch_ids.includes(branch))]));
+      return closureRules.get(branch);
+    };
+    const openDays = (branch, month) => {
+      const key = `${branch}\0${month}`;
+      if (!openMonthCounts.has(key)) openMonthCounts.set(key, countSellingDays(monthStart(month), monthEnd(month), rulesFor(branch)));
+      return openMonthCounts.get(key);
+    };
+    const hasClosures = holidays.length > 0 || closures.length > 0;
     const monthCounts = new Map();
-    const elapsedMonths = first => {
+    const elapsedMonths = (first, branch) => {
       if (!first || first > end) return 0;
-      if (monthCounts.has(first)) return monthCounts.get(first);
+      const key = hasClosures ? `${branch}\0${first}` : first;
+      if (monthCounts.has(key)) return monthCounts.get(key);
       let count = 0;
       for (let month = first.slice(0, 7); month <= end.slice(0, 7); month = shiftMonth(month, 1)) {
         const a = first > monthStart(month) ? first : monthStart(month);
         const b = end < monthEnd(month) ? end : monthEnd(month);
-        count += ((toMs(b) - toMs(a)) / DAY_MS + 1) / daysInMonth(month);
+        count += (hasClosures ? countSellingDays(a, b, rulesFor(branch)) : (toMs(b) - toMs(a)) / DAY_MS + 1) / daysInMonth(month);
       }
-      monthCounts.set(first, count);
+      monthCounts.set(key, count);
       return count;
     };
     const categoryKey = value => String(value || "").trim().toLowerCase();
@@ -605,30 +624,42 @@
       const years = [...new Set([...monthly.keys()].map(month => month.slice(0, 4)))].filter(year =>
         year < targetMonth.slice(0, 4) && `${year}-01-01` >= start && `${year}-12-31` <= end
         && Array.from({ length: 12 }, (_, index) => `${year}-${pad(index + 1)}`).every(month => observed?.has(month))).sort();
-      const netUnits = month => Math.max(0, monthly.get(month) || 0);
+      const netUnits = month => {
+        const units = Math.max(0, monthly.get(month) || 0);
+        const fraction = hasClosures ? openDays(key.split("\0")[0], month) / daysInMonth(month) : 1;
+        return fraction ? units / fraction : 0;
+      };
       const total = years.reduce((sum, year) => sum + Array.from({ length: 12 }, (_, index) => netUnits(`${year}-${pad(index + 1)}`)).reduce((a, b) => a + b, 0), 0);
       const targetUnits = years.reduce((sum, year) => sum + netUnits(`${year}-${targetMonth.slice(5, 7)}`), 0);
       if (years.length >= 2 && total > 0) seasonal.set(key, { factor: targetUnits * 12 / total, years });
     }
     const approved = new Map(adjustments.map(row => [`${row.branch_id}\0${categoryKey(row.category)}`, row]));
+    const approvedEvents = new Map(eventAdjustments.map(row => [`${row.branch_id}\0${categoryKey(row.category)}`, row]));
     return { from: start, to: end, months, targetMonth, products: products.map(row => {
       const key = `${row.branch_id}\0${row.barcode}`;
       const branchSold = unavailable ? null : sold.get(key) || 0;
       const historyFrom = allTime ? firstSale.get(key) || "" : start;
-      const historyMonths = allTime ? elapsedMonths(historyFrom) : months;
+      const historyMonths = elapsedMonths(historyFrom, row.branch_id);
       const soldThisMonth = unavailable ? null : monthSold.get(key) || 0;
       const pattern = seasonal.get(`${row.branch_id}\0${categoryKey(row.category)}`);
       const seasonalFactor = unavailable || !historyMonths ? null : pattern?.factor ?? 1;
-      const baseRate = seasonalFactor === null ? null : Math.max(0, branchSold) / historyMonths * seasonalFactor;
+      const sellingDays = hasClosures ? openDays(row.branch_id, targetMonth) : daysInMonth(targetMonth);
+      if (!remainingOpenCounts.has(row.branch_id)) remainingOpenCounts.set(row.branch_id,
+        countSellingDays(targetStart > today ? targetStart : today, targetEnd, rulesFor(row.branch_id)));
+      const remainingSellingDays = remainingOpenCounts.get(row.branch_id);
+      const calendarFactor = sellingDays / daysInMonth(targetMonth);
+      const baseRate = seasonalFactor === null ? null : Math.max(0, branchSold) / historyMonths * seasonalFactor * calendarFactor;
       const adjustment = approved.get(`${row.branch_id}\0${categoryKey(row.category)}`);
       const approvedPercent = adjustment ? Number(adjustment.percent) : 0;
-      if (!Number.isFinite(approvedPercent) || approvedPercent < -100) throw new Error("Cannot forecast inventory: invalid approved adjustment.");
-      const rate = baseRate === null ? null : baseRate * (1 + approvedPercent / 100);
+      const eventAdjustment = approvedEvents.get(`${row.branch_id}\0${categoryKey(row.category)}`);
+      const eventPercent = eventAdjustment ? Number(eventAdjustment.percent) : 0;
+      if (![approvedPercent,eventPercent].every(value => Number.isFinite(value) && value >= -100)) throw new Error("Cannot forecast inventory: invalid approved adjustment.");
+      const rate = baseRate === null ? null : baseRate * (1 + approvedPercent / 100) * (1 + eventPercent / 100);
       if (rate !== null && (!Number.isFinite(rate) || rate > Number.MAX_SAFE_INTEGER)) throw new Error("Approved adjustment exceeds supported forecast units.");
       // Calendar fractions can leave an exact integer a few floating-point steps above itself.
       const forecast = rate === null ? null : Math.max(0, Math.ceil(rate - Number.EPSILON * Math.max(1, rate) * 8));
       const baselineForecast = baseRate === null ? null : Math.max(0, Math.ceil(baseRate - Number.EPSILON * Math.max(1, baseRate) * 8));
-      const remainingDemand = forecast === null ? null : Math.max(0, forecast - Math.max(0, soldThisMonth));
+      const remainingDemand = forecast === null ? null : sellingDays < daysInMonth(targetMonth) && !remainingSellingDays ? 0 : Math.max(0, forecast - Math.max(0, soldThisMonth));
       const reorder = remainingDemand === null || row.quantity === null ? null : Math.max(0, remainingDemand - row.quantity);
       const stockAlert = forecast === null ? "Forecast unavailable" : row.quantity === null ? "Stock unknown"
         : reorder > 0 ? row.quantity === 0 ? "Needs attention" : "Critical stock"
@@ -638,6 +669,7 @@
         : "Monthly average (insufficient seasonal history)";
       return { ...row, branchSold, forecast, reorder, stockAlert, seasonalFactor, forecastBasis, forecastMonth: targetMonth,
         soldThisMonth, remainingDemand, historyFrom, historyMonths, baselineForecast, approvedPercent,
+        sellingDays, remainingSellingDays, calendarFactor, eventPercent, eventReason: eventAdjustment?.reason || "",
         adjustmentReason: adjustment?.reason || "No approved external adjustment" };
     }) };
   }

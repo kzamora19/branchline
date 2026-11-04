@@ -1,5 +1,54 @@
 # Branchline
 
+### Event calendar and store closures (shell v123)
+
+**Settings > Event calendar** and the **Analytics inventory section** display
+a monthly calendar plus event details and approval history. Admins and district
+managers can manage company-wide events or selected branches; branch managers
+can manage only events entirely within their assigned branches. PS and inventory
+roles cannot edit or approve. Events cover inclusive date ranges and include
+promotions, mall sales, holidays, local events, closures and other events.
+A holiday does not imply the store is closed: explicitly mark full-day closures.
+Existing **Store-closed dates** remain company-wide and appear in the calendar;
+they are not migrated, deleted or duplicated.
+
+Closures apply immediately to selling-day calculations. Product forecasts assume
+every day is open unless recorded closed. Historical exposure is normalized as
+open days divided by calendar days for each observed month; this avoids treating
+known closures as quiet selling days. Seasonal category totals are normalized
+the same way. The target month's full-month baseline is scaled by its open-day
+fraction. Overlapping closure events and old company dates count once per day.
+If there are no remaining open days, remaining demand/reorder is zero. Unknown
+history or stock remains unknown. **History months** now reports open-day
+equivalents; with no closures results remain unchanged. Analytics sales pace uses
+the selected weekday basis and average open branch-days across scoped branches.
+Closure impact assumes equal demand across otherwise open days, not a proven
+weekday sales pattern; partial-day opening hours are not inferred.
+
+Open-store events are informational until an admin, district manager or assigned
+branch manager approves one **combined monthly event percentage** per
+branch/category/month, selecting the supporting events and justifying the number.
+No percentage is prefilled or inferred from an event title. Replacement/revocation
+preserves the approval audit and event snapshots; editing/cancelling any referenced
+event revokes related approvals. Branch/category/month and current event validity
+are checked both server-side and before application. Approval is limited to the
+current month through twelve months ahead.
+
+Approved event and climate percentages multiply separately on the unrounded,
+calendar-adjusted seasonal baseline, followed by rounding up, subtracting
+nonnegative net fulfilled units and available stock. Reviewers must avoid
+double-counting causes already reflected in seasonality/climate. For example,
+baseline 30 units, 15 of 30 days open, climate +20% and combined events +10%
+gives `ceil(30 * 0.5 * 1.2 * 1.1) = 20` units before fulfillment/stock.
+Exports append open days, remaining open days, calendar factor, event percentage
+and justification, with numeric quantities preserved. Export All also includes
+calendar records and event approval audit sheets.
+
+Deploy `20261207000000_event_calendar.sql` after existing migrations before
+publishing this frontend. Failed calendar loading is explicitly reported and
+disables item forecasts, rather than silently ignoring unknown closures.
+No event, closure or approval is seeded into live business data.
+
 ### Official climate evidence and approved demand adjustments (shell v122)
 
 **Settings** and **Analytics > Inventory and product sales** show official ENSO

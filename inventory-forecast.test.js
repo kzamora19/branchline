@@ -134,6 +134,7 @@ function render(role = "ps", options = {}, filters = {}) {
   const tables = new Map(), ids = new Set(["one"]);
   const context = vm.createContext({
     activeClimateAdjustments: () => [], climateReviewPanel: () => "",
+    calendarClosures: () => [], companyHolidayDates: () => [], activeEventAdjustments: () => [], eventCalendarPanel: () => "",
     window: { BranchlineAnalytics: A, BranchlineInventory: I }, PAGE_SIZE: 10,
     ui: { inventoryForecastFrom: "2026-01-01", inventoryForecastTo: "2026-10-31", ...filters },
     currentProfile: { id: "self", role, branch_id: "one", assigned_brand: "TCL" },
