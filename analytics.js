@@ -533,6 +533,46 @@
       missingSrp: products.filter(row => row.missing_srp).length };
   }
 
+  function inventoryForecast({ products, facts, branchIds, from, to, today, unavailable = false }) {
+    const demand = facts.filter(row => branchIds.has(row.branchId) && !row.summary && row.date <= today);
+    const allTime = from === "0001-01-01";
+    let start = allTime ? "" : from;
+    if (allTime) demand.forEach(row => { if (!start || row.date < start) start = row.date; });
+    const end = to > today ? today : to;
+    let months = 0;
+    if (start && start <= end) {
+      if (fromMs(toMs(start)) !== start || fromMs(toMs(end)) !== end) {
+        throw new Error("Cannot forecast inventory: invalid history dates.");
+      }
+      for (let month = start.slice(0, 7); month <= end.slice(0, 7); month = shiftMonth(month, 1)) {
+        const first = start > monthStart(month) ? start : monthStart(month);
+        const last = end < monthEnd(month) ? end : monthEnd(month);
+        months += ((toMs(last) - toMs(first)) / DAY_MS + 1) / daysInMonth(month);
+      }
+    }
+    const sold = new Map();
+    for (const row of demand) {
+      if (!start || row.date < start || row.date > end || !row.barcode) continue;
+      const quantity = Number(row.quantity);
+      if (row.quantity == null || !Number.isSafeInteger(quantity) || quantity < 0) {
+        throw new Error("Cannot forecast inventory: a product sale has an invalid unit quantity.");
+      }
+      const key = `${row.branchId}\0${row.barcode}`;
+      sold.set(key, (sold.get(key) || 0) + quantity);
+    }
+    return { from: start, to: end, months, products: products.map(row => {
+      const branchSold = unavailable ? null : sold.get(`${row.branch_id}\0${row.barcode}`) || 0;
+      const rate = unavailable || !months ? null : branchSold / months;
+      // Calendar fractions can leave an exact integer a few floating-point steps above itself.
+      const forecast = rate === null ? null : Math.max(0, Math.ceil(rate - Number.EPSILON * Math.max(1, rate) * 8));
+      const reorder = forecast === null || row.quantity === null ? null : Math.max(0, forecast - row.quantity);
+      const stockAlert = forecast === null ? "Forecast unavailable" : row.quantity === null ? "Stock unknown"
+        : reorder > 0 ? row.quantity === 0 ? "Needs attention" : "Critical stock"
+          : forecast === 0 ? "No recorded demand" : "Sufficient stock";
+      return { ...row, branchSold, forecast, reorder, stockAlert };
+    }) };
+  }
+
   function salesSummary(facts, keyOf) {
     const groups = new Map();
     for (const fact of facts) {
@@ -555,7 +595,7 @@
 
   const api = {
     salesLineAmount,
-    inventorySummary, salesSummary,
+    inventorySummary, inventoryForecast, salesSummary,
     paymentMix, comparisonPaymentMode, buildInsights, UNSPECIFIED,
     RULES, addDays, weekday, daysInMonth, monthStart, monthEnd, shiftMonth, weekStart,
     sameDayPriorMonth, sameDayPriorYear, growth, sumDaily, dailyTotals, parseHolidays, makeRules,

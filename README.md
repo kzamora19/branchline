@@ -1,5 +1,39 @@
 # Branchline
 
+### Product stock forecasts (shell v118)
+
+Analytics **Inventory and product sales** adds **Branch units sold**, **Monthly
+forecast**, **Re-order qty** and **Stock alert**. Monthly forecast is recorded
+branch/product units sold divided by calendar months in the selected Analytics
+range, rounded up to whole units. Zero-sale months count. Partial months use
+inclusive elapsed days divided by that calendar month's days; future days do not
+count. All-time uses the first recorded authorized branch product sale through
+today. For example, 100 units over ten full months forecasts 10 units; five
+available units require five more. Re-order qty is `max(0, forecast - available)`.
+In **Filters > Inventory and product sales**, optional **Forecast from/to**
+calendars override only the demand/forecast history (for example January 1 to
+October 31 for ten months). Blank calendars follow the selected Analytics
+period. These account-specific dates persist; reversed ranges are rejected.
+Existing Units sold/Sales and other Analytics panels retain their own period.
+
+Forecasts use shared branch demand even for PS accounts, via the existing complete
+price-free brand log. PS **Units sold** and **Sales** remain personal and forecasts
+stay within assigned brand/category and authorized branches. No peer prices or
+customer details are added. Branch/barcode pairs are separate; barcode leading
+zeroes are retained. Current available stock excludes reserved/in-transit units.
+Stock below forecast is **red**; zero stock with forecast demand is **red and
+bold**, labelled **Needs attention**. Stock equal to/above forecast is not flagged.
+Zero stock without recorded demand is not an urgent forecast shortage.
+
+Unknown stock has an unknown re-order quantity, not a zero balance. A failed
+branch-demand load shows an explicit error and unavailable forecasts, never a
+personal-sales substitute. No elapsed history means forecast unavailable.
+These are one-month recorded-sell-out projections, not supplier orders or
+lead-time/safety-stock estimates. Summary-only sales have no item quantities and
+are not apportioned; incomplete recorded history can understate actual demand.
+Table downloads and Export All include numeric forecast/re-order columns and
+plain-text stock alerts. No new database migration is required.
+
 Branchline is a sales tracker for Product Specialists and branch teams.
 
 ## Compact filters and staff actions

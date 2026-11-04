@@ -329,6 +329,8 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .ps-log-totals { grid-template-columns: repeat(2,minmax(0,1fr)); }
 .log-total-highlight { border-color: var(--blue); background: var(--blue-soft); }
 .log-total-highlight strong { color: var(--blue); }
+.connected-table td.inventory-stock-alert { color: var(--red); }
+.connected-table td.inventory-stock-attention { font-weight: 700; }
 .table-tools.log-tools { align-items: flex-end; }
 .log-tools .button { min-height: 36px; }
 .log-tools .log-search { flex: 1 1 220px; max-width: 320px; }

@@ -56,7 +56,7 @@
   const productSelection = new Set();
   const universalPages = new Set(["overview", "sales", "analytics", "targets"]);
   const savedFilterKeys = ["district", "branch", "period", "month", "date", "anRange", "anBasis", "logFrom", "logTo", "rankBrand", "rankCategory", "rankSub", "anDim", "salesBasis", "dsMonth", "dsYear", "yrYear",
-    ...["pdMix", "pdTrend", "pdTop", "pdAttn"].flatMap(key => [key, `${key}M`, `${key}Y`, `${key}Date`])];
+    "inventoryForecastFrom", "inventoryForecastTo", ...["pdMix", "pdTrend", "pdTop", "pdAttn"].flatMap(key => [key, `${key}M`, `${key}Y`, `${key}Date`])];
   let filterAccount = "";
 
   function filterStorageKey() {
@@ -85,11 +85,12 @@
     if (!["month", "all"].includes(ui.anRange)) ui.anRange = "month";
     if (!Object.hasOwn(window.BranchlineAnalytics.RULES, ui.anBasis)) ui.anBasis = "all";
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ui.month)) ui.month = currentMonth();
-    for (const name of ["date", "logFrom", "logTo"]) {
+    for (const name of ["date", "logFrom", "logTo", "inventoryForecastFrom", "inventoryForecastTo"]) {
       const time = Date.parse(ui[name]);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(ui[name]) || !Number.isFinite(time) || new Date(time).toISOString().slice(0, 10) !== ui[name]) ui[name] = "";
     }
     if (ui.logFrom && ui.logTo && ui.logFrom > ui.logTo) ui.logFrom = ui.logTo = "";
+    if (ui.inventoryForecastFrom && ui.inventoryForecastTo && ui.inventoryForecastFrom > ui.inventoryForecastTo) ui.inventoryForecastFrom = ui.inventoryForecastTo = "";
   }
 
   function sanitizeAccountScope() {
@@ -2075,10 +2076,10 @@
     return `<article class="connected-metric"><span>Daily sales needed</span><strong>${value}</strong><small>${escapeHTML(note)}</small></article>`;
   }
 
-  function analyticsDataTable(key, title, detail, headers, rows) {
-    const rowHtml = row => `<tr>${row.map(value => `<td>${escapeHTML(value ?? "Unknown")}</td>`).join("")}</tr>`;
+  function analyticsDataTable(key, title, detail, headers, rows, cellClass = () => "", controls = "") {
+    const rowHtml = row => `<tr>${row.map((value, index) => `<td class="${escapeHTML(cellClass(row, index))}">${escapeHTML(value ?? "Unknown")}</td>`).join("")}</tr>`;
     return panel(title, detail, tableBlock(key, headers, rows, rowHtml, "No data in this scope.", PAGE_SIZE,
-      (row, index) => row[index]));
+      (row, index) => row[index]), controls);
   }
 
   function inventoryAnalyticsPanels(ids, facts, from, to, today) {
@@ -2093,17 +2094,34 @@
       catalog: scopedCatalog, stock: liveData.inventoryStock || [], serials: liveData.inventorySerials || [],
       facts, branchIds: ids, today, from, to,
     });
+    const demandError = isPs ? liveData.brandSalesError || (!Array.isArray(liveData.brandSales)
+      ? "Branch-wide product demand is unavailable. Reload the workspace before using forecasts." : "") : "";
+    const demandFacts = isPs ? (liveData.brandSales || []).map(row => ({
+      branchId: row.branch_id, barcode: row.barcode, date: row.sold_on, quantity: row.quantity,
+    })) : facts;
+    const forecast = window.BranchlineAnalytics.inventoryForecast({
+      products: summary.products, facts: demandFacts, branchIds: ids, today,
+      from: ui.inventoryForecastFrom || from, to: ui.inventoryForecastTo || to, unavailable: Boolean(demandError),
+    });
     const metric = (label, value) => `<article class="connected-metric"><span>${escapeHTML(label)}</span><strong>${value}</strong></article>`;
     const cards = `<div class="connected-metrics">${metric("Available units now", summary.units)}${metric("Tracked branch / product pairs", summary.tracked)}${metric("Out-of-stock branch / product pairs", summary.stockouts)}${metric("Not initialized", summary.uninitialized)}${metric("Awaiting classification", summary.unclassified)}${metric("Available serials aged 90+ days", summary.days90)}${!isPs ? metric("Missing SRP (unset or zero)", summary.missingSrp) : ""}</div>`;
     const rangeLabel = from === "0001-01-01" && to === "9999-12-31" ? "all recorded dates" : `${from} to ${to}`;
     const note = `Current inventory as of ${today}; sales/activity dates: ${rangeLabel}. Stock is not a historical balance. ${isPs ? "Your assigned brand/category stock; sold units and sales are your own, not branch-wide demand." : "Available quantities exclude reserved/in-transit stock."} Uninitialized inventory is unknown, not zero. No cost, profit or historical stock valuation is inferred.`;
-    const products = summary.products.map(row => [branchName(row.branch_id), row.barcode, row.model_description,
+    const forecastNote = ` Monthly forecast = branch-wide recorded product units sold / calendar months in the forecast range, rounded up. Blank Forecast from/to calendars follow the Analytics period; overrides affect demand/forecast only, not Units sold or Sales. Partial months use their elapsed calendar-day fraction; future days are excluded. ${forecast.months ? `Forecast history: ${forecast.from} to ${forecast.to} (${forecast.months.toFixed(3)} months).` : "No elapsed forecast history is available."} All-time starts at the first recorded branch product sale. Re-order qty = max(0, forecast - available now), for one month's demand. Red = stock below forecast; red and bold = zero stock with forecast demand (Needs attention). Summary-only sales cannot supply product units; no lost sales, lead times or purchase orders are inferred.`;
+    const products = forecast.products.map(row => [branchName(row.branch_id), row.barcode, row.model_description,
       row.brand, row.category || "Unclassified", row.sub_category || "", row.quantity ?? "Not initialized",
       row.sold, formatMoney(row.sales), row.days90,
       row.quantity === null ? "Not initialized" : row.quantity === 0 ? row.sold > 0 ? "Sold in period; currently out of stock" : "Out of stock"
-        : row.sold === 0 ? "Stock available; no recorded sales in period" : "Stock available"]);
-    const productTable = analyticsDataTable("an-inventory-products", "Inventory and product sales", note,
-      ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Units sold", "Sales", "90+ day serials", "Observation"], products);
+        : row.sold === 0 ? "Stock available; no recorded sales in period" : "Stock available",
+      row.branchSold ?? "Unavailable", row.forecast ?? "Unavailable",
+      row.reorder ?? (row.quantity === null ? "Stock unknown" : "Unavailable"), row.stockAlert]);
+    const stockCellClass = (row, index) => [6, 13, 14].includes(index)
+      ? row[14] === "Needs attention" ? "inventory-stock-alert inventory-stock-attention"
+        : row[14] === "Critical stock" ? "inventory-stock-alert" : "" : "";
+    const demandWarning = demandError ? `<p class="connected-error" role="alert">Forecast unavailable: ${escapeHTML(demandError)}</p>` : "";
+    const forecastControls = `<label class="field"><span>Forecast from (optional)</span><input type="date" data-filter="inventoryForecastFrom" value="${escapeHTML(ui.inventoryForecastFrom || "")}"></label><label class="field"><span>Forecast to (optional)</span><input type="date" data-filter="inventoryForecastTo" value="${escapeHTML(ui.inventoryForecastTo || "")}"></label>`;
+    const productTable = demandWarning + analyticsDataTable("an-inventory-products", "Inventory and product sales", note + forecastNote,
+      ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Units sold", "Sales", "90+ day serials", "Observation", "Branch units sold", "Monthly forecast", "Re-order qty", "Stock alert"], products, stockCellClass, forecastControls);
     const aging = analyticsDataTable("an-inventory-aging", "Current stock aging", "Available serialized units only. Missing/invalid receipt dates are unknown; nonserialized units have no receipt-age data.",
       ["Age band", "Available serials"], [["Current (0-29 days)", summary.current], ["30 days (30-59)", summary.days30],
         ["60 days (60-89)", summary.days60], ["90 days or more", summary.days90], ["Unknown receipt age", summary.unknown]]);
@@ -2193,7 +2211,7 @@
         const cells = [branchName(row.branch_id), row.month.slice(0, 7), formatMoney(Number(row.amount))];
         return isPs ? cells : [...cells, formatMoney(actual), Number(row.amount) > 0 ? percent(actual, Number(row.amount)) : "No target"];
       }));
-    return `${cards}<p class="an-note">All-time includes all loaded historical dates, independent of the month selector. Forecasts and monthly pace are not meaningful across all time and are shown only in Monthly analysis. Product-unit totals exclude summary-only imports. Payment mix excludes summary-only imports because they have no payment details.</p>
+    return `${cards}<p class="an-note">All-time includes all loaded historical dates, independent of the month selector. Sales-value month-end forecasts and monthly pace are shown only in Monthly analysis. Inventory's monthly unit forecast below normalizes recorded product demand across its labelled history. Product-unit totals exclude summary-only imports. Payment mix excludes summary-only imports because they have no payment details.</p>
       ${dimensions.map(([key, title, group]) => summaryTable(`an-all-${key}`, title, detailed, group, ["year", "month", "branch"].includes(key))).join("")}${payment}${targets}
       ${inventoryAnalyticsPanels(ids, facts, "0001-01-01", "9999-12-31", today)}`;
   }
@@ -6676,6 +6694,7 @@
   // Exports every row of a table (all pages), not just the visible page.
   function tableToSheet(table, name) {
     if (tableStore.brandlog === table) return brandLogExportSheet(table.items, name);
+    if (tableStore["an-inventory-products"] === table) return { name, rows: [table.headers, ...table.items] };
     const keep = table.headers.map(isDataHeader);
     const doc = new DOMParser().parseFromString(`<table><tbody>${table.items.map(table.rowHtml).join("")}</tbody></table>`, "text/html");
     const rows = [...doc.querySelectorAll("tr")].map(tr =>
@@ -6985,6 +7004,15 @@
     if (!control || !resultsView) return;
     const fieldScope = control.closest("[data-pie-table-content]") ? modalRoot : connectedContent;
     const key = control.dataset.filter;
+    if (key === "inventoryForecastFrom" || key === "inventoryForecastTo") {
+      const from = key === "inventoryForecastFrom" ? control.value : ui.inventoryForecastFrom;
+      const to = key === "inventoryForecastTo" ? control.value : ui.inventoryForecastTo;
+      if (from && to && from > to) {
+        alert("Forecast from must be on or before Forecast to.");
+        control.value = ui[key] || "";
+        return;
+      }
+    }
     if (key === "logFrom" || key === "logTo") {
       const from = key === "logFrom" ? control.value : ui.logFrom;
       const to = key === "logTo" ? control.value : ui.logTo;
