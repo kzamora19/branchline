@@ -1,15 +1,34 @@
 # Branchline
 
-### Product stock forecasts (shell v118)
+### Seasonal product stock forecasts (shell v119)
+
+**Forecast month** defaults to next month and can be changed in **Filters >
+Inventory and product sales**. The forecast multiplies each item's recorded
+monthly average by its branch/category's seasonal factor before rounding up.
+The factor is target-calendar-month units divided by overall average monthly
+category units across qualifying years. Category labels ignore case and spaces;
+different branches are never pooled. PS patterns use only their authorized
+brand/category log, not inaccessible brands or peer prices.
+
+At least two complete prior calendar years must lie inside Forecast from/to,
+with recorded positive category-unit sales in all twelve months of each year.
+Missing months are not assumed to be zero. Incomplete years, unknown categories
+or insufficient history use factor 1 and **Monthly average (insufficient seasonal
+history)**. No hardcoded summer boost is applied. Learning dates stop before the
+forecast month and never after today, preventing target-month hindsight.
+**Forecast month**, numeric **Seasonal factor**, and **Forecast basis** accompany
+each row and its downloads, including Export All. The target-month choice is
+saved per account; clear/invalid months are rejected or reset on restore.
 
 Analytics **Inventory and product sales** adds **Branch units sold**, **Monthly
-forecast**, **Re-order qty** and **Stock alert**. Monthly forecast is recorded
+forecast**, **Re-order qty** and **Stock alert**. The baseline is recorded
 branch/product units sold divided by calendar months in the selected Analytics
 range, rounded up to whole units. Zero-sale months count. Partial months use
 inclusive elapsed days divided by that calendar month's days; future days do not
 count. All-time uses the first recorded authorized branch product sale through
-today. For example, 100 units over ten full months forecasts 10 units; five
-available units require five more. Re-order qty is `max(0, forecast - available)`.
+the learning cutoff above. For example, 100 units over ten full months averages 10 units; five
+available units require five more before any seasonal adjustment.
+Re-order qty is `max(0, forecast - available)`.
 In **Filters > Inventory and product sales**, optional **Forecast from/to**
 calendars override only the demand/forecast history (for example January 1 to
 October 31 for ten months). Blank calendars follow the selected Analytics

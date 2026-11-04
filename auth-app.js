@@ -56,7 +56,7 @@
   const productSelection = new Set();
   const universalPages = new Set(["overview", "sales", "analytics", "targets"]);
   const savedFilterKeys = ["district", "branch", "period", "month", "date", "anRange", "anBasis", "logFrom", "logTo", "rankBrand", "rankCategory", "rankSub", "anDim", "salesBasis", "dsMonth", "dsYear", "yrYear",
-    "inventoryForecastFrom", "inventoryForecastTo", ...["pdMix", "pdTrend", "pdTop", "pdAttn"].flatMap(key => [key, `${key}M`, `${key}Y`, `${key}Date`])];
+    "inventoryForecastFrom", "inventoryForecastTo", "inventoryForecastMonth", ...["pdMix", "pdTrend", "pdTop", "pdAttn"].flatMap(key => [key, `${key}M`, `${key}Y`, `${key}Date`])];
   let filterAccount = "";
 
   function filterStorageKey() {
@@ -91,6 +91,7 @@
     }
     if (ui.logFrom && ui.logTo && ui.logFrom > ui.logTo) ui.logFrom = ui.logTo = "";
     if (ui.inventoryForecastFrom && ui.inventoryForecastTo && ui.inventoryForecastFrom > ui.inventoryForecastTo) ui.inventoryForecastFrom = ui.inventoryForecastTo = "";
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ui.inventoryForecastMonth || "")) ui.inventoryForecastMonth = "";
   }
 
   function sanitizeAccountScope() {
@@ -2097,31 +2098,33 @@
     const demandError = isPs ? liveData.brandSalesError || (!Array.isArray(liveData.brandSales)
       ? "Branch-wide product demand is unavailable. Reload the workspace before using forecasts." : "") : "";
     const demandFacts = isPs ? (liveData.brandSales || []).map(row => ({
-      branchId: row.branch_id, barcode: row.barcode, date: row.sold_on, quantity: row.quantity,
+      branchId: row.branch_id, barcode: row.barcode, date: row.sold_on, quantity: row.quantity, category: row.category,
     })) : facts;
     const forecast = window.BranchlineAnalytics.inventoryForecast({
       products: summary.products, facts: demandFacts, branchIds: ids, today,
       from: ui.inventoryForecastFrom || from, to: ui.inventoryForecastTo || to, unavailable: Boolean(demandError),
+      targetMonth: ui.inventoryForecastMonth || window.BranchlineAnalytics.shiftMonth(today.slice(0, 7), 1),
     });
     const metric = (label, value) => `<article class="connected-metric"><span>${escapeHTML(label)}</span><strong>${value}</strong></article>`;
     const cards = `<div class="connected-metrics">${metric("Available units now", summary.units)}${metric("Tracked branch / product pairs", summary.tracked)}${metric("Out-of-stock branch / product pairs", summary.stockouts)}${metric("Not initialized", summary.uninitialized)}${metric("Awaiting classification", summary.unclassified)}${metric("Available serials aged 90+ days", summary.days90)}${!isPs ? metric("Missing SRP (unset or zero)", summary.missingSrp) : ""}</div>`;
     const rangeLabel = from === "0001-01-01" && to === "9999-12-31" ? "all recorded dates" : `${from} to ${to}`;
     const note = `Current inventory as of ${today}; sales/activity dates: ${rangeLabel}. Stock is not a historical balance. ${isPs ? "Your assigned brand/category stock; sold units and sales are your own, not branch-wide demand." : "Available quantities exclude reserved/in-transit stock."} Uninitialized inventory is unknown, not zero. No cost, profit or historical stock valuation is inferred.`;
-    const forecastNote = ` Monthly forecast = branch-wide recorded product units sold / calendar months in the forecast range, rounded up. Blank Forecast from/to calendars follow the Analytics period; overrides affect demand/forecast only, not Units sold or Sales. Partial months use their elapsed calendar-day fraction; future days are excluded. ${forecast.months ? `Forecast history: ${forecast.from} to ${forecast.to} (${forecast.months.toFixed(3)} months).` : "No elapsed forecast history is available."} All-time starts at the first recorded branch product sale. Re-order qty = max(0, forecast - available now), for one month's demand. Red = stock below forecast; red and bold = zero stock with forecast demand (Needs attention). Summary-only sales cannot supply product units; no lost sales, lead times or purchase orders are inferred.`;
+    const forecastNote = ` Forecast month: ${forecast.targetMonth}. Monthly forecast = recorded branch/product monthly average x seasonal category factor, rounded up. The factor compares the target calendar month's category units with its overall monthly average in this branch, using at least two complete prior calendar years in the forecast history, with recorded category sales in every month; otherwise the unadjusted average is labelled. No preset summer multiplier. Blank Forecast from/to follows Analytics; partial months use elapsed calendar-day fractions. History stops before the target month and never after today. ${forecast.months ? `Forecast history: ${forecast.from} to ${forecast.to} (${forecast.months.toFixed(3)} months).` : "No elapsed forecast history is available."} All-time starts at the first recorded branch product sale. Re-order qty = max(0, forecast - available now). Red = below forecast; red/bold = zero stock with demand. Summary-only sales cannot supply product units; no lost sales, lead times or orders are inferred.`;
     const products = forecast.products.map(row => [branchName(row.branch_id), row.barcode, row.model_description,
       row.brand, row.category || "Unclassified", row.sub_category || "", row.quantity ?? "Not initialized",
       row.sold, formatMoney(row.sales), row.days90,
       row.quantity === null ? "Not initialized" : row.quantity === 0 ? row.sold > 0 ? "Sold in period; currently out of stock" : "Out of stock"
         : row.sold === 0 ? "Stock available; no recorded sales in period" : "Stock available",
       row.branchSold ?? "Unavailable", row.forecast ?? "Unavailable",
-      row.reorder ?? (row.quantity === null ? "Stock unknown" : "Unavailable"), row.stockAlert]);
+      row.reorder ?? (row.quantity === null ? "Stock unknown" : "Unavailable"), row.stockAlert,
+      row.forecastMonth, row.seasonalFactor ?? "Unavailable", row.forecastBasis]);
     const stockCellClass = (row, index) => [6, 13, 14].includes(index)
       ? row[14] === "Needs attention" ? "inventory-stock-alert inventory-stock-attention"
         : row[14] === "Critical stock" ? "inventory-stock-alert" : "" : "";
     const demandWarning = demandError ? `<p class="connected-error" role="alert">Forecast unavailable: ${escapeHTML(demandError)}</p>` : "";
-    const forecastControls = `<label class="field"><span>Forecast from (optional)</span><input type="date" data-filter="inventoryForecastFrom" value="${escapeHTML(ui.inventoryForecastFrom || "")}"></label><label class="field"><span>Forecast to (optional)</span><input type="date" data-filter="inventoryForecastTo" value="${escapeHTML(ui.inventoryForecastTo || "")}"></label>`;
+    const forecastControls = `<label class="field"><span>Forecast month</span><input type="month" data-filter="inventoryForecastMonth" value="${escapeHTML(forecast.targetMonth)}" required></label><label class="field"><span>Forecast from (optional)</span><input type="date" data-filter="inventoryForecastFrom" value="${escapeHTML(ui.inventoryForecastFrom || "")}"></label><label class="field"><span>Forecast to (optional)</span><input type="date" data-filter="inventoryForecastTo" value="${escapeHTML(ui.inventoryForecastTo || "")}"></label>`;
     const productTable = demandWarning + analyticsDataTable("an-inventory-products", "Inventory and product sales", note + forecastNote,
-      ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Units sold", "Sales", "90+ day serials", "Observation", "Branch units sold", "Monthly forecast", "Re-order qty", "Stock alert"], products, stockCellClass, forecastControls);
+      ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Units sold", "Sales", "90+ day serials", "Observation", "Branch units sold", "Monthly forecast", "Re-order qty", "Stock alert", "Forecast month", "Seasonal factor", "Forecast basis"], products, stockCellClass, forecastControls);
     const aging = analyticsDataTable("an-inventory-aging", "Current stock aging", "Available serialized units only. Missing/invalid receipt dates are unknown; nonserialized units have no receipt-age data.",
       ["Age band", "Available serials"], [["Current (0-29 days)", summary.current], ["30 days (30-59)", summary.days30],
         ["60 days (60-89)", summary.days60], ["90 days or more", summary.days90], ["Unknown receipt age", summary.unknown]]);
@@ -7004,6 +7007,11 @@
     if (!control || !resultsView) return;
     const fieldScope = control.closest("[data-pie-table-content]") ? modalRoot : connectedContent;
     const key = control.dataset.filter;
+    if (key === "inventoryForecastMonth" && !/^\d{4}-(0[1-9]|1[0-2])$/.test(control.value)) {
+      alert("Choose a valid forecast month.");
+      control.value = ui.inventoryForecastMonth || window.BranchlineAnalytics.shiftMonth(localISODate().slice(0, 7), 1);
+      return;
+    }
     if (key === "inventoryForecastFrom" || key === "inventoryForecastTo") {
       const from = key === "inventoryForecastFrom" ? control.value : ui.inventoryForecastFrom;
       const to = key === "inventoryForecastTo" ? control.value : ui.inventoryForecastTo;

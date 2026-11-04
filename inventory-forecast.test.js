@@ -164,7 +164,8 @@ test("PS forecasts use branch units while personal Units sold and Sales stay unc
   const row = table.rows.find(row => row[1] === "001");
   assert.equal(row[7], 20);
   assert.equal(row[8], "P200");
-  assert.deepEqual(Array.from(row.slice(11)), [100, 10, 5, "Critical stock"]);
+  assert.deepEqual(Array.from(row.slice(11, 15)), [100, 10, 5, "Critical stock"]);
+  assert.deepEqual(Array.from(row.slice(15)), ["2026-12", 1, "Monthly average (insufficient seasonal history)"]);
   assert.doesNotMatch(html, /Peer name must not leak|PEER-SECRET|foreign/);
   assert.ok(table.rows.every(row => row[0] === "one" && row[3] === "TCL"));
   assert.equal(table.sortValue(row, 13), 5);
@@ -175,7 +176,7 @@ test("all manager roles forecast scoped branch demand, and exports retain numeri
     const { table } = render(role);
     const row = table.rows.find(row => row[1] === "001");
     assert.equal(row[7], 100);
-    assert.deepEqual(Array.from(row.slice(11)), [100, 10, 5, "Critical stock"]);
+    assert.deepEqual(Array.from(row.slice(11, 15)), [100, 10, 5, "Critical stock"]);
     assert.ok(table.rows.every(row => row[0] === "one"));
     for (const index of [6, 11, 12, 13]) assert.equal(typeof row[index], "number");
   }
@@ -213,7 +214,7 @@ test("failed PS branch log is visibly reported and forecasts are unavailable, ne
   const { html, table } = render("ps", { brandSales: [], brandSalesError: "Branch log connection failed" });
   assert.match(html, /role="alert">Forecast unavailable: Branch log connection failed/);
   assert.equal(table.rows[0][7], 20);
-  assert.deepEqual(Array.from(table.rows[0].slice(11)), ["Unavailable", "Unavailable", "Unavailable", "Forecast unavailable"]);
+  assert.deepEqual(Array.from(table.rows[0].slice(11, 15)), ["Unavailable", "Unavailable", "Unavailable", "Forecast unavailable"]);
   const missing = render("ps", { brandSales: undefined });
   assert.match(missing.html, /Branch-wide product demand is unavailable/);
 });
@@ -222,7 +223,7 @@ test("forecast calendars override demand history without changing personal sold 
   const { table, html } = render("ps", {}, { inventoryForecastFrom: "2026-10-01", inventoryForecastTo: "2026-10-31" });
   assert.equal(table.rows[0][7], 20);
   assert.equal(table.rows[0][8], "P200");
-  assert.deepEqual(Array.from(table.rows[0].slice(11)), [100, 100, 95, "Critical stock"]);
+  assert.deepEqual(Array.from(table.rows[0].slice(11, 15)), [100, 100, 95, "Critical stock"]);
   assert.match(html, /Forecast history: 2026-10-01 to 2026-10-31 \(1\.000 months\)/);
 });
 

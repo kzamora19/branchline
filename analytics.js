@@ -533,12 +533,15 @@
       missingSrp: products.filter(row => row.missing_srp).length };
   }
 
-  function inventoryForecast({ products, facts, branchIds, from, to, today, unavailable = false }) {
-    const demand = facts.filter(row => branchIds.has(row.branchId) && !row.summary && row.date <= today);
+  function inventoryForecast({ products, facts, branchIds, from, to, today, targetMonth = shiftMonth(today.slice(0, 7), 1), unavailable = false }) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(targetMonth)) throw new Error("Choose a valid forecast month.");
+    const cutoff = addDays(monthStart(targetMonth), -1);
+    const through = cutoff < today ? cutoff : today;
+    const demand = facts.filter(row => branchIds.has(row.branchId) && !row.summary && row.date <= through);
     const allTime = from === "0001-01-01";
     let start = allTime ? "" : from;
     if (allTime) demand.forEach(row => { if (!start || row.date < start) start = row.date; });
-    const end = to > today ? today : to;
+    const end = to > through ? through : to;
     let months = 0;
     if (start && start <= end) {
       if (fromMs(toMs(start)) !== start || fromMs(toMs(end)) !== end) {
@@ -551,6 +554,9 @@
       }
     }
     const sold = new Map();
+    const categoryKey = value => String(value || "").trim().toLowerCase();
+    const catalogCategories = new Map(products.map(row => [`${row.branch_id}\0${row.barcode}`, categoryKey(row.category)]));
+    const categories = new Map();
     for (const row of demand) {
       if (!start || row.date < start || row.date > end || !row.barcode) continue;
       const quantity = Number(row.quantity);
@@ -559,17 +565,37 @@
       }
       const key = `${row.branchId}\0${row.barcode}`;
       sold.set(key, (sold.get(key) || 0) + quantity);
+      const category = categoryKey(row.category) || catalogCategories.get(key);
+      if (!category || category === "unclassified" || !quantity) continue;
+      const groupKey = `${row.branchId}\0${category}`;
+      if (!categories.has(groupKey)) categories.set(groupKey, new Map());
+      const monthly = categories.get(groupKey), month = row.date.slice(0, 7);
+      monthly.set(month, (monthly.get(month) || 0) + quantity);
     }
-    return { from: start, to: end, months, products: products.map(row => {
+    const seasonal = new Map();
+    for (const [key, monthly] of categories) {
+      const years = [...new Set([...monthly.keys()].map(month => month.slice(0, 4)))].filter(year =>
+        year < targetMonth.slice(0, 4) && `${year}-01-01` >= start && `${year}-12-31` <= end
+        && Array.from({ length: 12 }, (_, index) => `${year}-${pad(index + 1)}`).every(month => monthly.has(month))).sort();
+      const total = years.reduce((sum, year) => sum + Array.from({ length: 12 }, (_, index) => monthly.get(`${year}-${pad(index + 1)}`)).reduce((a, b) => a + b, 0), 0);
+      const targetUnits = years.reduce((sum, year) => sum + monthly.get(`${year}-${targetMonth.slice(5, 7)}`), 0);
+      if (years.length >= 2 && total > 0) seasonal.set(key, { factor: targetUnits * 12 / total, years });
+    }
+    return { from: start, to: end, months, targetMonth, products: products.map(row => {
       const branchSold = unavailable ? null : sold.get(`${row.branch_id}\0${row.barcode}`) || 0;
-      const rate = unavailable || !months ? null : branchSold / months;
+      const pattern = seasonal.get(`${row.branch_id}\0${categoryKey(row.category)}`);
+      const seasonalFactor = unavailable || !months ? null : pattern?.factor ?? 1;
+      const rate = seasonalFactor === null ? null : branchSold / months * seasonalFactor;
       // Calendar fractions can leave an exact integer a few floating-point steps above itself.
       const forecast = rate === null ? null : Math.max(0, Math.ceil(rate - Number.EPSILON * Math.max(1, rate) * 8));
       const reorder = forecast === null || row.quantity === null ? null : Math.max(0, forecast - row.quantity);
       const stockAlert = forecast === null ? "Forecast unavailable" : row.quantity === null ? "Stock unknown"
         : reorder > 0 ? row.quantity === 0 ? "Needs attention" : "Critical stock"
           : forecast === 0 ? "No recorded demand" : "Sufficient stock";
-      return { ...row, branchSold, forecast, reorder, stockAlert };
+      const forecastBasis = rate === null ? "Forecast unavailable" : pattern
+        ? `Seasonal category pattern (${pattern.years.join(", ")})`
+        : "Monthly average (insufficient seasonal history)";
+      return { ...row, branchSold, forecast, reorder, stockAlert, seasonalFactor, forecastBasis, forecastMonth: targetMonth };
     }) };
   }
 
