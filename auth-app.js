@@ -1658,7 +1658,7 @@
     return facts;
   }
 
-  function dailySalesChart(rows, month, today) {
+  function dailySalesChart(rows, month, today, isPs = false) {
     const days = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
     const byDate = new Map(rows.map(row => [row.date, row]));
     const width = 110 + days * 30;
@@ -1683,18 +1683,21 @@
       const label = `${date} · ${weekday}`;
       const count = future ? "Not yet recorded" : `${row.count} sale${row.count === 1 ? "" : "s"}`;
       const amount = future ? "Future day · not a forecast" : formatMoney(row.total);
-      const tip = `${label}|${count}|${amount}`;
+      const traffic = row.traffic;
+      const visitors = `${isPs ? "Clients assisted" : "Walk-ins"}: ${future || !traffic?.coveredDays ? "Not recorded" : traffic.visitors}`;
+      const conversion = `Conversion rate: ${future || traffic?.conversion == null ? "n/a" : `${(traffic.conversion * 100).toFixed(1)}%`}${!future && traffic?.partial ? " (counted branches only)" : ""}`;
+      const tip = `${label}|${count}|${amount}|${visitors}|${conversion}`;
       const x = 100 + index * 30;
       const valueY = y(row.total);
       return `<g class="daily-day${future ? " daily-day-future" : ""}">
         ${future ? "" : `<rect class="daily-bar${row.total < 0 ? " daily-bar-negative" : ""}" x="${x + 5}" y="${Math.min(zero, valueY)}" width="20" height="${Math.max(2, Math.abs(valueY - zero))}"/>`}
-        <rect class="daily-bar-hit" x="${x}" y="${top}" width="30" height="${bottom - top + 30}" fill="transparent" tabindex="0" role="img" aria-label="${escapeHTML(`${label}: ${count}, ${amount}`)}" data-tip="${escapeHTML(tip)}"/>
+        <rect class="daily-bar-hit" x="${x}" y="${top}" width="30" height="${bottom - top + 30}" fill="transparent" tabindex="0" role="img" aria-label="${escapeHTML(`${label}: ${count}, ${amount}, ${visitors}, ${conversion}`)}" data-tip="${escapeHTML(tip)}"/>
         <text class="an-axis daily-day-label" x="${x + 15}" y="${bottom + 22}" text-anchor="middle">${day}</text>
       </g>`;
     }).join("");
     return `${chartExport(`Daily sales ${month}`, [["Date", "Day", "No. of sales", "Total sales"], ...rows.map(row => [row.date, new Date(`${row.date}T00:00:00`).toLocaleDateString("en-PH", { weekday: "long" }), row.count, row.total])])}<div class="daily-chart-scroll" role="region" aria-label="Daily sales chart; scroll horizontally to see every day" tabindex="0"><svg class="daily-sales-chart" viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="group" aria-label="Daily sales for ${escapeHTML(monthLabel(month))}; each bar is one day">
       ${ticks}<line class="an-grid" x1="100" x2="${width - 10}" y1="${zero}" y2="${zero}"/>${bars}
-    </svg></div><p class="an-note">Daily actuals, not cumulative or forecast. Hover a day, focus it with the keyboard, or long press on mobile for date, weekday, number of sales and total. Scroll sideways to see all days. Future days are not recorded.</p>`;
+    </svg></div><p class="an-note">Daily actuals, not cumulative or forecast. Hover a day, focus it with the keyboard, or long press on mobile for date, weekday, number of sales, total, ${isPs ? "clients assisted" : "walk-ins"} and conversion rate. Conversion uses transactions from branches with recorded traffic only; no count or zero traffic shows n/a. Scroll sideways to see all days. Future days are not recorded.</p>`;
   }
 
   function growthCell(value) {
@@ -2532,11 +2535,15 @@
         const dsMonth = /^(0[1-9]|1[0-2])$/.test(ui.dsMonth) ? ui.dsMonth : (ui.month || currentMonth()).slice(5, 7);
         const dsPrefix = `${dsYear}-${dsMonth}`;
         const dailyIds = panelIds("dsBranch", ids);
+        const storeCounts = storeCountsFor(dailyIds, isPs);
+        const psCounts = liveData.psWalkins.filter(row => dailyIds.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id));
+        const transactions = withHistoryTransactions(analyticsFacts(dailyIds), dailyIds, isPs);
         const dayRows = [];
         for (let day = new Date(Number(dsYear), Number(dsMonth), 0).getDate(); day >= 1; day -= 1) {
           const date = `${dsPrefix}-${String(day).padStart(2, "0")}`;
           if (date > todayISO) continue;
-          dayRows.push({ date, ...totalOf(date, date, dailyIds) });
+          const traffic = window.BranchlineAnalytics.walkInSummary({ from: date, to: date, storeCounts, psCounts, transactions });
+          dayRows.push({ date, ...totalOf(date, date, dailyIds), traffic: { ...traffic, partial: traffic.coveredDays > 0 && traffic.coveredDays < dailyIds.size } });
         }
         const monthTotal = totalOf(`${dsPrefix}-01`, `${dsPrefix}-31` > todayISO ? todayISO : `${dsPrefix}-31`, dailyIds);
         const monthOptions = Array.from({ length: 12 }, (_, index) => {
@@ -2549,7 +2556,7 @@
           ? tableBlock("dailysum", ["Date", "Day", "No. of sales", "Total sales"], dayRows,
             row => `<tr><td>${escapeHTML(row.date)}</td><td>${escapeHTML(new Date(`${row.date}T00:00:00`).toLocaleDateString("en-PH", { weekday: "long" }))}</td><td>${row.count}</td><td>${formatMoney(row.total)}</td></tr>`,
             "No days to show for this month yet.", 31)
-          : `${dailySalesChart(dayRows, dsPrefix, todayISO)}<div class="daily-table-action"><button class="button button-outline button-small" type="button" data-pie-table="dailysum" aria-label="View daily sales summary table">View table</button></div>`;
+          : `${dailySalesChart(dayRows, dsPrefix, todayISO, isPs)}<div class="daily-table-action"><button class="button button-outline button-small" type="button" data-pie-table="dailysum" aria-label="View daily sales summary table">View table</button></div>`;
         const dailyBranchNote = dailyIds !== ids ? `${branchName([...dailyIds][0])} · ` : "";
         const dailySummary = panel("Daily sales summary", `${isPs ? "Your account's sales only · " : "Database sales; October 2026 uses supplied summary totals. Summary transaction counts where available · "}${dailyBranchNote}${monthLabel(dsPrefix)} · ${formatMoney(monthTotal.total)} · ${monthTotal.count} transaction${monthTotal.count === 1 ? "" : "s"}`,
           dailyContent, dailyControls);
@@ -6770,8 +6777,8 @@
   let chartTouchStart = null;
 
   function showPieTip(slice, x, y) {
-    const [label, money, pct] = slice.dataset.tip.split("|");
-    pieTip.innerHTML = `<strong>${escapeHTML(label)}</strong><span>${money ? `${escapeHTML(money)} · ` : ""}${escapeHTML(pct)}</span>`;
+    const [label, money, pct, ...details] = slice.dataset.tip.split("|");
+    pieTip.innerHTML = `<strong>${escapeHTML(label)}</strong><span>${money ? `${escapeHTML(money)} · ` : ""}${escapeHTML(pct)}</span>${details.map(detail => `<span>${escapeHTML(detail)}</span>`).join("")}`;
     pieTip.hidden = false;
     const width = pieTip.offsetWidth;
     pieTip.style.left = `${Math.max(8, Math.min(x - width / 2, window.innerWidth - width - 8))}px`;

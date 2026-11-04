@@ -31,6 +31,13 @@ authorization remain unchanged. Shell v97 includes these UI-only changes.
 
 ## Settings
 
+The Daily sales summary hover, keyboard-focus and mobile long-press details
+include walk-ins (personal clients assisted for PS) and conversion rate.
+Conversion matches Analytics: unique transactions on counted branch-days divided
+by their traffic. Store counts override summed PS counts; historical fallback and
+role/branch scope are retained. Missing counts display Not recorded; zero traffic
+displays 0 with conversion n/a. Partial branch coverage is labeled.
+
 Daily Clients assisted / Walk-in traffic popups support X, Close, outside click
 and Escape. These read-only views have no save-in-progress form guard; shell
 v113 fixes a stale form reference that previously blocked pointer dismissal.
