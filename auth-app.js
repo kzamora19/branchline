@@ -522,7 +522,7 @@
         fetchAll("branches", "id,name,district_id,code,transfer_sequence", [["name", true], ["id", true]]),
         fetchAll("districts", "id,name", [["name", true], ["id", true]]),
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
-        fetchAll("sales",         "id,branch_id,ps_id,ps_name,customer_name,invoice_number,sold_on,payment_mode,city,barangay,fulfillment_method,created_at,updated_at", [["sold_on", false], ["id", true]]),
+        fetchAll("sales",         "id,branch_id,ps_id,ps_name,salesperson_code,customer_name,invoice_number,sold_on,payment_mode,city,barangay,fulfillment_method,created_at,updated_at", [["sold_on", false], ["id", true]]),
                 fetchAll("products", "id,branch_id,barcode,model_description,brand,category,sub_category,active,srp", [["model_description", true], ["id", true]], query => (catalogBranch ? query.eq("branch_id", catalogBranch) : query).eq("active", true)),
         fetchAll("profiles", "id,full_name,role,branch_id,district_id,assigned_brand,active,login_id,email,salesperson_code", [["id", true]]),
         fetchAll("brand_targets", "id,branch_id,month,brand,amount", [["month", false], ["id", true]]),
@@ -2756,7 +2756,12 @@
       [branchName(item.branch_id), item.barcode, item.serial, item.received_on || "", window.BranchlineInventory.ageDays(item.received_on, window.BranchlineDemo.philippineDate()) ?? "Unknown", item.status])];
     const batches = new Map((liveData.inventoryTransferBatches || []).map(batch => [batch.id,batch]));
     const transfers = [["ID", "Reference", "From", "To", "Barcode", "Qty", "Serials", "Status", "Submitted", "Resolved", "Remarks"],
-      ...(liveData.inventoryTransfers || []).map(item => [item.id, item.reference || "Legacy (no reference)", inventoryBranchName(item.from_branch), inventoryBranchName(item.to_branch), item.barcode, item.quantity, item.serials.map(unit => unit.serial).join(", "), inventoryTransferStatus(batches.get(item.batch_id)?.status || item.status), item.dispatched_at, item.resolved_at || "", item.note])];
+      ...(liveData.inventoryTransfers || []).flatMap(item => {
+        if (item.serials.length > Number(item.quantity)) throw new Error(`Transfer ${item.reference || item.id}: too many serial numbers.`);
+        const units = [...item.serials.map(unit => ({ quantity: 1, serial: unit.serial })),
+          ...(Number(item.quantity) > item.serials.length ? [{ quantity: Number(item.quantity) - item.serials.length, serial: "" }] : [])];
+        return units.map(unit => [item.id, item.reference || "Legacy (no reference)", inventoryBranchName(item.from_branch), inventoryBranchName(item.to_branch), item.barcode, unit.quantity, unit.serial, inventoryTransferStatus(batches.get(item.batch_id)?.status || item.status), item.dispatched_at, item.resolved_at || "", item.note]);
+      })];
     return [{ name: "Item Master", rows: items }, { name: "Inventory serials", rows: units }, { name: "Stock transfers", rows: transfers },
       { name: "Transfer approvals", rows: [["Reference","From","To","Status","Requested","Requester ID","Approved","Approver ID","Resolved","Resolver ID","Remarks"],
         ...[...batches.values()].map(batch => [batch.reference,inventoryBranchName(batch.from_branch),inventoryBranchName(batch.to_branch),inventoryTransferStatus(batch.status),batch.requested_at,batch.requested_by,batch.approved_at || "",batch.approved_by || "",batch.resolved_at || "",batch.resolved_by || "",batch.note])] },
@@ -5980,10 +5985,78 @@
     } finally { URL.revokeObjectURL(url); }
   }
 
+  function exportPsIdentity(record) {
+    const profiles = liveData.profiles || [];
+    const id = record.ps_id;
+    const code = String(record.salesperson_code || "").trim();
+    const name = String(record.ps_name || "").trim();
+    const candidates = profiles.filter(person => person.role === "ps"
+      && (!record.branch_id || person.branch_id === record.branch_id)
+      && (code ? String(person.salesperson_code || "").trim() === code : name && person.full_name?.trim().toLowerCase() === name.toLowerCase()));
+    const person = (id ? profiles.find(person => person.id === id) || (currentProfile?.id === id ? currentProfile : null) : null)
+      || (candidates.length === 1 ? candidates[0] : null);
+    return [code || String(person?.salesperson_code || ""), person?.full_name || name];
+  }
+
+  function itemizedSaleLines(entries) {
+    if (liveData.exportWarnings?.includes("Serial numbers")) throw new Error("Serial numbers failed to load. Reload the workspace successfully before exporting sales.");
+    return entries.flatMap(({ sale, line }) => {
+      const peers = linesForSale(sale.id).filter(item => item.barcode === line.barcode);
+      const index = peers.indexOf(line);
+      if (index < 0) throw new Error("A sale line changed during export. Reopen the report and try again.");
+      const quantity = Number(line.quantity);
+      const serials = serialsFor(sale.id, line.barcode);
+      const total = peers.reduce((sum, item) => sum + Number(item.quantity), 0);
+      if (!Number.isInteger(quantity) || quantity <= 0 || serials.length > total) throw new Error(`Invoice ${sale.invoice_number || sale.id}: serial count or product quantity is invalid.`);
+      const start = peers.slice(0, index).reduce((sum, item) => sum + Number(item.quantity), 0);
+      const assigned = serials.slice(start, start + quantity);
+      return [...assigned.map(serial => ({ sale, line: { ...line, quantity: 1 }, serial })),
+        ...(quantity > assigned.length ? [{ sale, line: { ...line, quantity: quantity - assigned.length }, serial: "" }] : [])];
+    });
+  }
+
+  function exportIdentitySheet(sheet) {
+    const [originalHeaders, ...rows] = sheet.rows;
+    if (!originalHeaders) return sheet;
+    const headers = originalHeaders.map(label => /^salesperson code$/i.test(label) ? "Sales code" : label);
+    const codeAt = headers.findIndex(label => /^(sales code|salesperson code)$/i.test(label));
+    const nameAt = headers.findIndex(label => /^ps name$/i.test(label));
+    if (codeAt >= 0 && nameAt >= 0) return { ...sheet, rows: [headers, ...rows] };
+    const idAt = headers.findIndex(label => /^ps id$/i.test(label));
+    const psAt = headers.findIndex(label => /^(ps|product specialist|ps name)$/i.test(label));
+    const branchAt = headers.findIndex(label => /^branch( id)?$/i.test(label));
+    const roleAt = headers.findIndex(label => /^role$/i.test(label));
+    const personAt = headers.findIndex(label => /^name$/i.test(label));
+    const additions = [...(codeAt < 0 ? ["Sales code"] : []), ...(nameAt < 0 ? ["PS name"] : [])];
+    return { ...sheet, rows: [[...headers, ...additions], ...rows.map(row => {
+      const branch = branchAt < 0 ? null : liveData.branches?.find(item => item.id === row[branchAt] || item.name === row[branchAt]);
+      const personName = roleAt >= 0 && /^(ps|product specialist)/i.test(row[roleAt] || "") && personAt >= 0 ? row[personAt] : "";
+      const identity = exportPsIdentity({ ps_id: idAt < 0 ? null : row[idAt], ps_name: psAt < 0 ? personName : row[psAt],
+        salesperson_code: codeAt < 0 ? "" : row[codeAt], branch_id: branch?.id });
+      return [...row, ...(codeAt < 0 ? [identity[0]] : []), ...(nameAt < 0 ? [identity[1]] : [])];
+    })] };
+  }
+
+  function brandLogExportSheet(items, name = "Brand branch-wide") {
+    return { name, rows: [
+      ["Date", "Invoice", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Qty", "Barcode", "Serial number", "Sales code", "PS name"],
+      ...items.flatMap(row => {
+        const serials = row.serial_numbers || [];
+        const quantity = Number(row.quantity);
+        if (serials.length > quantity) throw new Error(`Invoice ${row.invoice_number}: too many serial numbers in the brand log.`);
+        const units = [...serials.map(serial => ({ serial, quantity: 1 })),
+          ...(quantity > serials.length ? [{ serial: "", quantity: quantity - serials.length }] : [])];
+        return units.map(unit => [row.sold_on, row.invoice_number, row.ps_name, row.brand, row.category, row.sub_category,
+          row.model_description, unit.quantity, row.barcode || "", unit.serial, ...exportPsIdentity(row)]);
+      }),
+    ] };
+  }
+
   function exportWorkbook(sheets, fileName, includeIndex = false) {
     if (ui.salesBasis === "srp" && !["inventory_controller", "stock_custodian"].includes(currentProfile?.role)) {
       sheets = [{ name: "Comparison basis", rows: [["Sales comparison basis", salesBasisNote()], ["Original records", "Raw unit prices, entry/edit forms, targets and DG fees are unchanged."]] }, ...sheets];
     }
+    sheets = sheets.map(exportIdentitySheet);
     if (window.XLSX) {
       const book = window.XLSX.utils.book_new();
       const names = new Set(includeIndex ? ["worksheet index"] : []);
@@ -6001,8 +6074,8 @@
         window.XLSX.utils.book_append_sheet(book, worksheet, name);
       });
       if (includeIndex) {
-        const worksheet = window.XLSX.utils.aoa_to_sheet(index);
-        worksheet["!cols"] = [{ wch: 33 }, { wch: 90 }];
+        const worksheet = window.XLSX.utils.aoa_to_sheet(exportIdentitySheet({ rows: index }).rows);
+        worksheet["!cols"] = [{ wch: 33 }, { wch: 90 }, { wch: 16 }, { wch: 30 }];
         window.XLSX.utils.book_append_sheet(book, worksheet, "Worksheet index");
       }
       window.XLSX.writeFile(book, `${fileName}.xlsx`);
@@ -6015,10 +6088,10 @@
   async function fetchExportBrandLog(exportClient, profileId) {
     const rows = [];
     for (let offset = 0; ; offset += 1000) {
-      const result = await exportClient.rpc("export_brand_branch_sales").order("line_id").range(offset, offset + 999);
+      const result = await exportClient.rpc("export_brand_branch_sales_v2").order("line_id").range(offset, offset + 999);
       if (currentProfile?.id !== profileId || client !== exportClient) throw new Error("The account changed during export. Start again after signing in.");
       if (result.error) {
-        if (["PGRST202", "42883"].includes(result.error.code)) throw new Error("The complete brand sales log needs the database update. Ask your administrator to apply migration 20261108000000.");
+        if (["PGRST202", "42883"].includes(result.error.code)) throw new Error("The complete brand sales log needs the database update. Ask your administrator to apply migration 20261204000000.");
         throw new Error(`Unable to load the full brand sales log: ${result.error.message || "database request failed"}`);
       }
       rows.push(...result.data);
@@ -6057,18 +6130,16 @@
     records("Branches", liveData.branches, [["Branch ID", "id"], ["Branch", "name"], ["District ID", "district_id"]]);
     const districtIds = new Set(liveData.branches.map(branch => branch.district_id));
     records("Districts", liveData.districts.filter(district => districtIds.has(district.id)), [["District ID", "id"], ["District", "name"]]);
-    add(isPs ? "My sales" : "Sales", ["Date", "Invoice", "Customer", "Branch", "PS", "Payment", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "City", "Barangay", "Serials", "Test", "Delivery / Pick up", "Comparison amount"],
-      sales.flatMap(sale => linesForSale(sale.id).map(line => [
+    add(isPs ? "My sales" : "Sales", ["Date", "Invoice", "Customer", "Branch", "PS", "Payment", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "City", "Barangay", "Serials", "Test", "Delivery / Pick up", "Comparison amount", "Sales code", "PS name"],
+      itemizedSaleLines(sales.flatMap(sale => linesForSale(sale.id).map(line => ({ sale, line })))).map(({ sale, line, serial }) => [
         sale.sold_on, sale.invoice_number, sale.customer_name, branchName(sale.branch_id), psNameOf(sale.ps_id, sale.ps_name), sale.payment_mode,
         line.brand, line.category, line.sub_category, line.model_description, line.barcode, Number(line.quantity), line.srp ?? "",
         Number(line.selling_price), Number(line.quantity) * Number(line.selling_price), sale.city || "", sale.barangay || "",
-        serialsFor(sale.id, line.barcode).join(", "), isTestSale(sale, liveData.testPsIds) ? "Yes" : "No", fulfillmentLabel(sale), window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis),
-      ])));
+        serial, isTestSale(sale, liveData.testPsIds) ? "Yes" : "No", fulfillmentLabel(sale), window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), ...exportPsIdentity(sale),
+      ]));
     if (["manager", "district_manager", "admin"].includes(currentProfile.role)) sheets.push(deliveryExport(sales));
     if (isPs) {
-      records("Brand branch-wide", completeBrandLog.filter(row => ids.has(row.branch_id)), [
-        ["Date", "sold_on"], ["Invoice", "invoice_number"], ["PS", "ps_name"], ["Brand", "brand"], ["Category", "category"], ["Sub-category", "sub_category"], ["Product", "model_description"], ["Qty", "quantity"],
-      ]);
+      sheets.push(brandLogExportSheet(completeBrandLog.filter(row => ids.has(row.branch_id))));
     } else {
       records("Monthly targets", liveData.targets.filter(row => ids.has(row.branch_id)), [["Branch ID", "branch_id"], ["Month", "month"], ["Target", "amount"]]);
       records("Brand targets", liveData.brandTargets.filter(row => ids.has(row.branch_id)), [["Branch ID", "branch_id"], ["Month", "month"], ["Brand", "brand"], ["Target", "amount"]]);
@@ -6147,27 +6218,26 @@
   }
 
   function exportSales() {
+    if (currentProfile.role === "ps" && liveData.brandSalesError) throw new Error(liveData.brandSalesError);
     const stamp = localISODate();
     const sales = visibleSales().filter(sale => !salesLogExport || salesLogExport.has(sale.id));
-    const detail = [["Sale date", "Invoice", "Customer", "District", "Branch", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment", "City / town", "Barangay", "Serial numbers", "Delivery / Pick up"]];
+    const detail = [["Sale date", "Invoice", "Customer", "District", "Branch", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment", "City / town", "Barangay", "Serial numbers", "Delivery / Pick up", "Sales code", "PS name"]];
     const byBranch = new Map();
     const byBrand = new Map();
     sales.forEach(sale => {
       linesForSale(sale.id).forEach(line => {
         const amount = window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis);
-        detail.push([sale.sold_on, sale.invoice_number, sale.customer_name, branchDistrictName(sale.branch_id), branchName(sale.branch_id), psNameOf(sale.ps_id, sale.ps_name), line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), amount, sale.payment_mode || "", sale.city || "", sale.barangay || "", serialsFor(sale.id, line.barcode).join(", "), fulfillmentLabel(sale)]);
         addTo(byBranch, branchName(sale.branch_id), amount);
         addTo(byBrand, (line.brand || "Unbranded").trim(), amount);
       });
     });
+    itemizedSaleLines(sales.flatMap(sale => linesForSale(sale.id).map(line => ({ sale, line })))).forEach(({ sale, line, serial }) => {
+      detail.push([sale.sold_on, sale.invoice_number, sale.customer_name, branchDistrictName(sale.branch_id), branchName(sale.branch_id), psNameOf(sale.ps_id, sale.ps_name), line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), sale.payment_mode || "", sale.city || "", sale.barangay || "", serial, fulfillmentLabel(sale), ...exportPsIdentity(sale)]);
+    });
     const sheets = [{ name: currentProfile.role === "ps" ? "My sales" : "Sales", rows: detail }];
     if (["manager", "district_manager", "admin"].includes(currentProfile.role)) sheets.push(deliveryExport(sales));
     if (currentProfile.role === "ps") {
-      sheets.push({
-        name: "Brand branch-wide",
-        rows: [["Sale date", "Invoice", "Product Specialist",         "Brand", "Category", "Sub-category", "Product", "Qty"],
-                  ...liveData.brandSales.map(row => [row.sold_on, row.invoice_number, row.ps_name, row.brand, row.category, row.sub_category, row.model_description, Number(row.quantity)])],
-      });
+      sheets.push(brandLogExportSheet(liveData.brandSales));
     } else {
       sheets.push({ name: "By branch", rows: [["Branch", "Sales"], ...[...byBranch].sort((a, b) => b[1] - a[1])] });
       sheets.push({ name: "By brand", rows: [["Brand", "Sales"], ...[...byBrand].sort((a, b) => b[1] - a[1])] });
@@ -6307,9 +6377,11 @@
       render();
     });
     root.querySelector("#ps-detail-export").addEventListener("click", () => {
-      const header = ["Sale date", "Invoice", "Customer", "Brand", "Category", "Sub-category", "Product",             "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment", "City / town", "Barangay", "Serial numbers"];
-                  const data = rows().map(({ sale, line }) => [sale.sold_on, sale.invoice_number, sale.customer_name, line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), sale.payment_mode || "", sale.city || "", sale.barangay || "", serialsFor(sale.id, line.barcode).join(", ")]);
-      exportWorkbook([{ name: sheet, rows: [header, ...data] }], `${fileBase}-${localISODate()}`);
+      try {
+        const header = ["Sale date", "Invoice", "Customer", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment", "City / town", "Barangay", "Serial numbers", "Sales code", "PS name"];
+        const data = itemizedSaleLines(rows()).map(({ sale, line, serial }) => [sale.sold_on, sale.invoice_number, sale.customer_name, line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), sale.payment_mode || "", sale.city || "", sale.barangay || "", serial, ...exportPsIdentity(sale)]);
+        exportWorkbook([{ name: sheet, rows: [header, ...data] }], `${fileBase}-${localISODate()}`);
+      } catch (error) { exportError(error); }
     });
     render();
   }
@@ -6597,6 +6669,7 @@
 
   // Exports every row of a table (all pages), not just the visible page.
   function tableToSheet(table, name) {
+    if (tableStore.brandlog === table) return brandLogExportSheet(table.items, name);
     const keep = table.headers.map(isDataHeader);
     const doc = new DOMParser().parseFromString(`<table><tbody>${table.items.map(table.rowHtml).join("")}</tbody></table>`, "text/html");
     const rows = [...doc.querySelectorAll("tr")].map(tr =>

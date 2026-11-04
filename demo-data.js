@@ -462,6 +462,21 @@
         Inventory.applySale(tables, tables.sales.find(sale => sale.id === id), before, p.p_reconcile);
         return id;
       }
+      if (name === "export_brand_branch_sales_v2") {
+        requireRole("ps");
+        return brandLines().map(({ sale, line }) => {
+          const peers = tables.sale_lines.filter(item => item.sale_id === sale.id && item.barcode === line.barcode).sort((a, b) => a.id.localeCompare(b.id));
+          const offset = peers.slice(0, peers.indexOf(line)).reduce((sum, item) => sum + Number(item.quantity), 0);
+          const person = tables.profiles.find(item => item.id === sale.ps_id);
+          return {
+            line_id: line.id, sold_on: sale.sold_on, invoice_number: sale.invoice_number, ps_name: person?.full_name || sale.ps_name,
+            brand: line.brand, category: line.category, sub_category: line.sub_category, model_description: line.model_description,
+            quantity: line.quantity, branch_id: sale.branch_id, ps_id: sale.ps_id, salesperson_code: sale.salesperson_code || person?.salesperson_code || "",
+            barcode: line.barcode, serial_numbers: tables.sale_serials.filter(item => item.sale_id === sale.id && item.barcode === line.barcode)
+              .sort((a, b) => a.position - b.position).slice(offset, offset + Number(line.quantity)).map(item => item.serial),
+          };
+        });
+      }
       if (name === "export_brand_branch_sales") {
         requireRole("ps");
         return brandLines().map(({ sale, line }) => ({
@@ -798,7 +813,7 @@
         });
       },
       rpc(name, params = {}) {
-        const read = ["brand_branch_sales", "export_brand_branch_sales", "brand_sales_contribution", "get_ps_dashboard", "inventory_catalog", "inventory_destinations", "inventory_sales_serials"].includes(name);
+        const read = ["brand_branch_sales", "export_brand_branch_sales", "export_brand_branch_sales_v2", "brand_sales_contribution", "get_ps_dashboard", "inventory_catalog", "inventory_destinations", "inventory_sales_serials"].includes(name);
         return new Query(() => read ? { data: rpc(name, params), error: null } : transaction(() => rpc(name, params)));
       },
       functions: { async invoke(name, { body }) {

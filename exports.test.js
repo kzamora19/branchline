@@ -13,6 +13,7 @@ function section(start, end) {
 function context(extra = {}) {
   const result = vm.createContext({
     ui: { salesBasis: "price" },
+    liveData: { profiles: [], branches: [] }, currentProfile: null,
     escapeHTML: value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]),
     ...extra,
   });
@@ -138,7 +139,7 @@ test("complete brand log loading reads beyond legacy limits and fails explicitly
     line_id: String(index), sold_on: index < 3500 ? "2025-01-01" : "2026-11-03",
   }));
   const exportClient = { rpc(name) {
-    assert.equal(name, "export_brand_branch_sales");
+    assert.equal(name, "export_brand_branch_sales_v2");
     return { order(column) {
       assert.equal(column, "line_id");
       return { range(from, to) { pages.push([from, to]); return Promise.resolve({ data: records.slice(from, to + 1), error: null }); } };
@@ -216,7 +217,7 @@ function allFixture(role, fail = false, salesBasis = "price") {
     currentMonth: () => "2026-10", localISODate: () => "2026-10-21", branchName: id => id, psNameOf: id => id,
     serialsFor: () => [], isTestSale: () => false, fulfillmentLabel: () => "Not specified", deliveryExport: () => ({ name: "Delivery Guarranty", rows: [["PS", "Amount"]] }),
     visibleSales: () => data.sales.filter(sale => role !== "ps" || sale.ps_id === "own"),
-    linesForSale: () => [{ barcode: "1", brand: "TCL", quantity: 1, selling_price: 123, srp: 200 }],
+    linesForSale: (() => { const lines = [{ barcode: "1", brand: "TCL", quantity: 1, selling_price: 123, srp: 200 }]; return () => lines; })(),
     collectingExports: false, document: { createElement: () => ({ content: { querySelectorAll: () => [] } }) },
     renderOverview: () => {
       assert.equal(ui.branch, "");

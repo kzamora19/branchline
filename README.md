@@ -4,6 +4,20 @@ Branchline is a sales tracker for Product Specialists and branch teams.
 
 ## Compact filters and staff actions
 
+Spreadsheet/CSV exports include separate Sales code and PS name columns.
+Unattributed stock, target and summary rows leave them blank; they never use the
+downloading account as the seller. Imported sale codes are preserved as text,
+including leading zeroes, with linked profile codes used only when absent.
+Sales downloads, PS/brand breakdown downloads and Export All itemize recorded
+serials into separate rows (quantity 1 each), repeating transaction/product
+details and prorating extended amounts through each row's quantity. Quantities
+without serials remain in a blank-serial remainder row, so quantities and totals
+are preserved. Repeated-barcode lines receive disjoint serial slices. Brand-wide
+PS exports remain price-free, and stock transfers also use one serial per row.
+Apply migration 20261204000000_itemized_brand_exports.sql before shell v116;
+the versioned RPC adds export metadata without changing the existing RPC.
+PNG chart downloads remain images, not tabular data exports.
+
 Brand targets and PS brand matching recognize slash-separated groups, such as
 FUJIDENZO / WHIRLPOOL and MIDEA / TOSHIBA. Each row has one combined target.
 A category suffix belongs only to its part: CARRIER / CONDURA - AIRCON includes
