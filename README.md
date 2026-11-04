@@ -4,6 +4,18 @@ Branchline is a sales tracker for Product Specialists and branch teams.
 
 ## Compact filters and staff actions
 
+PS **My sales log** highlights **My total sales** in the left card instead of
+the small header note. It totals all matching log rows across pages, following
+the period, log dates and search, excluding TEST sales. The right **My daily
+sales** card retains today's/selected day's total, or **My date-range sales**
+when log calendars are set; search does not change that card. Both follow the
+selected Price/SRP comparison basis. Other roles' cards remain unchanged.
+
+For every role, Overview no longer repeats the **Brand performance** table
+below the charts. Click **Sales by brand** to open that table, including sort,
+pagination, product drilldowns and download. Empty charts also open the table.
+Export All still includes brand performance; Targets' brand table is unchanged.
+
 Spreadsheet/CSV exports include separate Sales code and PS name columns.
 Unattributed stock, target and summary rows leave them blank; they never use the
 downloading account as the seller. Imported sale codes are preserved as text,

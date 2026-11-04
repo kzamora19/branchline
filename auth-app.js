@@ -1412,6 +1412,7 @@
     if (!document.querySelector(`#live-results [data-pie-source="${key}"]`)) {
       if (key === "mix") source = () => overviewPaymentPanels("table");
       else if (key === "branches" && currentProfile.role !== "ps") source = branchPerformancePanel;
+      else if (key === "brands") source = brandPerformancePanel;
       else if (!["sales", "brandlog", "dailysum"].includes(key)) {
         alert("The table is not available in this view.");
         return;
@@ -2458,10 +2459,13 @@
           </div>
           <div class="connected-charts">${charts.join("")}</div>
           ${overviewPaymentPanels("pies")}
-          ${panel("Brand performance", "Click a heading to sort. Click a row to see its products.", brandTable(brandRows(panelIds("brandBranch", scopeBranchIds())), "No brand sales for this selection."), brandPanelControl())}
           ${psRankingPanel()}`;
       },
     );
+  }
+
+  function brandPerformancePanel() {
+    return panel("Brand performance", "Click a heading to sort. Click a row to see its products.", brandTable(brandRows(panelIds("brandBranch", scopeBranchIds())), "No brand sales for this selection."), brandPanelControl());
   }
 
   function branchPerformancePanel() {
@@ -2539,8 +2543,9 @@
         });
         const cardList = canPickBranch()
           ? [...cardIds].map(id => ({ name: branchName(id), ...totalOf(cardFrom, cardTo, new Set([id])) })).sort((a, b) => natural(a.name, b.name))
-          : [{ name: isPs ? "My total sales" : "Total sales", ...totalOf(cardFrom, cardTo, cardIds) }];
-        const totalsCards = `<div class="connected-metrics log-totals">${cardList.map(card =>
+          : [{ name: isPs ? logRange ? "My date-range sales" : "My daily sales" : "Total sales", ...totalOf(cardFrom, cardTo, cardIds) }];
+        const logTotalCard = isPs ? `<article class="connected-metric log-total-highlight"><span>My total sales · matching sales log</span><strong>${formatMoney(total)}</strong><small>${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · follows the log's period, dates and search; excludes TEST sales</small></article>` : "";
+        const totalsCards = `<div class="connected-metrics log-totals${isPs ? " ps-log-totals" : ""}">${logTotalCard}${cardList.map(card =>
           `<article class="connected-metric"><span>${escapeHTML(card.name)} · ${escapeHTML(cardWhen)}</span><strong>${formatMoney(card.total)}</strong><small>${card.count} sale${card.count === 1 ? "" : "s"}${logRange ? "" : " · pick From and To to total a date range"}</small></article>`).join("")}</div>`;
 
         // Daily summary: totals only, for any month and year.
@@ -2577,7 +2582,7 @@
         const dailyBranchNote = dailyIds !== ids ? `${branchName([...dailyIds][0])} · ` : "";
         const dailySummary = panel("Daily sales summary", `${isPs ? "Your account's sales only · " : "Database sales; October 2026 uses supplied summary totals. Summary transaction counts where available · "}${dailyBranchNote}${monthLabel(dsPrefix)} · ${formatMoney(monthTotal.total)} · ${monthTotal.count} transaction${monthTotal.count === 1 ? "" : "s"}`,
           dailyContent, dailyControls);
-        return `${panel(isPs ? "My sales log" : "Sales log", `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} ·           ${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a transaction to view details; click a column heading to sort.`, totalsCards + tableBlock(
+        return `${panel(isPs ? "My sales log" : "Sales log", `${isPs ? "" : `${sales.length - testCount} sale${sales.length - testCount === 1 ? "" : "s"} · ${formatMoney(total)} · `}${rangeNote}${testCount ? `${testCount} TEST (not counted) · ` : ""}ordered by sale date, newest first. Click a transaction to view details; click a column heading to sort.`, totalsCards + tableBlock(
             "sales",
             ["Transaction / Invoice", "Customer", "Sale date", "Product Specialist", "Branch", "Total"],
             sales,
@@ -6181,6 +6186,7 @@
         ui.dsYear = month.slice(0, 4);
         Object.keys(tableStore).forEach(key => delete tableStore[key]);
         const overview = renderOverview();
+        brandPerformancePanel();
         renderSalesPage(true);
         walkInDailyCtx = null;
         renderAnalyticsPage();

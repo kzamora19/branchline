@@ -228,6 +228,9 @@ function allFixture(role, fail = false, salesBasis = "price") {
       return "";
     },
     renderSalesPage: () => {},
+    brandPerformancePanel: () => {
+      savedTables.brands = { title: "Brand performance", headers: ["Brand"], items: ["TCL"], rowHtml: () => "" };
+    },
     renderAnalyticsPage: () => { if (fail) throw new Error("Report failed"); },
     renderTargetsPage: () => {},
     branchPerformancePanel: () => {},
@@ -243,6 +246,7 @@ test("Export All keeps actual prices and adds selected comparison amounts while 
   const rows = fixture.ctx.output.sheets.find(sheet => sheet.name === "My sales").rows;
   assert.equal(rows[1][rows[0].indexOf("Amount")], 123);
   assert.equal(rows[1][rows[0].indexOf("Comparison amount")], 200);
+  assert.ok(fixture.ctx.output.sheets.some(sheet => sheet.name.endsWith("Brand performance")));
   assert.deepEqual(fixture.ui, fixture.original);
 });
 
