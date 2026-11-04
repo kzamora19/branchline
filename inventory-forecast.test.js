@@ -108,7 +108,7 @@ test("all-time starts at first authorized recorded sale and includes quiet month
 });
 
 test("invalid unit data fails explicitly instead of returning a plausible forecast", () => {
-  for (const quantity of [-1, 0.5, NaN, undefined]) {
+  for (const quantity of [0.5, NaN, undefined]) {
     assert.throws(() => forecast({ facts: [{ ...sale(), quantity }] }), /invalid unit quantity/);
   }
 });
@@ -133,7 +133,8 @@ function render(role = "ps", options = {}, filters = {}) {
   }));
   const tables = new Map(), ids = new Set(["one"]);
   const context = vm.createContext({
-    window: { BranchlineAnalytics: A, BranchlineInventory: I }, PAGE_SIZE: 10, ui: { ...filters },
+    window: { BranchlineAnalytics: A, BranchlineInventory: I }, PAGE_SIZE: 10,
+    ui: { inventoryForecastFrom: "2026-01-01", inventoryForecastTo: "2026-10-31", ...filters },
     currentProfile: { id: "self", role, branch_id: "one", assigned_brand: "TCL" },
     liveData: { inventoryCatalog: catalog, inventoryStock: catalog.filter(row => row.quantity !== null),
       inventorySerials: [], profiles: [], brandSales: branchSales, brandSalesError: "",
@@ -165,7 +166,7 @@ test("PS forecasts use branch units while personal Units sold and Sales stay unc
   assert.equal(row[7], 20);
   assert.equal(row[8], "P200");
   assert.deepEqual(Array.from(row.slice(11, 15)), [100, 10, 5, "Critical stock"]);
-  assert.deepEqual(Array.from(row.slice(15)), ["2026-11", 1, "Monthly average (insufficient seasonal history)"]);
+  assert.deepEqual(Array.from(row.slice(15, 18)), ["2026-11", 1, "Monthly average (insufficient seasonal history)"]);
   assert.doesNotMatch(html, /Peer name must not leak|PEER-SECRET|foreign/);
   assert.ok(table.rows.every(row => row[0] === "one" && row[3] === "TCL"));
   assert.equal(table.sortValue(row, 13), 5);
@@ -224,7 +225,63 @@ test("forecast calendars override demand history without changing personal sold 
   assert.equal(table.rows[0][7], 20);
   assert.equal(table.rows[0][8], "P200");
   assert.deepEqual(Array.from(table.rows[0].slice(11, 15)), [100, 100, 95, "Critical stock"]);
-  assert.match(html, /Forecast history: 2026-10-01 to 2026-10-31 \(1\.000 months\)/);
+  assert.equal(table.rows[0][20], "2026-10-01");
+  assert.equal(table.rows[0][21], 1);
+  assert.match(html, /History ends 2026-10-31/);
+});
+
+test("blank forecast calendars use complete product history, not Analytics display dates", () => {
+  const { table } = render("ps", { brandSales: [
+    { branch_id: "one", barcode: "001", sold_on: "2025-11-01", quantity: 150 },
+    { branch_id: "one", barcode: "001", sold_on: "2026-11-04", quantity: 4 },
+  ] }, { inventoryForecastFrom: "", inventoryForecastTo: "" });
+  const row = table.rows.find(row => row[1] === "001");
+  assert.equal(row[11], 154);
+  assert.equal(row[12], 13);
+  assert.equal(row[18], 4);
+  assert.equal(row[19], 9);
+  assert.equal(row[13], 4);
+  assert.equal(row[20], "2025-11-01");
+  assert.equal(row[21], 12 + 4 / 30);
+});
+
+test("150 historical units over twelve months: reorder ten, or six after four sold this month", () => {
+  const options = { products: [product("001", 3)], from: "2025-11-01", to: "2026-10-31",
+    facts: [sale(150, "2025-11-01")] };
+  const row = forecast(options).products[0];
+  assert.equal(row.forecast, 13);
+  assert.equal(row.reorder, 10);
+  const fulfilled = forecast({ ...options, facts: [...options.facts, sale(4, "2026-11-04")] }).products[0];
+  assert.equal(fulfilled.branchSold, 150);
+  assert.equal(fulfilled.soldThisMonth, 4);
+  assert.equal(fulfilled.remainingDemand, 9);
+  assert.equal(fulfilled.reorder, 6);
+  const complete = forecast({ ...options, products: [product("001", 0)],
+    facts: [...options.facts, sale(13, "2026-11-04")] }).products[0];
+  assert.equal(complete.reorder, 0);
+  assert.equal(complete.stockAlert, "Sufficient stock");
+});
+
+test("returns reduce historical net sell-out and current-month fulfillment without negative forecasts", () => {
+  const row = forecast({ facts: [sale(110), sale(-10)] }).products[0];
+  assert.equal(row.branchSold, 100);
+  assert.equal(row.forecast, 10);
+  const current = forecast({ facts: [sale(100), sale(4, "2026-11-01"), sale(-1, "2026-11-02")] }).products[0];
+  assert.equal(current.soldThisMonth, 3);
+  assert.equal(current.remainingDemand, 7);
+  assert.equal(current.reorder, 2);
+  assert.equal(forecast({ facts: [sale(-5)] }).products[0].forecast, 0);
+});
+
+test("all-history denominators start separately for each exact branch/product", () => {
+  const rows = forecast({ from: "0001-01-01", to: "2026-10-31",
+    products: [product(), product("NEW"), product("NONE")],
+    facts: [sale(100, "2026-01-01"), sale(10, "2026-10-01", "NEW")] }).products;
+  assert.equal(rows[0].historyMonths, 10);
+  assert.equal(rows[1].historyMonths, 1);
+  assert.equal(rows[0].forecast, 10);
+  assert.equal(rows[1].forecast, 10);
+  assert.equal(rows[2].forecast, null);
 });
 
 test("reversed forecast calendars are rejected without changing saved dates or results", () => {

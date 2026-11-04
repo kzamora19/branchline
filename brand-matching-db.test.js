@@ -37,6 +37,7 @@ test("database brand aliases preserve scoped routing, access checks, test exclus
     await db.exec(read("20261108000000_complete_brand_log_export"));
     await db.exec(read("20261203000000_canonical_brand_matching"));
     await db.exec(read("20261204000000_itemized_brand_exports"));
+    await db.exec(read("20261205000000_brand_log_returns"));
     await db.exec(`insert into profiles(id,dealer_id,branch_id,role,assigned_brand,full_name) values
       ('${general}','${dealer}','${branch}','ps','CON-CONDURA','General'),
       ('${scoped}','${dealer}','${branch}','ps','CARRIER / CON-CONDURA - AIRCON','Scoped'),
@@ -113,6 +114,18 @@ test("database brand aliases preserve scoped routing, access checks, test exclus
     const units = await query("select * from export_brand_branch_sales_v2() where invoice_number='INV-2' order by line_id");
     assert.deepEqual(units.map(row => row.serial_numbers), [["SN-1"], ["SN-2", "SN-3"]]);
     assert.ok(units.every(row => row.salesperson_code === "0001937" && row.ps_id === general && row.ps_name === "General"));
+    await db.exec("reset role");
+    await query("insert into sale_lines(id,sale_id,brand,category,sub_category,model_description,quantity,selling_price,srp) values($1,$2,'CONDURA','Refrigerator','','Return',-2,100,150)", [id(50), id(102)]);
+    await db.exec("set role authenticated");
+    const withReturn = await query("select * from export_brand_branch_sales_v2() where invoice_number='INV-2' order by line_id");
+    assert.deepEqual(withReturn.map(row => [row.quantity, row.serial_numbers]), [
+      [-2, []], [1, ["SN-1"]], [2, ["SN-2", "SN-3"]],
+    ]);
+    assert.equal(withReturn.reduce((sum, row) => sum + row.quantity, 0), 1);
+    await db.exec("reset role");
+    await query("update sale_lines set quantity=-1 where id=$1", [id(999)]);
+    await db.exec("set role authenticated");
+    assert.deepEqual((await query("select * from export_brand_branch_sales_v2() where line_id=$1", [id(999)]))[0].serial_numbers, []);
     assert.equal((await query("select has_function_privilege('anon','public.export_brand_branch_sales_v2()','execute') allowed"))[0].allowed, false);
   } finally { await db.close(); }
 });

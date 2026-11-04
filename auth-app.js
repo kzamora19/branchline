@@ -2102,14 +2102,14 @@
     })) : facts;
     const forecast = window.BranchlineAnalytics.inventoryForecast({
       products: summary.products, facts: demandFacts, branchIds: ids, today,
-      from: ui.inventoryForecastFrom || from, to: ui.inventoryForecastTo || to, unavailable: Boolean(demandError),
+      from: ui.inventoryForecastFrom || "0001-01-01", to: ui.inventoryForecastTo || today, unavailable: Boolean(demandError),
       targetMonth: ui.inventoryForecastMonth || today.slice(0, 7),
     });
     const metric = (label, value) => `<article class="connected-metric"><span>${escapeHTML(label)}</span><strong>${value}</strong></article>`;
     const cards = `<div class="connected-metrics">${metric("Available units now", summary.units)}${metric("Tracked branch / product pairs", summary.tracked)}${metric("Out-of-stock branch / product pairs", summary.stockouts)}${metric("Not initialized", summary.uninitialized)}${metric("Awaiting classification", summary.unclassified)}${metric("Available serials aged 90+ days", summary.days90)}${!isPs ? metric("Missing SRP (unset or zero)", summary.missingSrp) : ""}</div>`;
     const rangeLabel = from === "0001-01-01" && to === "9999-12-31" ? "all recorded dates" : `${from} to ${to}`;
     const note = `Current inventory as of ${today}; sales/activity dates: ${rangeLabel}. Stock is not a historical balance. ${isPs ? "Your assigned brand/category stock; sold units and sales are your own, not branch-wide demand." : "Available quantities exclude reserved/in-transit stock."} Uninitialized inventory is unknown, not zero. No cost, profit or historical stock valuation is inferred.`;
-    const forecastNote = ` Forecast month: ${forecast.targetMonth} (defaults to this month). Monthly forecast = recorded branch/product monthly average x seasonal category factor, rounded up. The factor compares the target calendar month's category units with its overall monthly average in this branch, using at least two complete prior calendar years in the forecast history, with recorded category sales in every month; otherwise the unadjusted average is labelled. No preset summer multiplier. Blank Forecast from/to follows Analytics; partial months use elapsed calendar-day fractions. Current-month forecasts include history through today; other months use history before the target month, never after today. ${forecast.months ? `Forecast history: ${forecast.from} to ${forecast.to} (${forecast.months.toFixed(3)} months).` : "No elapsed forecast history is available."} All-time starts at the first recorded branch product sale. Re-order qty = max(0, forecast for the displayed month - available now). Red = below forecast; red/bold = zero stock with demand. Summary-only sales cannot supply product units; no lost sales, lead times or orders are inferred.`;
+    const forecastNote = ` Forecast for ${forecast.targetMonth} (defaults to this month). Uses all available branch/product sales history, including returns, independently of the Analytics display period; optional Forecast from/to limits learning only. Monthly forecast = net historical units / elapsed history months x seasonal factor, rounded up. Each product's history starts at its first recorded positive sale unless Forecast from is set; quiet months count and partial months are prorated. History ends ${forecast.to}, never after today. Seasonality uses at least two complete prior category-sales years, otherwise the monthly average is used. Remaining demand = max(0, monthly forecast - net branch units already sold in the forecast month). Re-order qty = max(0, remaining demand - available now). Red = shortage; red/bold = zero stock with remaining demand. No lead time, pending orders or unrecorded demand is inferred.`;
     const products = forecast.products.map(row => [branchName(row.branch_id), row.barcode, row.model_description,
       row.brand, row.category || "Unclassified", row.sub_category || "", row.quantity ?? "Not initialized",
       row.sold, formatMoney(row.sales), row.days90,
@@ -2117,14 +2117,16 @@
         : row.sold === 0 ? "Stock available; no recorded sales in period" : "Stock available",
       row.branchSold ?? "Unavailable", row.forecast ?? "Unavailable",
       row.reorder ?? (row.quantity === null ? "Stock unknown" : "Unavailable"), row.stockAlert,
-      row.forecastMonth, row.seasonalFactor ?? "Unavailable", row.forecastBasis]);
+      row.forecastMonth, row.seasonalFactor ?? "Unavailable", row.forecastBasis,
+      row.soldThisMonth ?? "Unavailable", row.remainingDemand ?? "Unavailable", row.historyFrom || "No recorded sales",
+      row.historyMonths]);
     const stockCellClass = (row, index) => [6, 13, 14].includes(index)
       ? row[14] === "Needs attention" ? "inventory-stock-alert inventory-stock-attention"
         : row[14] === "Critical stock" ? "inventory-stock-alert" : "" : "";
     const demandWarning = demandError ? `<p class="connected-error" role="alert">Forecast unavailable: ${escapeHTML(demandError)}</p>` : "";
     const forecastControls = `<label class="field"><span>Forecast month</span><input type="month" data-filter="inventoryForecastMonth" value="${escapeHTML(forecast.targetMonth)}" required></label><label class="field"><span>Forecast from (optional)</span><input type="date" data-filter="inventoryForecastFrom" value="${escapeHTML(ui.inventoryForecastFrom || "")}"></label><label class="field"><span>Forecast to (optional)</span><input type="date" data-filter="inventoryForecastTo" value="${escapeHTML(ui.inventoryForecastTo || "")}"></label>`;
     const productTable = demandWarning + analyticsDataTable("an-inventory-products", "Inventory and product sales", note + forecastNote,
-      ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Units sold", "Sales", "90+ day serials", "Observation", "Branch units sold", "Monthly forecast", "Re-order qty", "Stock alert", "Forecast month", "Seasonal factor", "Forecast basis"], products, stockCellClass, forecastControls);
+      ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Units sold", "Sales", "90+ day serials", "Observation", "Branch units sold", "Monthly forecast", "Re-order qty", "Stock alert", "Forecast month", "Seasonal factor", "Forecast basis", "Branch units sold in forecast month", "Remaining demand", "Product history from", "History months"], products, stockCellClass, forecastControls);
     const aging = analyticsDataTable("an-inventory-aging", "Current stock aging", "Available serialized units only. Missing/invalid receipt dates are unknown; nonserialized units have no receipt-age data.",
       ["Age band", "Available serials"], [["Current (0-29 days)", summary.current], ["30 days (30-59)", summary.days30],
         ["60 days (60-89)", summary.days60], ["90 days or more", summary.days90], ["Unknown receipt age", summary.unknown]]);

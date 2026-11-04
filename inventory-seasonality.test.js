@@ -46,8 +46,41 @@ test("category seasonality is shared by other items but never by a different bra
   assert.equal(result[0].forecast, 30);
   assert.equal(result[1].forecast, 60);
   assert.equal(result[2].forecast, 10);
-  assert.equal(result[3].seasonalFactor, 1);
-  assert.match(result[3].forecastBasis, /insufficient seasonal history/);
+  assert.equal(result[3].seasonalFactor, 0);
+  assert.equal(result[3].forecast, 0);
+  assert.match(result[3].forecastBasis, /Seasonal category pattern/);
+});
+
+test("Q4-only gas-range demand learns quiet months and forecasts each target month separately", () => {
+  const activity = history().map(row => ({ ...row, barcode: "OTHER", category: "Other", quantity: 1 }));
+  const gas = history().filter(row => Number(row.date.slice(5, 7)) >= 10).map(row => ({
+    ...row, barcode: "GAS", category: "Gas range", quantity: ({ "10": 30, "11": 40, "12": 50 })[row.date.slice(5, 7)],
+  }));
+  const options = { facts: [...activity, ...gas], products: [{ ...product, barcode: "GAS", category: "Gas range", quantity: 3 }] };
+  for (const [month, units] of [["01", 0], ["04", 0], ["07", 0], ["10", 30], ["11", 40], ["12", 50]]) {
+    const row = forecast({ ...options, targetMonth: `2026-${month}` }).products[0];
+    assert.equal(row.branchSold, 240);
+    assert.equal(row.forecast, units);
+    assert.equal(row.reorder, Math.max(0, units - 3));
+    assert.equal(row.seasonalFactor, units / 10);
+    assert.match(row.forecastBasis, /Seasonal category pattern \(2024, 2025\)/);
+  }
+  const current = forecast({ ...options, targetMonth: undefined, facts: [...options.facts,
+    { ...gas[0], date: "2026-11-02", quantity: 4 },
+    { ...gas[0], date: "2026-11-05", quantity: 999 },
+  ] }).products[0];
+  assert.equal(current.forecastMonth, "2026-11");
+  assert.equal(current.forecast, 40);
+  assert.equal(current.soldThisMonth, 4);
+  assert.equal(current.remainingDemand, 36);
+  assert.equal(current.reorder, 33);
+  const missingMonth = forecast({ ...options, targetMonth: "2026-11",
+    facts: options.facts.filter(row => row.date !== "2024-02-15") }).products[0];
+  assert.equal(missingMonth.seasonalFactor, 1);
+  assert.match(missingMonth.forecastBasis, /insufficient seasonal history/);
+  const otherBranch = forecast({ ...options, targetMonth: "2026-11",
+    facts: [...gas, ...activity.map(row => ({ ...row, branchId: "two" }))] }).products[0];
+  assert.equal(otherBranch.seasonalFactor, 1);
 });
 
 test("incomplete years, missing months and missing classification use labelled monthly average", () => {
@@ -150,7 +183,8 @@ test("actual inventory table wires target month, seasonal metadata, branch-only 
         assert.equal(result.months, 4 / 30);
         assert.equal(result.products[0].branchSold, 2);
         assert.equal(result.products[0].forecast, 15);
-        assert.equal(result.products[0].reorder, 10);
+        assert.equal(result.products[0].remainingDemand, 13);
+        assert.equal(result.products[0].reorder, 8);
         const firstDay = forecast({ targetMonth: undefined, today: "2026-01-01",
           from: "2026-01-01", to: "2026-01-31", facts: [{ ...history()[0], date: "2026-01-01", quantity: 1 }] });
         assert.equal(firstDay.targetMonth, "2026-01");

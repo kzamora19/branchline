@@ -1,6 +1,6 @@
 # Branchline
 
-### Seasonal product stock forecasts (shell v120)
+### Seasonal product stock forecasts (shell v121)
 
 **Forecast month** defaults to the current month and can be changed in **Filters >
 Inventory and product sales**. The forecast multiplies each item's recorded
@@ -11,8 +11,14 @@ different branches are never pooled. PS patterns use only their authorized
 brand/category log, not inaccessible brands or peer prices.
 
 At least two complete prior calendar years must lie inside Forecast from/to,
-with recorded positive category-unit sales in all twelve months of each year.
-Missing months are not assumed to be zero. Incomplete years, unknown categories
+with recorded positive authorized branch/product activity in all twelve months
+and category activity in each qualifying year. Category months without sales
+count as zero only within these observed branch years, so Q4-only categories
+can have quiet first-three-quarter months and higher October/November/December
+forecasts. Missing branch months are not assumed to be zero. This uses recorded
+activity as coverage evidence, not proof that imports are complete.
+Returns reduce category demand; negative monthly net units are clamped to zero
+when learning the seasonal shape. Incomplete years, unknown categories
 or insufficient history use factor 1 and **Monthly average (insufficient seasonal
 history)**. No hardcoded summer boost is applied. Current-month forecasts include
 elapsed sales through today. For other target months, learning dates stop before
@@ -23,18 +29,25 @@ saved per account; clear/invalid months are rejected or reset on restore.
 
 Analytics **Inventory and product sales** adds **Branch units sold**, **Monthly
 forecast**, **Re-order qty** and **Stock alert**. The baseline is recorded
-branch/product units sold divided by calendar months in the selected Analytics
-range, rounded up to whole units. Zero-sale months count. Partial months use
+branch/product net units sold divided by elapsed history months, independently
+of the selected Analytics display period, rounded up to whole units. Returns
+reduce net sell-out. Zero-sale months count. Partial months use
 inclusive elapsed days divided by that calendar month's days; future days do not
-count. All-time uses the first recorded authorized branch product sale through
-the learning cutoff above. For example, 100 units over ten full months averages 10 units; five
-available units require five more before any seasonal adjustment.
-Re-order qty is `max(0, forecast for the displayed month - available)`.
+count. With blank forecast calendars, each exact branch/barcode uses its own
+first recorded positive sale through the learning cutoff above. A product with
+no recorded positive history has no forecast.
+Remaining demand is `max(0, forecast - net branch units already sold in the forecast month)`.
+Re-order qty is `max(0, remaining demand - available)`.
+For example, 150 net units over twelve complete months forecasts 13 units;
+three available means re-order 10, or re-order 6 if four units have already
+sold this month, before seasonal adjustment.
+The table and downloads expose forecast-month sales, remaining demand,
+product history start and numeric elapsed history months.
 Sorting tables preserves their horizontal scroll position.
 In **Filters > Inventory and product sales**, optional **Forecast from/to**
 calendars override only the demand/forecast history (for example January 1 to
-October 31 for ten months). Blank calendars follow the selected Analytics
-period. These account-specific dates persist; reversed ranges are rejected.
+October 31 for ten months). Blank calendars use all available product history,
+not the selected Analytics period. These account-specific dates persist; reversed ranges are rejected.
 Existing Units sold/Sales and other Analytics panels retain their own period.
 
 Forecasts use shared branch demand even for PS accounts, via the existing complete
@@ -42,8 +55,8 @@ price-free brand log. PS **Units sold** and **Sales** remain personal and foreca
 stay within assigned brand/category and authorized branches. No peer prices or
 customer details are added. Branch/barcode pairs are separate; barcode leading
 zeroes are retained. Current available stock excludes reserved/in-transit units.
-Stock below forecast is **red**; zero stock with forecast demand is **red and
-bold**, labelled **Needs attention**. Stock equal to/above forecast is not flagged.
+Stock below remaining demand is **red**; zero stock with remaining demand is **red and
+bold**, labelled **Needs attention**. Stock covering remaining demand is not flagged.
 Zero stock without recorded demand is not an urgent forecast shortage.
 
 Unknown stock has an unknown re-order quantity, not a zero balance. A failed
@@ -53,7 +66,12 @@ These are one-month recorded-sell-out projections, not supplier orders or
 lead-time/safety-stock estimates. Summary-only sales have no item quantities and
 are not apportioned; incomplete recorded history can understate actual demand.
 Table downloads and Export All include numeric forecast/re-order columns and
-plain-text stock alerts. No new database migration is required.
+plain-text stock alerts.
+
+Apply migration `20261205000000_brand_log_returns.sql` after the itemized-export
+migration. It fixes `LIMIT must not be negative` for imported returns: signed
+quantities remain unchanged, while serial allocation only consumes positive sale
+units. Existing RPC authorization, grants and price privacy are unchanged.
 
 Branchline is a sales tracker for Product Specialists and branch teams.
 

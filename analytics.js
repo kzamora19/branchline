@@ -553,18 +553,45 @@
         months += ((toMs(last) - toMs(first)) / DAY_MS + 1) / daysInMonth(month);
       }
     }
-    const sold = new Map();
+    const sold = new Map(), firstSale = new Map(), monthSold = new Map();
+    const targetStart = monthStart(targetMonth), targetEnd = monthEnd(targetMonth);
+    for (const row of facts) {
+      if (!branchIds.has(row.branchId) || row.summary || !row.barcode || row.date > today
+        || row.date < targetStart || row.date > targetEnd) continue;
+      const quantity = Number(row.quantity);
+      if (row.quantity == null || !Number.isSafeInteger(quantity)) throw new Error("Cannot forecast inventory: a product sale has an invalid unit quantity.");
+      const key = `${row.branchId}\0${row.barcode}`;
+      monthSold.set(key, (monthSold.get(key) || 0) + quantity);
+    }
+    const monthCounts = new Map();
+    const elapsedMonths = first => {
+      if (!first || first > end) return 0;
+      if (monthCounts.has(first)) return monthCounts.get(first);
+      let count = 0;
+      for (let month = first.slice(0, 7); month <= end.slice(0, 7); month = shiftMonth(month, 1)) {
+        const a = first > monthStart(month) ? first : monthStart(month);
+        const b = end < monthEnd(month) ? end : monthEnd(month);
+        count += ((toMs(b) - toMs(a)) / DAY_MS + 1) / daysInMonth(month);
+      }
+      monthCounts.set(first, count);
+      return count;
+    };
     const categoryKey = value => String(value || "").trim().toLowerCase();
     const catalogCategories = new Map(products.map(row => [`${row.branch_id}\0${row.barcode}`, categoryKey(row.category)]));
-    const categories = new Map();
+    const categories = new Map(), branchActivity = new Map();
     for (const row of demand) {
       if (!start || row.date < start || row.date > end || !row.barcode) continue;
       const quantity = Number(row.quantity);
-      if (row.quantity == null || !Number.isSafeInteger(quantity) || quantity < 0) {
+      if (row.quantity == null || !Number.isSafeInteger(quantity)) {
         throw new Error("Cannot forecast inventory: a product sale has an invalid unit quantity.");
       }
       const key = `${row.branchId}\0${row.barcode}`;
+      if (quantity > 0) {
+        if (!branchActivity.has(row.branchId)) branchActivity.set(row.branchId, new Set());
+        branchActivity.get(row.branchId).add(row.date.slice(0, 7));
+      }
       sold.set(key, (sold.get(key) || 0) + quantity);
+      if (quantity > 0 && (!firstSale.has(key) || row.date < firstSale.get(key))) firstSale.set(key, row.date);
       const category = categoryKey(row.category) || catalogCategories.get(key);
       if (!category || category === "unclassified" || !quantity) continue;
       const groupKey = `${row.branchId}\0${category}`;
@@ -574,28 +601,36 @@
     }
     const seasonal = new Map();
     for (const [key, monthly] of categories) {
+      const observed = branchActivity.get(key.split("\0")[0]);
       const years = [...new Set([...monthly.keys()].map(month => month.slice(0, 4)))].filter(year =>
         year < targetMonth.slice(0, 4) && `${year}-01-01` >= start && `${year}-12-31` <= end
-        && Array.from({ length: 12 }, (_, index) => `${year}-${pad(index + 1)}`).every(month => monthly.has(month))).sort();
-      const total = years.reduce((sum, year) => sum + Array.from({ length: 12 }, (_, index) => monthly.get(`${year}-${pad(index + 1)}`)).reduce((a, b) => a + b, 0), 0);
-      const targetUnits = years.reduce((sum, year) => sum + monthly.get(`${year}-${targetMonth.slice(5, 7)}`), 0);
+        && Array.from({ length: 12 }, (_, index) => `${year}-${pad(index + 1)}`).every(month => observed?.has(month))).sort();
+      const netUnits = month => Math.max(0, monthly.get(month) || 0);
+      const total = years.reduce((sum, year) => sum + Array.from({ length: 12 }, (_, index) => netUnits(`${year}-${pad(index + 1)}`)).reduce((a, b) => a + b, 0), 0);
+      const targetUnits = years.reduce((sum, year) => sum + netUnits(`${year}-${targetMonth.slice(5, 7)}`), 0);
       if (years.length >= 2 && total > 0) seasonal.set(key, { factor: targetUnits * 12 / total, years });
     }
     return { from: start, to: end, months, targetMonth, products: products.map(row => {
-      const branchSold = unavailable ? null : sold.get(`${row.branch_id}\0${row.barcode}`) || 0;
+      const key = `${row.branch_id}\0${row.barcode}`;
+      const branchSold = unavailable ? null : sold.get(key) || 0;
+      const historyFrom = allTime ? firstSale.get(key) || "" : start;
+      const historyMonths = allTime ? elapsedMonths(historyFrom) : months;
+      const soldThisMonth = unavailable ? null : monthSold.get(key) || 0;
       const pattern = seasonal.get(`${row.branch_id}\0${categoryKey(row.category)}`);
-      const seasonalFactor = unavailable || !months ? null : pattern?.factor ?? 1;
-      const rate = seasonalFactor === null ? null : branchSold / months * seasonalFactor;
+      const seasonalFactor = unavailable || !historyMonths ? null : pattern?.factor ?? 1;
+      const rate = seasonalFactor === null ? null : Math.max(0, branchSold) / historyMonths * seasonalFactor;
       // Calendar fractions can leave an exact integer a few floating-point steps above itself.
       const forecast = rate === null ? null : Math.max(0, Math.ceil(rate - Number.EPSILON * Math.max(1, rate) * 8));
-      const reorder = forecast === null || row.quantity === null ? null : Math.max(0, forecast - row.quantity);
+      const remainingDemand = forecast === null ? null : Math.max(0, forecast - soldThisMonth);
+      const reorder = remainingDemand === null || row.quantity === null ? null : Math.max(0, remainingDemand - row.quantity);
       const stockAlert = forecast === null ? "Forecast unavailable" : row.quantity === null ? "Stock unknown"
         : reorder > 0 ? row.quantity === 0 ? "Needs attention" : "Critical stock"
           : forecast === 0 ? "No recorded demand" : "Sufficient stock";
       const forecastBasis = rate === null ? "Forecast unavailable" : pattern
         ? `Seasonal category pattern (${pattern.years.join(", ")})`
         : "Monthly average (insufficient seasonal history)";
-      return { ...row, branchSold, forecast, reorder, stockAlert, seasonalFactor, forecastBasis, forecastMonth: targetMonth };
+      return { ...row, branchSold, forecast, reorder, stockAlert, seasonalFactor, forecastBasis, forecastMonth: targetMonth,
+        soldThisMonth, remainingDemand, historyFrom, historyMonths };
     }) };
   }
 
