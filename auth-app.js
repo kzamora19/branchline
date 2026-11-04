@@ -1418,6 +1418,7 @@
       if (key === "mix") source = () => overviewPaymentPanels("table");
       else if (key === "branches" && currentProfile.role !== "ps") source = branchPerformancePanel;
       else if (key === "brands") source = brandPerformancePanel;
+      else if (key === "brandlog" && currentProfile.role === "ps") source = brandLogPanel;
       else if (!["sales", "brandlog", "dailysum"].includes(key)) {
         alert("The table is not available in this view.");
         return;
@@ -3026,7 +3027,7 @@
   function brandLogPanel() {
     const brand = currentProfile.assigned_brand || "your brand";
     if (liveData.brandSalesError) return panel(`${brand} sales log · branch-wide`, "Sales details could not be loaded.",
-      `<p class="an-note" role="alert">${escapeHTML(liveData.brandSalesError)} Reload the workspace to retry. The contribution chart is loaded separately.</p>`);
+      `<p class="an-note" role="alert">${escapeHTML(liveData.brandSalesError)} Reload the workspace to retry. The contribution chart is loaded separately.</p>`, "", "brandlog");
     const rows = liveData.brandSales
       .filter(row => inPeriod(row.sold_on))
       .sort((a, b) => String(b.sold_on).localeCompare(String(a.sold_on)) || natural(a.ps_name, b.ps_name));

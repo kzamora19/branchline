@@ -54,8 +54,39 @@ test("standalone brand table retains the same scoped rows, controls and product 
     brandPanelControl: () => "existing controls",
     panel: (title, _note, content, controls) => ({ title, content, controls }),
   });
+
   vm.runInContext(section("  function brandPerformancePanel(", "  function branchPerformancePanel("), context);
   assert.deepEqual({ ...vm.runInContext("brandPerformancePanel()", context) }, {
     title: "Brand performance", content: "existing table", controls: "existing controls",
   });
 });
+
+test("PS contribution chart opens its own authorized brand log directly for all assigned brands", () => {
+    for (const assigned_brand of ["TCL", "MIDEA / TOSHIBA", "FUJIDENZO / WHIRLPOOL", "CON-DEVANT"]) {
+      const context = vm.createContext({
+        resultsView: () => "", document: { querySelector: () => null },
+        brandLogPanel: () => "authorized price-free branch log",
+        currentProfile: { role: "ps", assigned_brand },
+        alert: () => assert.fail("Contribution table must remain available"),
+      });
+      vm.runInContext(section("  function openPieTable(", "    closeModal();") + "pickedSource = source;\n  }", context);
+      vm.runInContext('openPieTable("brandlog", {})', context);
+      assert.equal(context.pickedSource, context.brandLogPanel);
+    }
+  });
+
+  test("failed brand-log loading retains its popup source and real error instead of looking like a missing table", () => {
+    const context = vm.createContext({
+      currentProfile: { role: "ps", assigned_brand: "MIDEA / TOSHIBA" },
+      liveData: { brandSalesError: "Unable to load authorized branch log: fixture failure" },
+      escapeHTML: String,
+      panel: (title, detail, body, action, sourceKey) => ({ title, detail, body, action, sourceKey }),
+    });
+    vm.runInContext(section("  function brandLogPanel(", "  function inventoryStockFor("), context);
+    const result = vm.runInContext("brandLogPanel()", context);
+    assert.equal(result.sourceKey, "brandlog");
+    assert.match(result.body, /role="alert"/);
+    assert.match(result.body, /fixture failure/);
+    assert.match(result.body, /contribution chart is loaded separately/);
+    assert.doesNotMatch(result.body, /No sales/);
+  });

@@ -1,5 +1,14 @@
 # Branchline
 
+### Contribution chart details (shell v125)
+
+PS contribution-chart clicks render the authorized price-free branch brand log
+directly, independently of personal sales-page rendering. A failed log request
+retains the popup source and shows its actual loading error and reload guidance;
+it is never replaced with a missing-table alert or a false zero-sales table.
+Successful and empty logs retain existing filters, pagination and exports.
+Multi-brand assignments use the same authorized log, not a personal-sales fallback.
+
 ### Workspace loading and action buttons (shell v124)
 
 Live calendar/climate loaders use the shared paginated query helper with an
