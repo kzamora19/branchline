@@ -665,7 +665,9 @@
             : "Reload to retry. If this continues, share this error with your administrator.";
         liveData.inventoryError = `Inventory is unavailable: ${error.message}. ${advice}`;
       }
+      const climate = await loadClimateContext();
       if (sequence !== loadSequence || !currentSession) return;
+      liveData.climate = climate;
 
       document.querySelector("#connected-user-name").textContent = connectedUserLabel();
       const ownDistrict = visibleDistricts.find(item => item.id === profile.district_id)?.name;
@@ -1527,12 +1529,143 @@
       (managesInventory() ? panel("Imports", "Import tools remain restricted to your role and assigned branches. Review and confirm before saving.",
         '<button class="button button-primary" type="button" data-open="import-center">Import Center</button>') : "") +
       panel("Account and device", demoStore ? "Password changes and device notifications are available after signing in to a real account." : "Change your password or manage this device's notifications.", '<div class="filter-actions" id="settings-account-controls"></div>') +
-      storeClosedDatesPanel() + pushMessagesPanel() + dangerZonePanel());
+      climateReviewPanel() + storeClosedDatesPanel() + pushMessagesPanel() + dangerZonePanel());
     const slot = connectedContent.querySelector("#settings-account-controls");
     for (const id of ["change-password", "push-toggle"]) {
       const control = document.getElementById(id);
       if (control) slot.append(control);
     }
+  }
+
+  async function loadClimateContext() {
+    if (demoStore) return { demo: true, locations: [], evidence: [], adjustments: [], status: [] };
+    const tables = ["forecast_locations", "forecast_climate_evidence", "forecast_adjustments", "forecast_monitor_status"];
+    const results = await Promise.all(tables.map(table => fetchAll(table, "*", [[table === "forecast_monitor_status" ? "checked_at" : table === "forecast_locations" ? "branch_id" : "id", true]])));
+    const failed = results.find(result => result.error);
+    if (failed) {
+      console.error("Climate review data unavailable", failed.error);
+      return { error: `External monitoring unavailable: ${failed.error.message}. Apply the climate-review database setup and reload.`, locations: [], evidence: [], adjustments: [], status: [] };
+    }
+    return { locations: results[0].data, evidence: results[1].data, adjustments: results[2].data, status: results[3].data };
+  }
+
+  function activeClimateAdjustments(today, month) {
+    const context = liveData.climate;
+    if (!context || context.error || context.demo) return [];
+    const status = context.status[0];
+    if (!status || status.error || !Number.isFinite(Date.parse(status.checked_at))
+      || Date.now() - Date.parse(status.checked_at) > 48 * 3600000 || Date.parse(status.checked_at) > Date.now() + 60000) return [];
+    const evidence = new Set(context.evidence.filter(row => row.issued_on <= today && row.valid_until >= today).map(row => row.id));
+    const locations = new Map(context.locations.map(row => [row.branch_id, row]));
+    return context.adjustments.filter(row => !row.revoked_at && row.approved_by && row.month.slice(0, 7) === month
+      && row.approved_at <= new Date().toISOString() && evidence.has(row.evidence_id)
+      && locations.has(row.branch_id) && locations.get(row.branch_id).verified_at <= row.approved_at);
+  }
+
+  function climateReviewPanel(ids) {
+    const context = liveData.climate;
+    if (!context) return "";
+    if (context.error) return panel("External demand monitoring", "", `<p class="connected-error" role="alert">${escapeHTML(context.error)} Baseline forecasts are unchanged; external adjustments are not applied.</p>`);
+    if (context.demo) return panel("External demand monitoring", "Live official-source monitoring is not simulated in this demo.", "<p>Connect a real account to configure verified branch locations and review climate evidence. Demo forecasts have no external adjustment.</p>");
+    const today = localISODate();
+    const month = ui.inventoryForecastMonth || today.slice(0, 7);
+    const status = context.status[0];
+    const fresh = status && !status.error && Date.now() - Date.parse(status.checked_at) <= 48 * 3600000;
+    const evidence = context.evidence.filter(row => row.issued_on <= today && row.valid_until >= today).sort((a,b) => b.issued_on.localeCompare(a.issued_on))[0];
+    const branches = liveData.branches.filter(row => !ids || ids.has(row.id));
+    const canReview = currentProfile.role !== "ps";
+    const active = new Set(activeClimateAdjustments(today, month).map(row => row.id));
+    const locations = branches.map(branch => {
+      const location = context.locations.find(row => row.branch_id === branch.id);
+      return `<li>${escapeHTML(branch.name)}: ${location ? `${escapeHTML(location.city)}, ${escapeHTML(location.province)} (${escapeHTML(location.latitude)}, ${escapeHTML(location.longitude)})` : "Location not verified; external adjustments disabled."}</li>`;
+    }).join("");
+    const reviews = context.adjustments.filter(row => branches.some(b => b.id === row.branch_id) && row.month.slice(0,7) === month).map(row =>
+      `<li>${escapeHTML(branchName(row.branch_id))} / ${escapeHTML(row.category)} / ${escapeHTML(row.month.slice(0,7))}: ${escapeHTML(row.percent)}% — ${escapeHTML(row.reason)}. ${row.revoked_at ? "Revoked/superseded" : active.has(row.id) ? "Applied" : "Not applied (stale evidence, monitor or location changed)"}. Approved ${escapeHTML(row.approved_at.slice(0,10))}${canReview && !row.revoked_at ? ` <button type="button" class="button button-outline button-small" data-climate-revoke="${escapeHTML(row.id)}">Revoke</button>` : ""}</li>`).join("");
+    return panel("External demand monitoring", "Official ENSO context only—not a local temperature forecast or a proven sales uplift. No percentage is generated automatically.",
+      `<p ${!fresh ? 'class="connected-error" role="alert"' : ""}>${status ? `Last source check: ${escapeHTML(status.checked_at)}. ${status.error ? escapeHTML(status.error) : fresh ? "Successful." : "Stale (over 48 hours); external adjustments disabled."}` : "No official-source check has run; external adjustments disabled."}</p>
+      <p>Local weather forecast: unavailable. Only verified official public sources are allowed; no paid or non-commercial weather endpoint is used.</p>
+      ${evidence ? `<p><a href="${escapeHTML(evidence.source_url)}" target="_blank" rel="noopener noreferrer">NOAA official ENSO bulletin</a> · issued ${escapeHTML(evidence.issued_on)} · ${escapeHTML(evidence.phase)} · review freshness limit ${escapeHTML(evidence.valid_until)}. Evidence requires human review; effects on your branch are not guaranteed.</p>` : "<p>No fresh verified official advisory is available.</p>"}
+      <details><summary>Verified branch locations</summary><ul>${locations || "<li>No accessible branches.</li>"}</ul></details>
+      ${reviews ? `<details open><summary>Adjustment decisions for ${escapeHTML(month)}</summary><ul>${reviews}</ul></details>` : "<p>No approved external adjustments for this forecast month.</p>"}
+      <div class="filter-actions">${currentProfile.role === "admin" ? '<button class="button button-outline" type="button" data-open="climate-location">Verify branch location</button><button class="button button-outline" type="button" data-open="climate-check">Check official source now</button>' : ""}
+      ${canReview && fresh && evidence ? '<button class="button button-primary" type="button" data-open="climate-review">Review evidence / enter adjustment</button>' : ""}</div>`);
+  }
+
+  async function refreshClimateContext() {
+    const context = await loadClimateContext();
+    if (context.error) throw new Error(context.error);
+    liveData.climate = context;
+    refreshResults();
+  }
+
+  function openClimateLocation() {
+    if (currentProfile.role !== "admin" || demoStore) return;
+    openModal({ title: "Verify branch location", intro: "Use a checked city/province and map coordinates. Saving a location revokes existing branch adjustments so they must be reviewed again.",
+      body: `<label class="field"><span>Branch</span>${selectHTML("branch", liveData.branches.map(row=>[row.id,row.name]), "", "required")}</label>
+      <label class="field"><span>City</span><input name="city" required></label><label class="field"><span>Province</span><input name="province" required></label>
+      <label class="field"><span>Latitude</span><input name="latitude" type="number" step="any" min="-90" max="90" required></label>
+      <label class="field"><span>Longitude</span><input name="longitude" type="number" step="any" min="-180" max="180" required></label>
+      <label><input name="verified" type="checkbox" required> I checked this branch location against a reliable map.</label>`,
+      onSubmit: async form => {
+        checkResult(await client.rpc("save_forecast_location", { p_branch: form.elements.branch.value, p_city: form.elements.city.value, p_province: form.elements.province.value,
+          p_latitude: Number(form.elements.latitude.value), p_longitude: Number(form.elements.longitude.value) }), "Unable to save verified location");
+        await refreshClimateContext();
+      },
+      onReady: form => {
+        const fill = () => {
+          const row = liveData.climate.locations.find(item=>item.branch_id===form.elements.branch.value);
+          for (const key of ["city","province","latitude","longitude"]) form.elements[key].value = row?.[key] ?? "";
+          form.elements.verified.checked = false;
+        };
+        form.elements.branch.addEventListener("change", fill); fill();
+      },
+    });
+  }
+
+  function openClimateReview() {
+    if (currentProfile.role === "ps" || demoStore) return;
+    const today = localISODate(), context = liveData.climate;
+    const evidence = context.evidence.filter(row=>row.issued_on<=today && row.valid_until>=today).sort((a,b)=>b.issued_on.localeCompare(a.issued_on))[0];
+    if (!evidence) return alert("No fresh official climate evidence is available.");
+    const branches = liveData.branches.filter(row=>context.locations.some(item=>item.branch_id===row.id));
+    if (!branches.length) return alert("An administrator must verify a branch location first.");
+    const categories = [...new Set((liveData.inventoryCatalog || []).map(row=>String(row.category || "").trim()).filter(Boolean))].sort(natural);
+    openModal({ title: "Approve evidence-backed demand adjustment", submitLabel: "Approve adjustment",
+      intro: `NOAA ${evidence.phase}, issued ${evidence.issued_on}. This is not a local weather forecast or a measured sales effect. Enter your own justified percentage; nothing is prefilled. It replaces any existing adjustment for this branch/category/month and applies only while the monitor and evidence remain fresh.`,
+      body: `<label class="field"><span>Branch</span>${selectHTML("branch", branches.map(row=>[row.id,row.name]), "", "required")}</label>
+      <label class="field"><span>Category</span>${selectHTML("category", [["","Choose category"],...categories.map(value=>[value,value])], "", "required")}</label>
+      <label class="field"><span>Forecast month</span><input name="month" type="month" value="${escapeHTML(ui.inventoryForecastMonth || today.slice(0,7))}" required></label>
+      <label class="field"><span>Adjustment % (negative reduces demand)</span><input name="percent" type="number" step="any" min="-100" required></label>
+      <label class="field"><span>Local evidence, expected effect and justification for this number</span><textarea name="reason" minlength="15" required></textarea></label>
+      <label><input type="checkbox" required> I reviewed the source and accept responsibility for this estimate.</label>`,
+      onSubmit: async form => {
+        checkResult(await client.rpc("approve_forecast_adjustment", { p_branch: form.elements.branch.value, p_evidence: evidence.id,
+          p_category: form.elements.category.value, p_month: form.elements.month.value + "-01", p_percent: Number(form.elements.percent.value), p_reason: form.elements.reason.value }), "Unable to approve demand adjustment");
+        await refreshClimateContext();
+      },
+    });
+  }
+
+  function openClimateCheck() {
+    if (currentProfile.role !== "admin" || demoStore) return;
+    openModal({ title: "Check official climate source", submitLabel: "Check source", intro: "Fetch the latest official NOAA ENSO bulletin. No sales, staff, customer or branch-location data is sent to NOAA. This does not approve any demand adjustment.", body: "<p>Local temperature forecasts remain unavailable until a verified official integration is supported.</p>",
+      onSubmit: async () => {
+        const result = await client.functions.invoke("forecast-climate", { body: {} });
+        if (result.error) throw new Error(`Official-source check failed: ${result.error.message}. Verify the forecast-climate service deployment and reload monitoring status.`);
+        if (result.data?.error) throw new Error(result.data.error);
+        await refreshClimateContext();
+      },
+    });
+  }
+
+  function openClimateRevoke(id) {
+    if (currentProfile.role === "ps" || demoStore) return;
+    openModal({ title: "Revoke external adjustment", intro: "The baseline seasonal forecast will remain. This approval stays in the audit history.", body: "<p>Revoke this adjustment for its branch, category and month?</p>", submitLabel: "Revoke",
+      onSubmit: async () => {
+        checkResult(await client.rpc("revoke_forecast_adjustment", { p_id: id }), "Unable to revoke adjustment");
+        await refreshClimateContext();
+      },
+    });
   }
 
   function renderDemoControls() {
@@ -2104,6 +2237,7 @@
       products: summary.products, facts: demandFacts, branchIds: ids, today,
       from: ui.inventoryForecastFrom || "0001-01-01", to: ui.inventoryForecastTo || today, unavailable: Boolean(demandError),
       targetMonth: ui.inventoryForecastMonth || today.slice(0, 7),
+      adjustments: activeClimateAdjustments(today, ui.inventoryForecastMonth || today.slice(0, 7)),
     });
     const metric = (label, value) => `<article class="connected-metric"><span>${escapeHTML(label)}</span><strong>${value}</strong></article>`;
     const cards = `<div class="connected-metrics">${metric("Available units now", summary.units)}${metric("Tracked branch / product pairs", summary.tracked)}${metric("Out-of-stock branch / product pairs", summary.stockouts)}${metric("Not initialized", summary.uninitialized)}${metric("Awaiting classification", summary.unclassified)}${metric("Available serials aged 90+ days", summary.days90)}${!isPs ? metric("Missing SRP (unset or zero)", summary.missingSrp) : ""}</div>`;
@@ -2119,14 +2253,14 @@
       row.reorder ?? (row.quantity === null ? "Stock unknown" : "Unavailable"), row.stockAlert,
       row.forecastMonth, row.seasonalFactor ?? "Unavailable", row.forecastBasis,
       row.soldThisMonth ?? "Unavailable", row.remainingDemand ?? "Unavailable", row.historyFrom || "No recorded sales",
-      row.historyMonths]);
+      row.historyMonths, row.baselineForecast ?? "Unavailable", row.approvedPercent, row.adjustmentReason]);
     const stockCellClass = (row, index) => [6, 13, 14].includes(index)
       ? row[14] === "Needs attention" ? "inventory-stock-alert inventory-stock-attention"
         : row[14] === "Critical stock" ? "inventory-stock-alert" : "" : "";
     const demandWarning = demandError ? `<p class="connected-error" role="alert">Forecast unavailable: ${escapeHTML(demandError)}</p>` : "";
     const forecastControls = `<label class="field"><span>Forecast month</span><input type="month" data-filter="inventoryForecastMonth" value="${escapeHTML(forecast.targetMonth)}" required></label><label class="field"><span>Forecast from (optional)</span><input type="date" data-filter="inventoryForecastFrom" value="${escapeHTML(ui.inventoryForecastFrom || "")}"></label><label class="field"><span>Forecast to (optional)</span><input type="date" data-filter="inventoryForecastTo" value="${escapeHTML(ui.inventoryForecastTo || "")}"></label>`;
-    const productTable = demandWarning + analyticsDataTable("an-inventory-products", "Inventory and product sales", note + forecastNote,
-      ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Units sold", "Sales", "90+ day serials", "Observation", "Branch units sold", "Monthly forecast", "Re-order qty", "Stock alert", "Forecast month", "Seasonal factor", "Forecast basis", "Branch units sold in forecast month", "Remaining demand", "Product history from", "History months"], products, stockCellClass, forecastControls);
+    const productTable = climateReviewPanel(ids) + demandWarning + analyticsDataTable("an-inventory-products", "Inventory and product sales", note + forecastNote + " Approved external adjustments are applied to the unrounded seasonal estimate before rounding and deducting fulfilled demand; baseline, percentage and justification are exported separately.",
+      ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Units sold", "Sales", "90+ day serials", "Observation", "Branch units sold", "Monthly forecast", "Re-order qty", "Stock alert", "Forecast month", "Seasonal factor", "Forecast basis", "Branch units sold in forecast month", "Remaining demand", "Product history from", "History months", "Baseline monthly forecast", "Approved external adjustment %", "Adjustment justification"], products, stockCellClass, forecastControls);
     const aging = analyticsDataTable("an-inventory-aging", "Current stock aging", "Available serialized units only. Missing/invalid receipt dates are unknown; nonserialized units have no receipt-age data.",
       ["Age band", "Available serials"], [["Current (0-29 days)", summary.current], ["30 days (30-59)", summary.days30],
         ["60 days (60-89)", summary.days60], ["90 days or more", summary.days90], ["Unknown receipt age", summary.unknown]]);
@@ -5060,6 +5194,7 @@
 
   function friendlyError(error) {
     const text = String(error?.message || error || "Something went wrong.");
+    if (/Official-source check failed|climate-review|forecast-climate/i.test(text)) return text;
     if (/Could not find the function|schema cache|PGRST202/i.test(text)) {
       return "This feature needs a one-time backend setup that has not been applied yet (admin_tools migration).";
     }
@@ -6587,7 +6722,12 @@
       openPieTable(pie.dataset.pieTable, pie);
       return;
     }
+    const revokeClimate = event.target.closest("[data-climate-revoke]");
+    if (revokeClimate) { openClimateRevoke(revokeClimate.dataset.climateRevoke); return; }
     const open = event.target.closest("[data-open]")?.dataset.open;
+    if (open === "climate-location") { openClimateLocation(); return; }
+    if (open === "climate-review") { openClimateReview(); return; }
+    if (open === "climate-check") { openClimateCheck(); return; }
     if (open === "import-center" || open === "inventory-import") openImportCenter();
     else if (open === "inventory-transfer") openInventoryTransfer();
     else if (open === "product") openProductModal();

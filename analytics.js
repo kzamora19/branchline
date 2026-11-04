@@ -533,7 +533,7 @@
       missingSrp: products.filter(row => row.missing_srp).length };
   }
 
-  function inventoryForecast({ products, facts, branchIds, from, to, today, targetMonth = today.slice(0, 7), unavailable = false }) {
+  function inventoryForecast({ products, facts, branchIds, from, to, today, targetMonth = today.slice(0, 7), unavailable = false, adjustments = [] }) {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(targetMonth)) throw new Error("Choose a valid forecast month.");
     const cutoff = addDays(monthStart(targetMonth), -1);
     const through = targetMonth === today.slice(0, 7) ? today : cutoff < today ? cutoff : today;
@@ -610,6 +610,7 @@
       const targetUnits = years.reduce((sum, year) => sum + netUnits(`${year}-${targetMonth.slice(5, 7)}`), 0);
       if (years.length >= 2 && total > 0) seasonal.set(key, { factor: targetUnits * 12 / total, years });
     }
+    const approved = new Map(adjustments.map(row => [`${row.branch_id}\0${categoryKey(row.category)}`, row]));
     return { from: start, to: end, months, targetMonth, products: products.map(row => {
       const key = `${row.branch_id}\0${row.barcode}`;
       const branchSold = unavailable ? null : sold.get(key) || 0;
@@ -618,10 +619,16 @@
       const soldThisMonth = unavailable ? null : monthSold.get(key) || 0;
       const pattern = seasonal.get(`${row.branch_id}\0${categoryKey(row.category)}`);
       const seasonalFactor = unavailable || !historyMonths ? null : pattern?.factor ?? 1;
-      const rate = seasonalFactor === null ? null : Math.max(0, branchSold) / historyMonths * seasonalFactor;
+      const baseRate = seasonalFactor === null ? null : Math.max(0, branchSold) / historyMonths * seasonalFactor;
+      const adjustment = approved.get(`${row.branch_id}\0${categoryKey(row.category)}`);
+      const approvedPercent = adjustment ? Number(adjustment.percent) : 0;
+      if (!Number.isFinite(approvedPercent) || approvedPercent < -100) throw new Error("Cannot forecast inventory: invalid approved adjustment.");
+      const rate = baseRate === null ? null : baseRate * (1 + approvedPercent / 100);
+      if (rate !== null && (!Number.isFinite(rate) || rate > Number.MAX_SAFE_INTEGER)) throw new Error("Approved adjustment exceeds supported forecast units.");
       // Calendar fractions can leave an exact integer a few floating-point steps above itself.
       const forecast = rate === null ? null : Math.max(0, Math.ceil(rate - Number.EPSILON * Math.max(1, rate) * 8));
-      const remainingDemand = forecast === null ? null : Math.max(0, forecast - soldThisMonth);
+      const baselineForecast = baseRate === null ? null : Math.max(0, Math.ceil(baseRate - Number.EPSILON * Math.max(1, baseRate) * 8));
+      const remainingDemand = forecast === null ? null : Math.max(0, forecast - Math.max(0, soldThisMonth));
       const reorder = remainingDemand === null || row.quantity === null ? null : Math.max(0, remainingDemand - row.quantity);
       const stockAlert = forecast === null ? "Forecast unavailable" : row.quantity === null ? "Stock unknown"
         : reorder > 0 ? row.quantity === 0 ? "Needs attention" : "Critical stock"
@@ -630,7 +637,8 @@
         ? `Seasonal category pattern (${pattern.years.join(", ")})`
         : "Monthly average (insufficient seasonal history)";
       return { ...row, branchSold, forecast, reorder, stockAlert, seasonalFactor, forecastBasis, forecastMonth: targetMonth,
-        soldThisMonth, remainingDemand, historyFrom, historyMonths };
+        soldThisMonth, remainingDemand, historyFrom, historyMonths, baselineForecast, approvedPercent,
+        adjustmentReason: adjustment?.reason || "No approved external adjustment" };
     }) };
   }
 

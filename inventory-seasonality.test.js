@@ -151,6 +151,7 @@ test("actual inventory table wires target month, seasonal metadata, branch-only 
   for (const role of ["ps", "manager", "district_manager", "admin"]) {
     const tables = new Map(), personal = history().map(row => ({ ...row, quantity: row.quantity / 10, amount: 10 }));
     const context = vm.createContext({
+      activeClimateAdjustments: () => [], climateReviewPanel: () => "",
       window: { BranchlineAnalytics: A, BranchlineInventory: I }, PAGE_SIZE: 10,
       ui: { inventoryForecastFrom: "2024-01-01", inventoryForecastTo: "2025-12-31", inventoryForecastMonth: "2027-04" },
       currentProfile: { id: "self", role, assigned_brand: "TCL", branch_id: "one" },

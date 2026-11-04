@@ -1,6 +1,54 @@
 # Branchline
 
-### Seasonal product stock forecasts (shell v121)
+### Official climate evidence and approved demand adjustments (shell v122)
+
+**Settings** and **Analytics > Inventory and product sales** show official ENSO
+evidence separately from forecasts. The daily `forecast-climate` monitor reads
+only the fixed NOAA CPC ENSO bulletin URL, validates its issue date and alert
+status, and never sends sales, customers, staff or branch coordinates to NOAA.
+It does not scrape general news, generate an uplift percentage, or pretend a
+global ENSO advisory is a local temperature forecast. Local weather is explicitly
+**unavailable** until a suitable verified official public integration exists.
+No paid weather endpoint or non-commercial business API is used.
+
+Admins verify each branch's city/province and map coordinates. Admins, district
+managers and assigned branch managers may review a fresh official advisory,
+enter a category/month percentage and a substantive local justification, and
+approve it. PS users cannot approve. Approval is never automatic; zero is a
+valid reviewed adjustment and negative percentages reduce demand (minimum -100%).
+One active decision per branch/category/month is allowed; replacement and
+revocation preserve the approving/revoking identities and timestamps. Changing
+a location revokes its active adjustments for fresh review.
+
+Applied adjustments require verified location, non-revoked approval, matching
+branch/category/month, evidence no more than 45 days old and a successful source
+check within 48 hours. Source failures or stale evidence visibly disable
+external adjustments; the existing baseline remains available, not an invented
+weather estimate. The approved percentage multiplies the **unrounded** seasonal
+estimate before rounding up, deducting fulfilled demand and available stock.
+Exports retain baseline forecast, approved percentage and justification.
+Net returns cannot make fulfilled demand negative: if forecast-month net sales
+are negative, zero fulfilled units are deducted rather than inflating demand.
+
+Deployment, in order:
+1. Apply `20261206000000_forecast_climate_review.sql` after existing migrations.
+2. Deploy `supabase/functions/forecast-climate/` with gateway JWT verification
+   off. The handler verifies real administrator sessions itself; scheduled calls
+   require the existing `CRON_SECRET` in `x-cron-secret`. Use built-in service
+   credentials only in the backend; never put secrets in frontend configuration.
+3. Configure Supabase Cron to POST to `forecast-climate` daily, e.g.
+   `0 22 * * *` (06:00 Asia/Manila), using protected scheduler credentials (Vault
+   preferred; an existing authenticated project schedule can be reused server-side). Do not copy
+   secret values into source, logs or chat. A saved schedule alone is not proof
+   of operation: invoke it and verify a successful persisted source check.
+4. Verify branch locations in Settings, then review evidence. No branch
+   coordinates or demand adjustments are prefilled or invented.
+
+Monitoring covers ENSO context only, not every possible demand driver.
+Promotions, supplier lead times, incoming orders, economic changes and
+unrecorded lost sales are not automatically inferred.
+
+### Seasonal product stock forecasts
 
 **Forecast month** defaults to the current month and can be changed in **Filters >
 Inventory and product sales**. The forecast multiplies each item's recorded
