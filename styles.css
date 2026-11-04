@@ -644,9 +644,14 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .calendar-date { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--ink); font-size: 14px; font-weight: 400; }
 .calendar-date-event { color: var(--blue-dark); font-weight: 800; background: var(--blue-soft); }
 .calendar-date-closed { color: var(--red); background: #fff1f1; }
-.calendar-date-event:hover { box-shadow: inset 0 0 0 2px currentColor; }
+.calendar-date-major-sale { color: #854500; background: #fff1d6; --calendar-glow: 0 0 12px 3px #d9922359; }
+.calendar-date-major-campaign { color: #6b21a8; background: #f3e8ff; --calendar-glow: 0 0 12px 3px #9333ea4d; }
+.calendar-date-special-campaign { color: #0f6860; background: #dff7f2; --calendar-glow: 0 0 12px 3px #0d94884d; }
+.calendar-date-event { box-shadow: var(--calendar-ring, inset 0 0 0 0 transparent), var(--calendar-glow, 0 0 0 0 transparent); }
+.calendar-date-event:hover { --calendar-ring: inset 0 0 0 2px currentColor; }
 .calendar-date-event:focus-visible { outline: 2px solid var(--blue-dark); outline-offset: 3px; }
-.calendar-today .calendar-date { box-shadow: inset 0 0 0 1px var(--blue); }
+.calendar-today .calendar-date { --calendar-ring: inset 0 0 0 1px var(--blue); box-shadow: var(--calendar-ring), var(--calendar-glow, 0 0 0 0 transparent); }
+.calendar-today .calendar-date-event:hover { --calendar-ring: inset 0 0 0 2px currentColor; }
 .calendar-event-detail { padding: 12px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 .calendar-event-detail h3 { margin: 0; }
 .calendar-memo-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr) auto; align-items: end; gap: 10px; margin-bottom: 12px; }

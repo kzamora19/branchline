@@ -1,5 +1,15 @@
 # Branchline
 
+### Campaign calendar colors (shell v129)
+
+Major Sale Event dates are orange/gold, Major Campaign dates purple and Special
+Campaign dates teal, with a soft static glow (no flashing). Regular campaigns
+and other events remain blue. The highlight follows scheduled occurrences only,
+including weekday repeats. Overlaps show one color in this priority order:
+store closure (red), Major Sale Event, Major Campaign, Special Campaign, regular.
+Hover or focus a date to identify the highlighted campaign type; open the date
+to see every applicable event. Today's outline and keyboard focus are retained.
+
 ### Event status labels (shell v128)
 
 Event details omit the redundant "Store open" label. Only closures display

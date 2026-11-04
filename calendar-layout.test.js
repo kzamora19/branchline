@@ -39,6 +39,37 @@ test("monitoring notice leaves Analytics while Settings retains monitoring manag
   assert.match(source,/const productTable = eventCalendarPanel\(ids\) \+ demandWarning/);
   assert.match(source,/eventCalendarPanel\(\) \+ climateReviewPanel\(\) \+ storeClosedDatesPanel\(\)/);
 });
+test("campaign date colors follow priority and actual recurrence without hiding other event details",()=>{
+  for(const role of ["ps","manager","district_manager","admin","inventory_controller","stock_custodian"]){
+    const c=harness(role),base={branch_ids:["one"],starts_on:"2026-11-02",ends_on:"2026-11-10",kind:"promotion"};
+    c.liveData.calendar.events=[
+      {...base,id:"regular",title:"Regular",campaign_type:"Regular Campaign"},
+      {...base,id:"special",title:"Special",campaign_type:" special campaign ",starts_on:"2026-11-03"},
+      {...base,id:"major",title:"Major",campaign_type:"Major Campaign",starts_on:"2026-11-04"},
+      {...base,id:"sale",title:"Sale",campaign_type:"MAJOR SALE EVENT",starts_on:"2026-11-05"},
+      {...base,id:"closed",title:"Closure",closed:true,starts_on:"2026-11-06",ends_on:"2026-11-06"},
+      {...base,id:"cancelled",title:"Cancelled",campaign_type:"Major Sale Event",cancelled_at:"2026-10-01"},
+      {...base,id:"foreign",title:"Foreign",campaign_type:"Major Sale Event",branch_ids:["other"]},
+    ];
+    let html=vm.runInContext('eventCalendarPanel(new Set(["one"]))',c);
+    const button=date=>html.match(new RegExp(`<button[^>]*data-event-date="${date}"[^>]*>`))?.[0];
+    assert.doesNotMatch(button("2026-11-02"),/calendar-date-(major|special)/);
+    assert.match(button("2026-11-03"),/calendar-date-special-campaign/);
+    assert.match(button("2026-11-04"),/calendar-date-major-campaign/);
+    assert.match(button("2026-11-04"),/aria-current="date"/);
+    assert.match(button("2026-11-05"),/calendar-date-major-sale/);
+    assert.match(button("2026-11-05"),/title="Major Sale Event"/);
+    assert.match(button("2026-11-06"),/calendar-date-closed/);
+    assert.doesNotMatch(button("2026-11-06"),/calendar-date-(major|special)/);
+    assert.match(button("2026-11-01"),/calendar-date-closed/);
+    vm.runInContext('openCalendarDate("2026-11-05",["one"])',c);
+    for(const title of ["Regular","Special","Major","Sale"])assert.ok(c.modal.body.includes(`<h3>${title}</h3>`));
+    c.liveData.calendar.events=[{...base,id:"weekly",title:"Weekend sale",campaign_type:"Major Sale Event",weekdays:[0,6]}];
+    html=vm.runInContext('eventCalendarPanel(new Set(["one"]))',c);
+    assert.equal(button("2026-11-05"),undefined);
+    assert.match(button("2026-11-07"),/calendar-date-major-sale/);
+  }
+});
 test("Edit, Cancel event and Revoke are delegated inside the date dialog, outside the page container",()=>{
   const c=harness("manager"),calls=[];
   c.openCalendarEvent=id=>calls.push(["edit",id]);

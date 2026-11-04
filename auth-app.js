@@ -1600,9 +1600,16 @@
       const holidays = legacy.filter(row=>row.date===date);
       const hasEvents = entries.length || holidays.length;
       const closed = entries.some(row=>row.closed) || holidays.length;
+      const campaignStyles = [
+        ["major sale event","major-sale","Major Sale Event"],
+        ["major campaign","major-campaign","Major Campaign"],
+        ["special campaign","special-campaign","Special Campaign"],
+      ];
+      const campaign = closed ? null : campaignStyles.find(([type])=>entries.some(row=>String(row.campaign_type || "").trim().toLowerCase()===type));
+      const highlight = closed ? "Store closed" : campaign?.[2] || "";
       const today = date === localISODate();
       return `<td${today ? ' class="calendar-today"' : ""}>${hasEvents
-        ? `<button type="button" class="calendar-date calendar-date-event${closed ? " calendar-date-closed" : ""}" data-event-date="${date}" data-event-branches="${escapeHTML(JSON.stringify(ids ? [...ids] : liveData.branches.map(row=>row.id)))}" aria-label="${escapeHTML(`${date}: ${entries.length+holidays.length} event(s)${closed ? ", includes store closure" : ""}. View details`)}"${today ? ' aria-current="date"' : ""}>${day}</button>`
+        ? `<button type="button" class="calendar-date calendar-date-event${closed ? " calendar-date-closed" : campaign ? ` calendar-date-${campaign[1]}` : ""}" data-event-date="${date}" data-event-branches="${escapeHTML(JSON.stringify(ids ? [...ids] : liveData.branches.map(row=>row.id)))}" aria-label="${escapeHTML(`${date}: ${entries.length+holidays.length} event(s)${highlight ? `, ${highlight}` : ""}. View details`)}" title="${escapeHTML(highlight || "Event details")}"${today ? ' aria-current="date"' : ""}>${day}</button>`
         : `<span class="calendar-date"${today ? ' aria-current="date"' : ""}>${day}</span>`}</td>`;
     });
     const grid = `<table class="event-calendar" aria-label="Event calendar ${escapeHTML(month)}"><thead><tr>${weekdays.map(day=>`<th scope="col">${day}</th>`).join("")}</tr></thead><tbody>${Array.from({length:cells.length/7},(_,i)=>`<tr>${cells.slice(i*7,i*7+7).join("")}</tr>`).join("")}</tbody></table>`;
