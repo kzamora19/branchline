@@ -13,6 +13,9 @@ function harness(role="manager"){
     currentProfile:{role,assigned_brand:"TCL",branch_id:"one"},tableStore:{},branchName:String,formatMoney:value=>`P${value}`,
     escapeHTML:value=>String(value).replace(/[&<>"]/g,""),scopeBranchIds:()=>new Set(["one"]),analyticsFacts:()=>facts,
     localISODate:()=>"2026-11-05",openModal:options=>{c.modal=options;},exportWorkbook:(sheets,name)=>{c.exported={sheets,name};}});
+  vm.runInContext(source.slice(source.indexOf("  function sortedItems("),source.indexOf("  function tableBlock(")),c);
+  vm.runInContext(source.slice(source.indexOf("  function exportButton("),source.indexOf("  function chartExport(")),c);
+  c.natural=(a,b)=>a.localeCompare(b,undefined,{numeric:true});
   vm.runInContext(source.slice(source.indexOf("  function inventoryMohData("),source.indexOf("  function allTimeAnalyticsPanels(")),c);
   return c;
 }
@@ -62,6 +65,31 @@ test("popup click handlers cover whole brand rows, keyboard, back, search and nu
   c.openInventoryMoh();c.modal.onReady(form);
   listeners.input({target:{value:"no-match"}});
   assert.equal(nodes["[data-moh-empty]"].hidden,false);
+});
+test("MOH sorts every column, preserves search sort and exports the sorted raw numeric rows",()=>{
+  const c=harness();c.openInventoryMoh(null,0);
+  assert.equal((c.modal.body.match(/data-moh-sort=/g)||[]).length,9);
+  assert.match(c.modal.body,/table-export-tools/);
+  assert.match(c.modal.body,/aria-label="Export products"/);
+  const listeners={},nodes={"[data-moh-search]":{addEventListener:(type,fn)=>{listeners.input=fn;}},
+    "[data-moh-rows]":{innerHTML:""},"[data-moh-empty]":{hidden:true}};
+  const buttons=Array.from({length:9},(_,index)=>({dataset:{mohSort:String(index)},
+    closest:()=>({setAttribute(){}}),querySelector:()=>({textContent:""})}));
+  const form={querySelector:key=>nodes[key],querySelectorAll:()=>buttons,
+    addEventListener:(type,fn)=>{listeners[type]=fn;}};
+  c.modal.onReady(form);
+  const clickSort=col=>listeners.click({target:{closest:key=>key==="[data-moh-sort]"?buttons[col]:null}});
+  const exportRows=()=>{listeners.click({target:{closest:key=>key==="[data-moh-export]"?{}:null}});
+    return c.exported.sheets[0].rows.slice(1);};
+  clickSort(2);
+  assert.deepEqual(Array.from(exportRows(),row=>row[2]),[2,40]);
+  clickSort(2);
+  assert.deepEqual(Array.from(exportRows(),row=>row[2]),[40,2]);
+  listeners.input({target:{value:"B"}});
+  assert.deepEqual(Array.from(exportRows(),row=>row[0]),["B"]);
+  listeners.input({target:{value:""}});
+  assert.deepEqual(Array.from(exportRows(),row=>row[2]),[40,2]);
+  assert.equal(typeof exportRows()[0][7],"number");
 });
 test("summary unavailable and missing-pricing states remain explicit; MOH over three retains red",()=>{
   const c=harness();c.liveData.inventoryStock=c.liveData.inventoryStock.map(row=>({...row,quantity:1000}));

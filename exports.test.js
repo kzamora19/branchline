@@ -35,7 +35,7 @@ test("export controls are accessible icon-only buttons and chart data is safely 
   assert.doesNotMatch(chart, /Excel/);
   assert.doesNotMatch(chart, /<private>/);
   assert.equal((source.match(/>Export<\/button>/g) || []).length, 0);
-  assert.match(source, /data-export-all>Export All<\/button>/);
+  assert.match(source, /exportButton\("data-export-all", "Export all tables"\)/);
 });
 
 test("workbook worksheet labels are valid, case-insensitively unique and <=31 characters", () => {

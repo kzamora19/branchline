@@ -1,5 +1,18 @@
 # Branchline
 
+### Table controls (shell v139)
+
+Data-column headers sort ascending/descending throughout the workspace,
+including static detail dialogs, daily tables, import review tables and MOH
+brand/product drilldowns. Existing paginated tables still sort the complete
+filtered dataset before paging. MOH search retains the chosen sort, and its
+export follows the filtered/sorted rows with numeric values intact.
+Totals, action/selection columns and calendar weekday headings stay fixed.
+Download/export controls share an icon-only design with accessible names and
+tooltips. Table dialogs place their single-table export at the upper right;
+page-wide and multi-table downloads keep their broader scope. The shared table
+controls are included in the offline cache.
+
 ### Numeric MOH display (shell v138)
 
 Confirmed zero stock value and zero completed sell-out calculate as `0.00` MOH.

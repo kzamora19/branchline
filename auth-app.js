@@ -2630,18 +2630,34 @@
       body: `${data.error ? `<p role="alert" class="connected-error">${escapeHTML(data.error)}</p>` : ""}
         ${brand ? '<button type="button" class="button button-outline" data-moh-back>Back to brands</button>' : ""}
         <label class="field"><span>${brand ? "Search products" : "Search brands"}</span><input type="search" data-moh-search></label>
-        <div class="connected-table-wrap inventory-moh-drill"><table class="connected-table"><thead><tr>${headers.map(value=>`<th>${escapeHTML(value)}</th>`).join("")}</tr></thead><tbody data-moh-rows>${rows.map(rowHtml).join("")}</tbody></table></div>
-        <p data-moh-empty${rows.length ? " hidden" : ""}>No data in this scope.</p>
-        <button type="button" class="button button-outline" data-moh-export>Export ${brand ? "products" : "brands"}</button>`,
+        <div class="table-export-tools">${exportButton("data-moh-export", `Export ${brand ? "products" : "brands"}`)}</div>
+        <div class="connected-table-wrap inventory-moh-drill"><table class="connected-table"><thead><tr>${headers.map((value,col)=>`<th aria-sort="none"><button class="sort-btn" type="button" data-moh-sort="${col}">${escapeHTML(value)}<span class="sort-arrow" aria-hidden="true">&#8597;</span></button></th>`).join("")}</tr></thead><tbody data-moh-rows>${rows.map(rowHtml).join("")}</tbody></table></div>
+        <p data-moh-empty${rows.length ? " hidden" : ""}>No data in this scope.</p>`,
       onReady: form => {
-        let visible = rows;
-        form.querySelector("[data-moh-search]").addEventListener("input", event => {
-          const search = event.target.value.trim().toLowerCase();
+        let visible = rows, search = "", sort = null;
+        const renderRows = () => {
           visible = rows.filter(row => values(row).slice(0,2).some(value=>String(value || "").toLowerCase().includes(search)));
+          if (sort) visible = sortedItems(visible, rowHtml, sort, (row,col) => values(row)[col]);
           form.querySelector("[data-moh-rows]").innerHTML = visible.map(rowHtml).join("");
           form.querySelector("[data-moh-empty]").hidden = visible.length > 0;
+        };
+        form.querySelector("[data-moh-search]").addEventListener("input", event => {
+          search = event.target.value.trim().toLowerCase();
+          renderRows();
         });
         form.addEventListener("click", event => {
+          const heading = event.target.closest("[data-moh-sort]");
+          if (heading) {
+            const col = Number(heading.dataset.mohSort);
+            sort = { col, dir: sort?.col === col && sort.dir === "asc" ? "desc" : "asc" };
+            form.querySelectorAll("[data-moh-sort]").forEach(button => {
+              const active = Number(button.dataset.mohSort) === col;
+              button.closest("th").setAttribute("aria-sort", active ? sort.dir === "asc" ? "ascending" : "descending" : "none");
+              button.querySelector(".sort-arrow").textContent = active ? sort.dir === "asc" ? "\u25b2" : "\u25bc" : "\u2195";
+            });
+            renderRows();
+            return;
+          }
           const selected = event.target.closest("[data-moh-brand]");
           if (selected) openInventoryMoh(data, Number(selected.dataset.mohBrand));
           else if (event.target.closest("[data-moh-back]")) openInventoryMoh(data);
@@ -2950,7 +2966,7 @@
     return mountPage(
       pageHeading("Overview", demoStore ? `Local demo data for ${monthLabel(ui.month)}. Role preview only—not a real account.` : `Live data for ${monthLabel(ui.month)}. Access is enforced by Supabase.`),
       "",
-      filterBar({ district: true, branch: true, period: true, actions: '<button class="button button-outline" type="button" data-export-all>Export All</button>' }),
+      filterBar({ district: true, branch: true, period: true, actions: exportButton("data-export-all", "Export all tables") }),
       () => {
         const month = anchorMonth();
         const label = statusLabel();
@@ -3342,7 +3358,7 @@
       `<button class="inventory-tab${ui.invView === key ? " is-active" : ""}" type="button" data-inventory-tab="${key}" aria-current="${ui.invView === key ? "page" : "false"}">${escapeHTML(label)}</button>`).join("")}</nav>`;
     mountPage(pageHeading("Inventory", "Live availability since the latest imported snapshot. Reports reset stock, never the sales log."),
       tabs, isForm ? "" : filterBar({ district: true, branch: true, search: ui.invView === "master" ? "Enter barcode or item name to show stock" : "Barcode, product, brand or category",
-        actions: inventoryOnly() ? '<button class="button button-outline" type="button" data-export-all>Export All</button>' : "" }),
+        actions: inventoryOnly() ? exportButton("data-export-all", "Export all tables") : "" }),
       () => {
         if (isForm) return "";
         if (ui.invView === "master" && !searchQuery().trim()) return panel("Item Master",
@@ -6415,7 +6431,9 @@
   }
 
   function tableElementSheet(table, name) {
-    return { name, rows: [...table.querySelectorAll("tr")].map(row => [...row.children].map(cell => cell.textContent.trim())) };
+    const copy = table.cloneNode(true);
+    copy.querySelectorAll(".sort-arrow").forEach(arrow => arrow.remove());
+    return { name, rows: [...copy.querySelectorAll("tr")].map(row => [...row.children].map(cell => cell.textContent.trim())) };
   }
 
   function dailyComparisonSheet(name, body) {
