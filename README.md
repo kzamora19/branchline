@@ -1,5 +1,16 @@
 # Branchline
 
+### Inventory SRP read timeout repair
+
+Apply `supabase/migrations/20261126000000_product_read_performance.sql` if the
+workspace reports **Unable to load inventory SRP prices** with a statement
+timeout. Product SELECT authorization now caches the permitted dealer and branch
+sets instead of calling both permission helpers for each product row. Existing
+dealer, branch, role, active-account and enabled-dealer restrictions are unchanged.
+This complements the earlier inventory-table read optimization; it does not
+replace missing SRPs with zero or change recorded prices. Reload the workspace
+after applying the migration. No app cache reset is required.
+
 ### Analytics MOH summary and drill-down (shell v135)
 
 **Months-on-Hand (MOH)** is now a clickable summary card in the Analytics
