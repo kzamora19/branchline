@@ -143,6 +143,10 @@ test("real return APIs atomically post negative lines, restore stock/serials, en
     await post(id(21),[{line_id:id(33),quantity:1,serials:[]}]);
     assert.equal((await call("select quantity from inventory_stock where barcode='00000003'"))[0].quantity,1);
     assert.equal((await call("select srp from products where barcode='00000003'"))[0].srp,"0.00");
+    await call("update products set active=false where branch_id=$1 and barcode='00000002'",[branch]);
+    await post(id(21),[{line_id:id(32),quantity:1,serials:[]}]);
+    const restoredCatalog=(await call("select active,srp from products where branch_id=$1 and barcode='00000002'",[branch]))[0];
+    assert.deepEqual(restoredCatalog,{active:true,srp:"50.00"});
     const duplicateReturn=(await post(id(23),[{line_id:id(34),quantity:1,serials:["D"]},{line_id:id(35),quantity:1,serials:["C"]}]))[0].id;
     const duplicateExports=await call("select l.selling_price,e.serial_numbers from export_brand_branch_sales_v2() e join sale_lines l on l.id=e.line_id where l.sale_id=$1 order by l.selling_price desc",[duplicateReturn]);
     assert.deepEqual(duplicateExports,[{selling_price:"90.00",serial_numbers:["D"]},{selling_price:"80.00",serial_numbers:["C"]}]);

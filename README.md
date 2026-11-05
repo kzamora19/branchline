@@ -20,7 +20,8 @@ Existing catalog SRPs are not replaced. A missing stock record initializes with
 only the returned quantity, not an inferred historical balance.
 
 Apply `supabase/migrations/20261213000000_sales_returns.sql` and
-`supabase/migrations/20261214000000_return_export_serials.sql` before publishing
+`supabase/migrations/20261214000000_return_export_serials.sql`, followed by
+`supabase/migrations/20261215000000_return_catalog_reactivation.sql`, before publishing
 the new shell. Posting, inventory restoration and audit records are one database
 transaction, serialized with existing inventory operations. Request keys protect
 retries, including changed-payload detection. Original invoices and return
@@ -34,6 +35,8 @@ Older imported negative transactions remain unchanged and are not automatically
 matched to original invoices; review them before posting a new return.
 Return details and exports use the audited line-to-serial links, including
 repeated barcodes with different original selling prices.
+Returning an archived product reactivates only its original branch catalog
+record, so restored stock stays visible and sellable without changing saved SRP.
 
 ### Historical sale downloads (shell v140)
 
