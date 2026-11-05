@@ -36,6 +36,7 @@ export function openSalesReturn(env) {
       <label class="field"><span>Return date</span><input name="returned_on" type="date" required max="${esc(today)}" value="${esc(today)}"></label>
       <label class="field"><span>Reason for return</span><textarea name="reason" required maxlength="1000"></textarea></label>`,
     onReady: form => {
+      form.closest(".dlg")?.classList.add("sales-return-dialog");
       const status = form.querySelector("[data-return-status]");
       const target = form.querySelector("[data-return-details]");
       const submit = form.querySelector('[type="submit"]');
@@ -78,11 +79,11 @@ export function openSalesReturn(env) {
             ["Branch", detail.branch], ["Salesperson", sale.ps_name || ""], ["City", sale.city || ""],
             ["Barangay", sale.barangay || ""], ["Payment mode", sale.payment_mode || ""]];
           target.innerHTML = `<div class="dlg-grid">${info.map(([label,value]) => `<label class="field"><span>${esc(label)}</span><input readonly value="${esc(value)}"></label>`).join("")}</div>
-            <div class="connected-table-wrap"><table class="connected-table"><thead><tr><th></th><th>Barcode</th><th>Product</th><th>Purchased</th><th>Remaining</th><th>Unit price</th><th>Return qty</th><th>Serials to restore</th></tr></thead><tbody>${detail.lines.map(line =>
-              `<tr data-return-line="${esc(line.id)}"><td><input type="checkbox" data-return-select aria-label="Return ${esc(line.model_description)}" ${line.remaining <= 0 ? "disabled" : ""}></td>
-                <td>${esc(line.barcode)}</td><td>${esc(line.model_description)}</td><td>${line.quantity}</td><td>${line.remaining}</td><td>${esc(formatMoney(line.selling_price))}</td>
-                <td><input type="number" data-return-quantity aria-label="Return quantity for ${esc(line.barcode)}" min="1" max="${line.remaining}" step="1" value="${line.remaining > 0 ? 1 : 0}" disabled></td>
-                <td>${line.serials.length ? line.serials.map(serial => `<label class="check-row"><input type="checkbox" data-return-serial value="${esc(serial)}" disabled>${esc(serial)}</label>`).join("") : "No recorded serials; serial cells will stay blank."}</td></tr>`).join("")}</tbody></table></div>`;
+            <div class="connected-table-wrap return-products"><table class="connected-table"><thead><tr><th></th><th>Barcode</th><th>Product</th><th>Purchased</th><th>Remaining</th><th>Unit price</th><th>Return qty</th><th>Serials to restore</th></tr></thead><tbody>${detail.lines.map(line =>
+              `<tr data-return-line="${esc(line.id)}"><td data-label="Return product"><input type="checkbox" data-return-select aria-label="Return ${esc(line.model_description)}" ${line.remaining <= 0 ? "disabled" : ""}></td>
+                <td data-label="Barcode">${esc(line.barcode)}</td><td data-label="Product">${esc(line.model_description)}</td><td data-label="Purchased">${line.quantity}</td><td data-label="Remaining">${line.remaining}</td><td data-label="Unit price">${esc(formatMoney(line.selling_price))}</td>
+                <td data-label="Return qty"><input type="number" data-return-quantity aria-label="Return quantity for ${esc(line.barcode)}" min="1" max="${line.remaining}" step="1" value="${line.remaining > 0 ? 1 : 0}" disabled></td>
+                <td data-label="Serials to restore"><div class="return-serials">${line.serials.length ? line.serials.map(serial => `<label class="check-row"><input type="checkbox" data-return-serial value="${esc(serial)}" disabled><span>${esc(serial)}</span></label>`).join("") : "No recorded serials; serial cells will stay blank."}</div></td></tr>`).join("")}</tbody></table></div>`;
           status.textContent = "Select only the returned products and exact recorded serials. Returns posted here are excluded from remaining quantities. Review any older imported returns before posting; they are not automatically linked.";
           submit.disabled = false;
         } catch (error) { if (token === revision) { clear(); fail(error); } }

@@ -1,5 +1,13 @@
 # Branchline
 
+### Sales return presentation (shell v142)
+
+The return dialog expands to 1200px on desktop. Its header and close button stay
+outside the scrolling form. On screens up to 760px, product lines become labeled
+cards with quantities and serial selection on additional rows. Long descriptions
+and serials wrap within the screen without horizontal dialog scrolling. Return
+validation, permissions and inventory posting are unchanged.
+
 ### Sales returns (shell v141)
 
 The Sales page has a **− Sales return** action for Product Specialists (their own

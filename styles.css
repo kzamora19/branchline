@@ -417,6 +417,37 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .dlg-wide { width: min(680px, 100%); }
 .dlg-xwide { width: min(920px, 100%); }
+.sales-return-dialog { width: min(1200px, 100%); display: flex; flex-direction: column; overflow: hidden; }
+.sales-return-dialog .dlg-head { flex: 0 0 auto; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.sales-return-dialog .dlg-close { flex: 0 0 40px; min-height: 40px; }
+.sales-return-dialog .dlg-form { overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+.sales-return-dialog [data-return-details] { min-width: 0; display: grid; gap: 18px; }
+.sales-return-dialog [data-return-status] { margin: 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.sales-return-dialog .return-products { min-width: 0; }
+.sales-return-dialog .return-products table { min-width: 0; table-layout: fixed; white-space: normal; }
+.sales-return-dialog .return-products th { white-space: normal; overflow-wrap: anywhere; }
+.sales-return-dialog .return-products td { vertical-align: top; overflow-wrap: anywhere; }
+.sales-return-dialog .return-products th:first-child { width: 42px; }
+.sales-return-dialog .return-products th:nth-child(3) { width: 24%; }
+.sales-return-dialog .return-products th:last-child { width: 22%; }
+.sales-return-dialog [data-return-quantity] { width: 100%; min-width: 0; min-height: 40px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+.sales-return-dialog input[type="checkbox"] { width: 20px; height: 20px; flex: 0 0 20px; }
+.sales-return-dialog .return-serials { display: grid; min-width: 0; gap: 8px; white-space: normal; overflow-wrap: anywhere; }
+.sales-return-dialog .return-serials .check-row { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.sales-return-dialog .return-serials span { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .sales-return-dialog { width: 100%; max-height: calc(100dvh - 20px); }
+  .sales-return-dialog .dlg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sales-return-dialog .return-products { overflow: visible; }
+  .sales-return-dialog .return-products table, .sales-return-dialog .return-products tbody { display: block; width: 100%; }
+  .sales-return-dialog .return-products thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .sales-return-dialog .return-products tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; }
+  .sales-return-dialog .return-products td { display: grid; gap: 6px; min-width: 0; padding: 0; border: 0; font-size: 13px; }
+  .sales-return-dialog .return-products td::before { content: attr(data-label); color: var(--muted); font-size: 11px; font-weight: 700; }
+  .sales-return-dialog .return-products td:first-child, .sales-return-dialog .return-products td:nth-child(3), .sales-return-dialog .return-products td:last-child { grid-column: 1 / -1; }
+  .sales-return-dialog .return-products td:first-child { display: flex; align-items: center; justify-content: space-between; }
+  .sales-return-dialog [data-return-quantity] { font-size: 16px; }
+}
 #ps-detail { display: grid; gap: 12px; }
 .rank-filters { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 12px; padding: 0 12px; }
 .rank-filters .field { flex: 1 1 150px; min-width: 0; max-width: 240px; }
