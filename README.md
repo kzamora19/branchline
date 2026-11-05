@@ -1,5 +1,12 @@
 # Branchline
 
+### Settings-only event calendar (shell v131)
+
+The full event calendar is now shown only in Settings, not Analytics. Event
+details, memo links, campaign colors and authorized management remain available
+there. Forecasts still use calendar events, approved adjustments and store
+closures; only the duplicate calendar display was removed.
+
 ### Basic inventory/product view and search (shell v130)
 
 Inventory and product sales now defaults to Branch, Barcode, Product, Brand,

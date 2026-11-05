@@ -35,8 +35,12 @@ test("calendar dates contain numbers only; event details and management move int
     assert.match(c.modal.body,/Company holiday/);assert.match(c.modal.body,/Store closed/);
   }
 });
-test("monitoring notice leaves Analytics while Settings retains monitoring management",()=>{
-  assert.match(source,/const productTable = eventCalendarPanel\(ids\) \+ demandWarning/);
+test("calendar and monitoring stay in Settings, not Analytics, while forecasts retain their event inputs",()=>{
+  assert.match(source,/const productTable = demandWarning \+ analyticsDataTable/);
+  const analytics=source.slice(source.indexOf("  function inventoryAnalyticsPanels("),source.indexOf("  function allTimeAnalyticsPanels("));
+  assert.doesNotMatch(analytics,/eventCalendarPanel\(|climateReviewPanel\(/);
+  assert.match(analytics,/closures: calendarClosures\(\), holidays: companyHolidayDates\(\)/);
+  assert.match(analytics,/eventAdjustments: activeEventAdjustments\(/);
   assert.match(source,/eventCalendarPanel\(\) \+ climateReviewPanel\(\) \+ storeClosedDatesPanel\(\)/);
 });
 test("campaign date colors follow priority and actual recurrence without hiding other event details",()=>{
