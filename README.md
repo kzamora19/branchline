@@ -1,5 +1,22 @@
 # Branchline
 
+### Analytics MOH summary and drill-down (shell v135)
+
+**Months-on-Hand (MOH)** is now a clickable summary card in the Analytics
+metrics grid, after Conversion rate, for both monthly and all-time analysis.
+The lower inline brand MOH table is removed. The summary uses total authorized
+stock value divided by total average monthly sell-out value, not an average
+of individual brand MOH. It shows total available units and priced stock value;
+incomplete pricing/loading stays explicit, and MOH above three remains red.
+
+Click the card to open branch/brand detail. Click **anywhere in a brand row**
+to view only that branch/brand's products. Rows support keyboard Enter/Space,
+and dialogs provide search, Back to brands, numeric exports and normal Close.
+The summary and brand totals do not follow the product table's local search.
+Branch/district scope and PS brand/category permissions remain enforced.
+Export All retains the registered numeric brand summary even though the full
+table is no longer rendered inline.
+
 ### Live SRP valuation and visible stock quantities (shell v134)
 
 The inventory catalog RPC deliberately omits SRP. Sales-role workspace loading

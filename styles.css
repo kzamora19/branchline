@@ -332,6 +332,11 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .connected-table td.inventory-stock-alert { color: var(--red); }
 .connected-table td.inventory-stock-low { color: #854500; }
 .connected-table td.inventory-stock-moderate { color: #1d5e8a; }
+.inventory-moh-card { width: 100%; text-align: left; cursor: pointer; color: var(--ink); font: inherit; }
+.inventory-moh-card:hover, .inventory-moh-card:focus-visible { border-color: var(--blue); outline: 2px solid var(--blue); outline-offset: 2px; }
+.inventory-moh-drill { max-height: 55vh; overflow: auto; margin: 12px 0; }
+.inventory-moh-drill [data-moh-brand] { cursor: pointer; }
+.inventory-moh-drill [data-moh-brand]:hover, .inventory-moh-drill [data-moh-brand]:focus-visible { background: #eef3ff; outline: 2px solid var(--blue); outline-offset: -2px; }
 .connected-table td.inventory-stock-attention { font-weight: 700; }
 .table-tools.log-tools { align-items: flex-end; }
 .log-tools .button { min-height: 36px; }

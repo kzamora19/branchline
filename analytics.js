@@ -619,7 +619,16 @@
       brand.unmatchedSales = true;
       brand.unmatchedSalesUnits = (unmatchedBrands.get(key) || 0) + (unmatchedBranches.get(brand.branch_id) || 0);
     }
-    return { from, to, months, products: rows, brands: [...brands.values()].map(finish) };
+    const total = { stockValue: 0, selloutValue: 0, stockUnknown: false, salesUnknown: false,
+      partialValuation: true, stockUnits: 0, missingStockSrpUnits: 0, missingSalesSrpUnits: 0,
+      unmatchedSalesUnits: 0, unknownStockProducts: 0 };
+    for (const brand of brands.values()) {
+      for (const field of ["stockValue","selloutValue","stockUnits","missingStockSrpUnits","missingSalesSrpUnits","unmatchedSalesUnits","unknownStockProducts"]) total[field] += brand[field];
+      total.stockUnknown ||= brand.stockUnknown;
+      total.salesUnknown ||= brand.salesUnknown;
+      total.unmatchedSales ||= brand.unmatchedSales;
+    }
+    return { from, to, months, products: rows, brands: [...brands.values()].map(finish), total: finish(total) };
   }
 
   function inventoryForecast({ products, facts, branchIds, from, to, today, targetMonth = today.slice(0, 7), unavailable = false, annualUnavailable = unavailable, adjustments = [], closures = [], holidays = [], eventAdjustments = [] }) {

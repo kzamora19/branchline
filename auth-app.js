@@ -2542,16 +2542,6 @@
     const productTable = demandWarning + analyticsDataTable("an-inventory-products", "Inventory and product sales", "",
       ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Annual sell-out (YTD)", "Sales", "90+ day serials", "Observation", "Branch units sold", "3-month stock target", "Re-order qty", "Stock status", "Adjustment month", "Seasonal factor", "Forecast basis", "Branch units sold in adjustment month", "Remaining monthly demand", "Annual learning from", "History months", "Baseline monthly forecast", "Approved external adjustment %", "Adjustment justification","Open days in adjustment month","Remaining open days","Calendar factor","Approved event adjustment %","Event adjustment justification","Movement status","Movement explanation",isPs ? "Your units sold (selected period)" : "Units sold (selected period)","Months-on-Hand (MOH)","Adjusted monthly forecast"], shownProducts, stockCellClass, forecastControls, productControls,
       (value,index) => index === 33 && typeof value === "number" ? Number(value.toFixed(2)) : value);
-    const brandMohRows = forecast.moh.brands.map(row => [branchName(row.branch_id), row.brand, row.stockUnits ?? "Stock unknown",
-      row.stockValue ?? "Unavailable", row.selloutValue ?? "Unavailable",
-      row.monthlySelloutValue ?? "Unavailable", row.targetStockValue ?? "Unavailable",
-      row.moh === null ? row.mohStatus : row.moh, row.mohStatus,
-      row.missingStockSrpUnits, row.missingSalesSrpUnits, row.unmatchedSalesUnits]);
-    const brandMoh = analyticsDataTable("an-inventory-brand-moh", "Brand Months-on-Hand (MOH)",
-      `January through last completed month (${forecast.moh.from} to ${forecast.moh.to}; ${forecast.moh.months} months). Target: 3 months; above 3 is red. No recorded sell-out = 0. SRP values are priced subtotals when pricing is incomplete; MOH requires complete stock and sales valuation.`,
-      ["Branch","Brand","Available units","Priced stock value (SRP)","Priced sell-out (SRP)","Average monthly priced sell-out (SRP)","3-month priced target (SRP)","Months-on-Hand (MOH)","MOH status","Stock units missing SRP","Sell-out units missing SRP","Unmatched sell-out units"],
-      brandMohRows, (row,index) => [7,8].includes(index) && ["Over 3 months","No sell-out"].includes(row[8]) ? "inventory-stock-alert" : "", "", "",
-      (value,index) => typeof value !== "number" ? value : index >= 3 && index <= 6 ? formatMoney(value) : index === 7 ? Number(value.toFixed(2)) : value);
     const aging = analyticsDataTable("an-inventory-aging", "Current stock aging", "Available serialized units only. Missing/invalid receipt dates are unknown; nonserialized units have no receipt-age data.",
       ["Age band", "Available serials"], [["Current (0-29 days)", summary.current], ["30 days (30-59)", summary.days30],
         ["60 days (60-89)", summary.days60], ["90 days or more", summary.days90], ["Unknown receipt age", summary.unknown]]);
@@ -2583,7 +2573,86 @@
       ["Imported", "Report date", "Branch", "Products", "Snapshot units"],
       (liveData.inventorySnapshots || []).filter(row => ids.has(row.branch_id) && within(row.imported_at))
         .map(row => [row.imported_at, row.reported_at, branchName(row.branch_id), row.products, row.quantity]));
-    return `${brandMoh}${productTable}${aging}${transfers}${history}${snapshots}`;
+    return `${productTable}${aging}${transfers}${history}${snapshots}`;
+  }
+
+  function inventoryMohData(ids, facts, today) {
+    const isPs = currentProfile.role === "ps", catalog = liveData.inventoryCatalog || [];
+    const matches = isPs ? window.BranchlineInventory.brandMatcher(currentProfile, liveData.profiles, catalog) : () => true;
+    const products = window.BranchlineAnalytics.inventorySummary({
+      catalog: catalog.filter(row => ids.has(row.branch_id) && matches(row)),
+      stock: liveData.inventoryStock || [], serials: [], facts: [], branchIds: ids, today, from: today, to: today,
+    }).products;
+    const salesError = isPs ? liveData.brandSalesError || (!Array.isArray(liveData.brandSales) ? "Branch-wide sales unavailable" : "") : "";
+    const demand = isPs ? (liveData.brandSales || []).map(row => ({
+      branchId: row.branch_id, barcode: row.barcode, date: row.sold_on, quantity: row.quantity, brand: row.brand,
+    })) : facts;
+    return { ...window.BranchlineAnalytics.inventoryMonthsOnHand({ products, facts: demand, branchIds: ids, today,
+      unavailable: Boolean(salesError) }), error: liveData.inventoryError || salesError };
+  }
+
+  function inventoryMohCard(ids, facts, today) {
+    const data = inventoryMohData(ids, facts, today), total = data.total;
+    tableStore["an-inventory-brand-moh"] = { title: "Brand MOH",
+      headers: ["Branch","Brand","Available units","Priced stock (SRP)","Completed sell-out (SRP)","Monthly sell-out (SRP)","3-month target (SRP)","MOH","Status","Stock units missing SRP","Sell-out units missing SRP","Unmatched sell-out units"],
+      items: data.brands.map(row => [branchName(row.branch_id),row.brand,row.stockUnits ?? "Stock unknown",
+        row.stockValue ?? "Unavailable",row.selloutValue ?? "Unavailable",row.monthlySelloutValue ?? "Unavailable",
+        row.targetStockValue ?? "Unavailable",row.moh ?? row.mohStatus,row.mohStatus,
+        row.missingStockSrpUnits,row.missingSalesSrpUnits,row.unmatchedSalesUnits]) };
+    const value = data.error ? "Unavailable" : total.moh === null ? total.mohStatus : `${Number(total.moh.toFixed(2))} months`;
+    return `<button type="button" class="connected-metric inventory-moh-card" data-open="inventory-moh" aria-haspopup="dialog">
+      <span>Months-on-Hand (MOH)</span><strong${!data.error && total.mohBad ? ' class="an-down"' : ""}>${escapeHTML(value)}</strong>
+      <small>${escapeHTML(data.error || `${total.stockUnits ?? "Unknown"} available units · ${formatMoney(total.stockValue)} priced stock`)}</small>
+      <small>Target: 3 months · View brands</small></button>`;
+  }
+
+  function openInventoryMoh(data = null, brandIndex = null) {
+    if (!data) {
+      const ids = scopeBranchIds();
+      data = inventoryMohData(ids, analyticsFacts(ids), localISODate());
+    }
+    const brand = brandIndex === null ? null : data.brands[brandIndex];
+    if (brandIndex !== null && !brand) throw new Error("The selected MOH brand is no longer available.");
+    const rows = brand ? data.products.filter(row => row.branch_id === brand.branch_id &&
+      String(row.brand || "Unclassified").trim().toLowerCase() === String(brand.brand).trim().toLowerCase()) : data.brands;
+    const headers = brand
+      ? ["Barcode","Product","Available units","Priced stock (SRP)","Completed sell-out (SRP)","Monthly sell-out (SRP)","3-month target (SRP)","MOH","Status"]
+      : ["Branch","Brand","Available units","Priced stock (SRP)","Completed sell-out (SRP)","Monthly sell-out (SRP)","3-month target (SRP)","MOH","Status","Stock units missing SRP","Sell-out units missing SRP","Unmatched sell-out units"];
+    const values = row => [brand ? row.barcode : branchName(row.branch_id), brand ? row.model_description : row.brand,
+      (brand ? row.quantity : row.stockUnits) ?? "Stock unknown", row.stockValue ?? "Unavailable", row.selloutValue ?? "Unavailable",
+      row.monthlySelloutValue ?? "Unavailable", row.targetStockValue ?? "Unavailable", row.moh ?? row.mohStatus, row.mohStatus,
+      ...(!brand ? [row.missingStockSrpUnits,row.missingSalesSrpUnits,row.unmatchedSalesUnits] : [])];
+    const rowHtml = row => `<tr${brand ? "" : ` data-moh-brand="${data.brands.indexOf(row)}" tabindex="0" role="button" aria-label="${escapeHTML(`View ${row.brand} products in ${branchName(row.branch_id)}`)}"`}>${values(row).map((value,index) =>
+      `<td${row.mohBad && [7,8].includes(index) ? ' class="inventory-stock-alert"' : ""}>${escapeHTML(typeof value === "number" && index >= 3 && index <= 6 ? formatMoney(value) : index === 7 && typeof value === "number" ? Number(value.toFixed(2)) : value)}</td>`).join("")}</tr>`;
+    openModal({ title: brand ? `${brand.brand} products · ${branchName(brand.branch_id)}` : "Months-on-Hand · Brands",
+      wide: true, readOnly: true,
+      intro: `${data.from} to ${data.to} · ${data.months} completed months. Target: 3 months. SRP values are priced subtotals; incomplete valuations are flagged.`,
+      body: `${data.error ? `<p role="alert" class="connected-error">${escapeHTML(data.error)}</p>` : ""}
+        ${brand ? '<button type="button" class="button button-outline" data-moh-back>Back to brands</button>' : ""}
+        <label class="field"><span>${brand ? "Search products" : "Search brands"}</span><input type="search" data-moh-search></label>
+        <div class="connected-table-wrap inventory-moh-drill"><table class="connected-table"><thead><tr>${headers.map(value=>`<th>${escapeHTML(value)}</th>`).join("")}</tr></thead><tbody data-moh-rows>${rows.map(rowHtml).join("")}</tbody></table></div>
+        <p data-moh-empty${rows.length ? " hidden" : ""}>No data in this scope.</p>
+        <button type="button" class="button button-outline" data-moh-export>Export ${brand ? "products" : "brands"}</button>`,
+      onReady: form => {
+        let visible = rows;
+        form.querySelector("[data-moh-search]").addEventListener("input", event => {
+          const search = event.target.value.trim().toLowerCase();
+          visible = rows.filter(row => values(row).slice(0,2).some(value=>String(value || "").toLowerCase().includes(search)));
+          form.querySelector("[data-moh-rows]").innerHTML = visible.map(rowHtml).join("");
+          form.querySelector("[data-moh-empty]").hidden = visible.length > 0;
+        });
+        form.addEventListener("click", event => {
+          const selected = event.target.closest("[data-moh-brand]");
+          if (selected) openInventoryMoh(data, Number(selected.dataset.mohBrand));
+          else if (event.target.closest("[data-moh-back]")) openInventoryMoh(data);
+          else if (event.target.closest("[data-moh-export]")) exportWorkbook([{ name: brand ? "Products" : "Brands", rows: [headers,...visible.map(values)] }], `branchline-moh-${localISODate()}`);
+        });
+        form.addEventListener("keydown", event => {
+          if (!["Enter"," "].includes(event.key) || !event.target.matches("[data-moh-brand]")) return;
+          event.preventDefault();
+          openInventoryMoh(data, Number(event.target.dataset.mohBrand));
+        });
+      } });
   }
 
   function allTimeAnalyticsPanels(ids, facts, isPs, today) {
@@ -2606,7 +2675,7 @@
       <article class="connected-metric"><span>Transactions</span><strong>${totals.transactions}</strong><small>Average ${totals.transactions ? formatMoney(totals.sales / totals.transactions) : "n/a"}</small></article>
       <article class="connected-metric"><span>Recorded product units sold</span><strong>${totals.units}</strong><small>Daily summary imports do not provide unit quantities</small></article>
       <article class="connected-metric"><span>${isPs ? "Clients assisted" : "Walk-in traffic"}</span><strong>${walk.coveredDays ? walk.visitors : "No data"}</strong><small>${walk.coveredDays} counted days</small></article>
-      <article class="connected-metric"><span>Conversion on counted days</span><strong>${walk.conversion === null ? "n/a" : `${(walk.conversion * 100).toFixed(1)}%`}</strong></article></div>`;
+      <article class="connected-metric"><span>Conversion on counted days</span><strong>${walk.conversion === null ? "n/a" : `${(walk.conversion * 100).toFixed(1)}%`}</strong></article>${inventoryMohCard(ids, facts, today)}</div>`;
     const summaryTable = (key, title, source, group, scopeTotals) => {
       const counts = new Map();
       if (scopeTotals) transactionFacts.forEach(row => addTo(counts, group(row), 1));
@@ -2744,6 +2813,7 @@
           ${isPs ? "" : `<article class="connected-metric"><span>Sales per PS</span><strong>${sharePerPs === null ? "n/a" : formatMoney(sharePerPs)}</strong><small>${psProfiles.length} active PS${psProfiles.length === 1 ? "" : "s"} in view</small></article>`}
           <article class="connected-metric"><span>${isPs ? "Clients assisted" : "Walk-in traffic"}</span><strong>${walk.coveredDays ? walk.visitors : "No data"}</strong><small>${escapeHTML(walkSource)}</small><button class="button button-outline button-small wk-daily-btn" type="button" data-open="walkin-daily">View daily</button></article>
           <article class="connected-metric"><span>Conversion rate</span><strong>${walk.conversion === null ? "n/a" : `${(walk.conversion * 100).toFixed(1)}%`}</strong><small>${walk.conversion === null ? "Needs recorded walk-in counts" : `${walk.transactions} sale${walk.transactions === 1 ? "" : "s"} ÷ ${walk.visitors} on counted days`}</small></article>
+          ${inventoryMohCard(ids, facts, today)}
         </div>`;
 
         const sum = (from, to) => A.sumDaily(daily, from, to);
@@ -7048,6 +7118,7 @@
     else if (open === "walkin-store") openWalkInModal("store");
     else if (open === "walkin-daily") openWalkInDailyModal();
     else if (open === "transactions-daily") openTransactionsDailyModal();
+    else if (open === "inventory-moh") openInventoryMoh();
     else if (open === "push-message") openPushMessageModal(event.target.closest("[data-open]").dataset.status);
     else if (open === "push-schedule") {
       const id = event.target.closest("[data-open]").dataset.id;

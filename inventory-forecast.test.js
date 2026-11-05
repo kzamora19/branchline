@@ -295,26 +295,12 @@ test("Analytics brand MOH uses branch-wide SRP value, stays independent of produ
   const options = { inventoryCatalog:[product("001",40)],inventoryStock:[product("001",40)],
     brandSales:[{branch_id:"one",barcode:"001",sold_on:"2026-10-31",quantity:100,brand:"TCL"}] };
   const {table,tables,html}=render("ps",options);
-  const brand=tables.get("an-inventory-brand-moh");
-  assert.equal(brand.rows.length,1);
-  assert.deepEqual(Array.from(brand.rows[0]),["one","TCL",40,4000,10000,1000,3000,4,"Over 3 months",0,0,0]);
+  assert.equal(tables.has("an-inventory-brand-moh"),false);
   assert.equal(table.rows[0][33],4);
   assert.match(table.html,/<td class="inventory-stock-alert">4<\/td>/);
-  assert.match(brand.html,/<td class="inventory-stock-alert">4<\/td>/);
-  assert.match(html,/SRP values are priced subtotals/);
   assert.doesNotMatch(html,/<h2>Inventory overview<\/h2>/);
   const filtered=render("ps",options,{inventoryProductSearch:"no-match"});
   assert.equal(filtered.table.rows.length,0);
-  assert.deepEqual(Array.from(filtered.tables.get("an-inventory-brand-moh").rows[0]),Array.from(brand.rows[0]));
-  const context=vm.createContext({tableStore:{"an-inventory-brand-moh":brand},table:{...brand,items:brand.rows}});
-  context.tableStore["an-inventory-brand-moh"]=context.table;
-  const start=source.indexOf("  function tableToSheet(");
-  vm.runInContext(source.slice(start,source.indexOf("  function exportTable(",start)),context);
-  const sheet=vm.runInContext('tableToSheet(table,"Brand MOH")',context);
-  assert.equal(sheet.rows[1][2],40);
-  assert.equal(sheet.rows[1][3],4000);
-  assert.equal(sheet.rows[1][7],4);
-  assert.equal(typeof sheet.rows[1][3],"number");
   for(const stock of [30,31]){
     const result=render("ps",{...options,inventoryCatalog:[product("001",stock)],inventoryStock:[product("001",stock)]});
     assert.equal(result.table.rows[0][33],stock/10);
@@ -322,7 +308,6 @@ test("Analytics brand MOH uses branch-wide SRP value, stays independent of produ
   }
   const noSales=render("ps",{...options,brandSales:[]});
   assert.match(noSales.table.html,/<td class="inventory-stock-alert">No sell-out<\/td>/);
-  assert.match(noSales.tables.get("an-inventory-brand-moh").html,/<td class="inventory-stock-alert">No sell-out<\/td>/);
 });
 
 test("old saved learning calendars cannot override annual learning or change personal sales", () => {
