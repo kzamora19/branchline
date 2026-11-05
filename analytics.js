@@ -556,14 +556,16 @@
   function inventoryMonthsOnHand({ products, facts, branchIds, today, unavailable = false }) {
     const from = `${today.slice(0,4)}-01-01`, to = addDays(monthStart(today.slice(0,7)), -1);
     const months = Number(today.slice(5,7)) - 1;
-    const sold = new Map(), brands = new Map(), saleBrands = new Map();
+    const sold = new Map(), brands = new Map(), saleBrands = new Map(), history = new Set();
     const keyOf = row => `${row.branch_id}\0${row.barcode}`;
     const known = new Set(products.filter(row => branchIds.has(row.branch_id)).map(keyOf));
     for (const row of facts) {
-      if (!branchIds.has(row.branchId) || row.summary || !row.barcode || row.date < from || row.date > to) continue;
+      if (!branchIds.has(row.branchId) || row.summary || !row.barcode || !row.date || row.date > today) continue;
       const quantity = Number(row.quantity);
       if (row.quantity == null || !Number.isSafeInteger(quantity)) throw new Error("Cannot calculate months-on-hand: a product sale has an invalid unit quantity.");
       const key = `${row.branchId}\0${row.barcode}`;
+      history.add(key);
+      if (row.date < from || row.date > to) continue;
       sold.set(key, (sold.get(key) || 0) + quantity);
       if (row.brand) saleBrands.set(key, String(row.brand).trim().toLowerCase());
     }
@@ -582,10 +584,13 @@
         from, to, months };
     };
     const rows = products.filter(row => branchIds.has(row.branch_id)).map(row => {
-      const units = sold.get(keyOf(row)) || 0, srp = Number(row.srp);
-      const validSrp = row.srp != null && Number.isFinite(srp) && srp > 0;
+      const units = sold.get(keyOf(row)) || 0;
+      const blankSrp = row.srp == null || (typeof row.srp === "string" && row.srp.trim() === "");
+      const srp = blankSrp ? 0 : Number(row.srp);
+      const hasHistory = history.has(keyOf(row));
+      const validSrp = blankSrp ? !unavailable && !hasHistory : Number.isFinite(srp) && srp >= 0;
       const stockUnknown = row.quantity === null || !Number.isFinite(row.quantity) || (!validSrp && row.quantity !== 0);
-      const salesUnknown = !validSrp && units !== 0;
+      const salesUnknown = !validSrp && hasHistory;
       const stockValue = stockUnknown ? 0 : row.quantity * (validSrp ? srp : 0);
       const selloutValue = salesUnknown ? 0 : units * (validSrp ? srp : 0);
       if (![stockValue, selloutValue].every(Number.isFinite)) throw new Error("Cannot calculate months-on-hand: SRP valuation exceeds supported amounts.");

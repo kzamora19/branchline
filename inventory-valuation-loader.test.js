@@ -38,7 +38,7 @@ test("live inventory catalog without SRP is enriched with paginated, exact branc
     const moh=A.inventoryMonthsOnHand({products:summary.products,facts:[],branchIds:new Set(["one","two"]),today:"2026-11-05"});
     const one=moh.brands.find(row=>row.branch_id==="one"),two=moh.brands.find(row=>row.branch_id==="two");
     assert.equal(one.stockUnits,10);assert.equal(one.stockValue,1000);assert.equal(one.selloutValue,0);
-    assert.equal(two.stockUnits,12);assert.equal(two.stockValue,2500);assert.equal(two.missingStockSrpUnits,2);
+    assert.equal(two.stockUnits,12);assert.equal(two.stockValue,2500);assert.equal(two.missingStockSrpUnits,0);
     assert.equal(two.selloutValue,0);assert.equal(two.moh,null);
   }
 });

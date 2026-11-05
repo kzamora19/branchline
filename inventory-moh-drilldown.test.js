@@ -76,3 +76,25 @@ test("card is wired into monthly and all-time metric grids, not the lower invent
   const panel=source.slice(source.indexOf("  function inventoryAnalyticsPanels("),source.indexOf("  function inventoryMohData("));
   assert.doesNotMatch(panel,/Brand Months-on-Hand|an-inventory-brand-moh/);
 });
+test("PS summary, brand exports and product popup retain zero SRPs and zero-valued unsold blanks",()=>{
+  const c=harness("ps");
+  const added=[product("ZERO",172,0),product("BLANK",1,null)];
+  c.liveData.inventoryCatalog=[...c.liveData.inventoryCatalog,...added];
+  c.liveData.inventoryStock=[...c.liveData.inventoryStock,...added];
+  c.liveData.brandSales.push({branch_id:"one",barcode:"ZERO",quantity:6,sold_on:"2026-10-31",brand:"TCL"});
+  const data=c.inventoryMohData(new Set(["one"]),[],"2026-11-05");
+  assert.equal(data.total.stockUnits,215);
+  assert.equal(data.total.stockValue,60000);
+  assert.equal(data.total.moh,1);
+  const html=c.inventoryMohCard(new Set(["one"]),[],"2026-11-05");
+  assert.doesNotMatch(html,/unavailable/i);
+  assert.equal(c.tableStore["an-inventory-brand-moh"].items[0][9],0);
+  for (const barcode of ["ZERO","BLANK"]) {
+    const row=data.products.find(row=>row.barcode===barcode);
+    assert.equal(row.stockValue,0);
+    assert.equal(row.selloutValue,0);
+  }
+  c.openInventoryMoh(data,0);
+  assert.match(c.modal.body,/ZERO/);
+  assert.match(c.modal.body,/BLANK/);
+});

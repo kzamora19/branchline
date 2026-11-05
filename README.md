@@ -1,5 +1,15 @@
 # Branchline
 
+### Zero SRP valuation (shell v136)
+
+For MOH, explicit SRP `0.00` is a valid zero stock/sell-out valuation, not missing
+pricing, regardless of sales history. A blank SRP is valued at zero only when
+there is no recorded product sales history through today in the authorized
+loaded data. Prior-year, current-month and offsetting sale/return records still
+count as history, although MOH sell-out continues to use completed current-year
+months only. Blank prices with history remain flagged. Failed sales loads never
+prove that history is absent. Saved product prices are unchanged.
+
 ### Branch-wide sales-log timeout repair
 
 Apply `supabase/migrations/20261210000000_brand_scope_read_performance.sql` for

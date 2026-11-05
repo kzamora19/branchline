@@ -71,7 +71,7 @@ test("completed-year valuation excludes November, prior years, future, summary a
 });
 
 test("missing/invalid SRP exposes priced subtotals and unit counts but never a partial-success MOH", () => {
-  for (const srp of [null,undefined,0,-1,NaN,Infinity]) {
+  for (const srp of [null,undefined,""," ",-1,NaN,Infinity]) {
     const result=calculate({products:[{...product(),srp}]});
     for (const row of [result.products[0]]) {
       assert.equal(row.stockValue,null);
@@ -91,8 +91,8 @@ test("missing/invalid SRP exposes priced subtotals and unit counts but never a p
   const partial=calculate({products:[product(),product("002",1,null)]}).brands[0];
   assert.equal(partial.stockValue,40000);
   assert.equal(partial.stockUnits,41);
-  assert.equal(partial.missingStockSrpUnits,1);
-  assert.equal(partial.moh,null);
+  assert.equal(partial.missingStockSrpUnits,0);
+  assert.equal(partial.moh,4);
   const unknown=calculate({products:[product("001",null)]}).brands[0];
   assert.equal(unknown.stockValue,0);
   assert.equal(unknown.stockUnits,null);
@@ -121,19 +121,53 @@ test("January, no sell-out, no stock and failed loads are explicit, not finite z
   assert.throws(()=>calculate({products:[product("001",100,Number.MAX_VALUE)]}),/valuation exceeds/);
 });
 
-test("EUROTEK-style stock remains 67 units even with two stocked products missing SRP and no sell-out", () => {
+test("EUROTEK-style stock remains 67 units with blank unsold SRP and explicit zero valued at zero", () => {
   const result=calculate({products:[product("A",30,1000,"EUROTEK"),product("B",35,2000,"Eurotek"),
     product("C",1,null,"EUROTEK"),product("D",1,0,"Eurotek")],facts:[]});
   assert.equal(result.brands.length,1);
   const row=result.brands[0];
   assert.equal(row.stockUnits,67);
   assert.equal(row.stockValue,100000);
-  assert.equal(row.missingStockSrpUnits,2);
+  assert.equal(row.missingStockSrpUnits,0);
   assert.equal(row.selloutValue,0);
   assert.equal(row.monthlySelloutValue,0);
   assert.equal(row.targetStockValue,0);
   assert.equal(row.moh,null);
-  assert.equal(row.mohStatus,"Stock / SRP unavailable");
+  assert.equal(row.mohStatus,"No sell-out");
+});
+
+test("explicit zero SRP is a valid zero valuation with or without sales history", () => {
+  for (const srp of [0,"0.00"]) for (const facts of [[],[sale()]]) {
+    const result=calculate({products:[{...product(),srp}],facts});
+    for (const row of [result.products[0],result.brands[0],result.total]) {
+      assert.equal(row.stockValue,0);
+      assert.equal(row.selloutValue,0);
+      assert.equal(row.monthlySelloutValue,0);
+      assert.equal(row.targetStockValue,0);
+      assert.equal(row.stockUnknown,false);
+      assert.equal(row.salesUnknown,false);
+    }
+    assert.equal(result.total.missingStockSrpUnits,0);
+    assert.equal(result.total.missingSalesSrpUnits,0);
+  }
+});
+
+test("blank SRP is zero only without recorded history; prior/current and net-zero history still flag it", () => {
+  for (const facts of [[sale(1,"2025-01-01")],[sale(1,"2026-11-01")],[sale(1),sale(-1)]]) {
+    const row=calculate({products:[product("001",1,null)],facts}).products[0];
+    assert.equal(row.moh,null);
+    assert.equal(row.stockUnknown,true);
+    assert.equal(row.salesUnknown,true);
+  }
+  for (const srp of [null,undefined,""," "]) {
+    const result=calculate({products:[{...product(),srp}],facts:[
+      sale(1,"2027-01-01"),sale(1,"2025-01-01","001","foreign"),{...sale(),summary:true},
+    ]});
+    assert.equal(result.products[0].stockValue,0);
+    assert.equal(result.total.stockUnknown,false);
+    assert.equal(result.total.missingStockSrpUnits,0);
+  }
+  assert.equal(calculate({products:[product("001",1,null)],facts:[],unavailable:true}).products[0].stockValue,null);
 });
 
 test("unmatched sold products make affected brand valuation unavailable instead of reporting a partial total", () => {
