@@ -1,5 +1,40 @@
 # Branchline
 
+### Sales returns (shell v141)
+
+The Sales page has a **− Sales return** action for Product Specialists (their own
+sales), managers (assigned branches), and district managers/admins (authorized
+branches). Inventory-only accounts cannot post sales returns.
+
+Search an invoice number or customer name and choose the matching invoice.
+Customer, original sale date, branch, salesperson, address and payment details
+fill automatically. Check individual product lines, enter partial or full return
+quantities, and choose the exact recorded serials. Legacy units without recorded
+serials remain blank; no serial numbers are invented. Previously returned units
+and serials cannot be returned again.
+
+Posting is immediate: negative quantities at the original selling prices/SRPs
+reduce sales on the selected return date, and stock/serials return to the original
+selling branch. The return date must be between the sale date and today (Manila).
+Existing catalog SRPs are not replaced. A missing stock record initializes with
+only the returned quantity, not an inferred historical balance.
+
+Apply `supabase/migrations/20261213000000_sales_returns.sql` and
+`supabase/migrations/20261214000000_return_export_serials.sql` before publishing
+the new shell. Posting, inventory restoration and audit records are one database
+transaction, serialized with existing inventory operations. Request keys protect
+retries, including changed-payload detection. Original invoices and return
+financials/serials cannot be edited or deleted after posting; harmless product
+classification/description synchronization remains allowed. Restricted return
+audit tables retain the source invoice/line, negative return line, actor, reason,
+serials and original product values. Inventory history also records each return.
+Restored serials become eligible for resale; later return/resale cycles remain
+protected. The demo does not pretend to post live returns.
+Older imported negative transactions remain unchanged and are not automatically
+matched to original invoices; review them before posting a new return.
+Return details and exports use the audited line-to-serial links, including
+repeated barcodes with different original selling prices.
+
 ### Historical sale downloads (shell v140)
 
 Missing serials no longer block downloads: unnumbered units export with blank

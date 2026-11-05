@@ -555,9 +555,10 @@
         isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("sales_import_batches", "id,label,source_file,created_at,sales_count,lines_count,amount,date_from,date_to,kind", [["created_at", false], ["id", true]]),
         isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("branch_daily_history", "branch_id,day,sales,transactions,walkins,remarks,payment_breakdown", [["day", false], ["branch_id", true]]),
                 fetchAll("sale_serials", "sale_id,barcode,position,serial", [["sale_id", true], ["position", true]]),
+        demoStore ? Promise.resolve({ data: [], error: null }) : fetchAll("sales_return_lines", "return_line_id,serials", [["return_line_id", true]]),
       ];
       let completed = 0;
-      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, pushSchedules, paymentTargets, importBatches, dailyHistory, saleSerials] = await Promise.all(
+      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, pushSchedules, paymentTargets, importBatches, dailyHistory, saleSerials, returnLines] = await Promise.all(
         requests.map(request => Promise.resolve(request).then(result => {
           loading.update(10 + (++completed / requests.length) * 55, "Loading sales and account data...");
           return result;
@@ -615,6 +616,7 @@
         testPsIds,
         saleLines: lines.filter(line => !testSaleIds.has(line.sale_id)),
         linesBySale,
+        returnSerialsByLine: new Map(checkResult(returnLines, "Unable to load sales return details").map(row => [row.return_line_id,row.serials])),
         serialsBySale: (saleSerials.error ? [] : saleSerials.data).reduce((map, row) => {
           if (!map.has(row.sale_id)) map.set(row.sale_id, []);
           map.get(row.sale_id).push(row);
@@ -3029,7 +3031,7 @@
         district: true,
         branch: true,
         period: true,
-        actions: isPs ? '<button class="button button-primary record-sale-floating" type="button" data-open="sale">+ Record sale</button>' : "",
+        actions: `${isPs ? '<button class="button button-primary record-sale-floating" type="button" data-open="sale">+ Record sale</button>' : ""}${["ps","manager","district_manager","admin"].includes(currentProfile.role) ? '<button class="button button-outline" type="button" data-open="sales-return">&minus; Sales return</button>' : ""}`,
       }),
       () => {
         const ids = scopeBranchIds();
@@ -3176,8 +3178,9 @@
     return `<div class="connected-table-wrap sale-detail-products"><table class="connected-table"><thead><tr><th>Product</th><th>Serial number</th><th>Qty</th><th>Unit price</th></tr></thead><tbody>${lines.length ? lines.map(line => {
       const start = offsets.get(line.barcode) || 0;
       const quantity = Number(line.quantity);
-      const serials = serialsFor(saleId, line.barcode).slice(start, start + quantity);
-      offsets.set(line.barcode, start + quantity);
+      const units = Math.abs(quantity);
+      const serials = liveData.returnSerialsByLine?.get(line.id) || serialsFor(saleId, line.barcode).slice(start, start + units);
+      offsets.set(line.barcode, start + units);
       const meta = [line.brand, line.category, line.sub_category].filter(Boolean).map(escapeHTML).join(" · ");
       return `<tr><td><div class="product-line"><span class="pl-meta">${meta}</span>${escapeHTML(line.model_description)}<small class="sale-detail-barcode">Barcode: ${escapeHTML(line.barcode)}</small>${line.srp == null ? "" : `<small class="sale-detail-barcode">SRP: ${formatMoney(Number(line.srp))}</small>`}</div></td><td class="sale-product-serials">${serials.length ? serials.map(serial => `<div>${escapeHTML(serial)}</div>`).join("") : "—"}</td><td>${quantity}</td><td>${formatMoney(Number(line.selling_price))}</td></tr>`;
     }).join("") : '<tr><td colspan="4">No product details recorded.</td></tr>'}</tbody></table></div>`;
@@ -6552,7 +6555,9 @@
       const total = peers.reduce((sum, item) => sum + Math.abs(Number(item.quantity)), 0);
       const start = peers.slice(0, index).reduce((sum, item) => sum + Math.abs(Number(item.quantity)), 0);
       const units = Math.abs(quantity), sign = Math.sign(quantity);
-      const assigned = serials.length > total ? [] : serials.slice(start, start + units);
+      const assigned = serialsUnavailable ? [] : liveData.returnSerialsByLine?.get(line.id) ||
+        (serials.length > total ? [] : serials.slice(start, start + units));
+      if (assigned.length > units) throw new Error(`Invoice ${sale.invoice_number || sale.id}: return audit serial count is invalid.`);
       return [...assigned.map(serial => ({ sale, line: { ...line, quantity: sign }, serial })),
         ...(units > assigned.length ? [{ sale, line: { ...line, quantity: sign * (units - assigned.length) }, serial: "" }] : [])];
     });
@@ -7194,6 +7199,24 @@
       try { exportTable(exportKey); } catch (error) { exportError(error); }
     }
     if (open === "sale") openSaleModal();
+    if (open === "sales-return") {
+      if (!["ps","manager","district_manager","admin"].includes(currentProfile.role)) {
+        alert("This account cannot post sales returns.");
+        return;
+      }
+      const returnClient = client, returnProfile = currentProfile.id;
+      import("./sales-returns.mjs").then(({ openSalesReturn }) => openSalesReturn({
+        openModal, escapeHTML, today: localISODate(), formatMoney, refresh: refreshData,
+        rpc: async (name, args) => {
+          if (client !== returnClient || currentProfile?.id !== returnProfile) throw new Error("The account changed. Reopen Sales return.");
+          if (demoStore) throw new Error("Sales returns require a live workspace; no demo stock or sales were changed.");
+          const { data, error } = await returnClient.rpc(name, args);
+          if (error) throw error;
+          if (client !== returnClient || currentProfile?.id !== returnProfile) throw new Error("The account changed. Reload the current workspace before continuing.");
+          return data;
+        },
+      })).catch(error => { console.error("Sales return could not open.",error); alert(friendlyError(error)); });
+    }
     const saleDetails = event.target.closest("[data-sale-details]");
     if (saleDetails) {
       try { openSaleDetails(saleDetails.dataset.saleDetails); }

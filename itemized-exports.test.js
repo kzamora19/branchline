@@ -50,6 +50,32 @@ test("itemization allocates each serial once across repeated barcodes and preser
   assert.equal(lines[0].quantity, 2);
 });
 
+test("return exports keep exact audited serials on repeated product lines at their original prices", () => {
+  const { ctx, sale, lines } = fixture();
+  lines[0].quantity = -1;
+  lines[1].quantity = -1;
+  ctx.liveData.returnSerialsByLine = new Map([["a",["S-003"]],["b",["S-001"]]]);
+  ctx.entries = lines.slice(0,2).map(line => ({ sale, line }));
+  const rows = vm.runInContext("itemizedSaleLines(entries)",ctx);
+  assert.deepEqual(Array.from(rows,row=>[row.line.id,row.line.quantity,row.serial,row.line.selling_price]),
+    [["a",-1,"S-003",100],["b",-1,"S-001",200]]);
+});
+
+test("return transaction details display signed units and the exact restored serial on each line", () => {
+  const { ctx, lines } = fixture();
+  lines[0].quantity = -1;
+  lines[1].quantity = -1;
+  ctx.liveData.returnSerialsByLine = new Map([["a",["S-003"]],["b",[]]]);
+  ctx.escapeHTML = String;
+  ctx.formatMoney = String;
+  ctx.detailLines = lines.slice(0,2);
+  vm.runInContext(section("  function saleProductsHTML(", "  function openSaleDetails("),ctx);
+  const html = vm.runInContext("saleProductsHTML('s',detailLines)",ctx);
+  assert.match(html,/<div>S-003<\/div>/);
+  assert.doesNotMatch(html,/S-001|S-002/);
+  assert.equal((html.match(/<td>-1<\/td>/g)||[]).length,2);
+});
+
 test("sales download repeats transaction fields, exports serials separately, and reconciles price/SRP totals", () => {
   for (const [basis, total] of [["price", 750], ["srp", 950]]) {
     const { ctx, sheets } = fixture();
