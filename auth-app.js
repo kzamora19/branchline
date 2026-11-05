@@ -2078,6 +2078,7 @@
   }
 
   function dailySalesChart(rows, month, today, isPs = false) {
+    const desktop = window.matchMedia?.("(min-width: 901px)").matches;
     const days = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
     const byDate = new Map(rows.map(row => [row.date, row]));
     const width = 110 + days * 30;
@@ -2110,13 +2111,44 @@
       const valueY = y(row.total);
       return `<g class="daily-day${future ? " daily-day-future" : ""}">
         ${future ? "" : `<rect class="daily-bar${row.total < 0 ? " daily-bar-negative" : ""}" x="${x + 5}" y="${Math.min(zero, valueY)}" width="20" height="${Math.max(2, Math.abs(valueY - zero))}"/>`}
-        <rect class="daily-bar-hit" x="${x}" y="${top}" width="30" height="${bottom - top + 30}" fill="transparent" tabindex="0" role="img" aria-label="${escapeHTML(`${label}: ${count}, ${amount}, ${visitors}, ${conversion}`)}" data-tip="${escapeHTML(tip)}"/>
+        <rect class="daily-bar-hit" ${future ? "" : `data-daily-sales-date="${date}"`} x="${x}" y="${top}" width="30" height="${bottom - top + 30}" fill="transparent" tabindex="0" role="${desktop && !future ? "button" : "img"}" ${desktop && !future ? 'aria-haspopup="dialog"' : ""} aria-label="${escapeHTML(`${label}: ${count}, ${amount}, ${visitors}, ${conversion}${desktop && !future ? ". Open daily sales log" : ""}`)}" data-tip="${escapeHTML(tip)}"/>
         <text class="an-axis daily-day-label" x="${x + 15}" y="${bottom + 22}" text-anchor="middle">${day}</text>
       </g>`;
     }).join("");
     return `${chartExport(`Daily sales ${month}`, [["Date", "Day", "No. of sales", "Total sales"], ...rows.map(row => [row.date, new Date(`${row.date}T00:00:00`).toLocaleDateString("en-PH", { weekday: "long" }), row.count, row.total])])}<div class="daily-chart-scroll" role="region" aria-label="Daily sales chart; scroll horizontally to see every day" tabindex="0"><svg class="daily-sales-chart" viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="group" aria-label="Daily sales for ${escapeHTML(monthLabel(month))}; each bar is one day">
       ${ticks}<line class="an-grid" x1="100" x2="${width - 10}" y1="${zero}" y2="${zero}"/>${bars}
-    </svg></div><p class="an-note">Daily actuals, not cumulative or forecast. Hover a day, focus it with the keyboard, or long press on mobile for date, weekday, number of sales, total, ${isPs ? "clients assisted" : "walk-ins"} and conversion rate. Conversion uses transactions from branches with recorded traffic only; no count or zero traffic shows n/a. Scroll sideways to see all days. Future days are not recorded.</p>`;
+    </svg></div><p class="an-note">Daily actuals, not cumulative or forecast. On desktop, click a day to open its sales log, then choose a transaction for details. Hover a day, focus it with the keyboard, or long press on mobile for date, weekday, number of sales, total, ${isPs ? "clients assisted" : "walk-ins"} and conversion rate. Conversion uses transactions from branches with recorded traffic only; no count or zero traffic shows n/a. Scroll sideways to see all days. Future days are not recorded.</p>`;
+  }
+
+  function openDailySalesLog(date) {
+    if (!window.matchMedia("(min-width: 901px)").matches || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date > localISODate()) return;
+    const ids = panelIds("dsBranch", scopeBranchIds());
+    const rows = visibleSales().filter(sale => sale.sold_on === date && ids.has(sale.branch_id) && !isTestSale(sale, liveData.testPsIds))
+      .sort((a,b) => natural(a.invoice_number,b.invoice_number) || String(a.id).localeCompare(String(b.id)))
+      .map(sale => ({
+        sale, branch: branchName(sale.branch_id),
+        person: liveData.profiles.find(profile => profile.id === sale.ps_id)?.full_name || titleCase(sale.ps_name || "") || "Staff member",
+        total: saleTotal(sale),
+      }));
+    const total = rows.reduce((sum,row) => sum + row.total,0);
+    hidePieTip();
+    openModal({ title: `Daily sales log · ${date}`, readOnly: true, wide: true,
+      intro: `${rows.length} recorded transaction${rows.length === 1 ? "" : "s"} · ${formatMoney(total)} · ${ui.salesBasis === "srp" ? "SRP comparison" : "Selling price"} basis. Follows the daily chart's branch access; excludes TEST sales. Summary-only historical amounts may differ because they have no individual invoices.`,
+      body: `<p>Choose a transaction to view its products, quantities, serials and original prices.</p>
+        <div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Transaction / Invoice</th><th>Customer</th><th>Sale date</th><th>Product Specialist</th><th>Branch</th><th>Total</th></tr></thead>
+        <tbody>${rows.length ? rows.map(saleSummaryRowHTML).join("") : '<tr><td colspan="6">No individual sales transactions are recorded for this day within your access.</td></tr>'}</tbody></table></div>`,
+      onReady: form => {
+        form.closest(".dlg").classList.add("dlg-xwide");
+        const open = event => {
+          const row = event.target.closest("[data-sale-details]");
+          if (!row || (event.type === "keydown" && !["Enter"," "].includes(event.key))) return;
+          event.preventDefault();
+          try { openSaleDetails(row.dataset.saleDetails); }
+          catch (error) { console.error("Daily sales transaction could not open.",error); alert(friendlyError(error)); }
+        };
+        form.addEventListener("click",open);
+        form.addEventListener("keydown",open);
+      } });
   }
 
   function growthCell(value) {
@@ -7109,6 +7141,12 @@
       exportAllTables().catch(exportError).finally(() => { exportAll.disabled = false; });
       return;
     }
+    const dailySalesDay = event.target.closest("[data-daily-sales-date]");
+    if (dailySalesDay) {
+      try { openDailySalesLog(dailySalesDay.dataset.dailySalesDate); }
+      catch (error) { console.error("Daily sales log could not open.",error); alert(friendlyError(error)); }
+      return;
+    }
     const pie = event.target.closest("[data-pie-table]");
     if (pie) {
       openPieTable(pie.dataset.pieTable, pie);
@@ -7696,6 +7734,12 @@
   });
 
   connectedContent.addEventListener("keydown", event => {
+    const dailySalesDay = event.target.closest("[data-daily-sales-date]");
+    if (dailySalesDay && ["Enter"," "].includes(event.key) && window.matchMedia("(min-width: 901px)").matches) {
+      event.preventDefault();
+      dailySalesDay.dispatchEvent(new MouseEvent("click",{ bubbles: true }));
+      return;
+    }
     const saleRow = event.target.closest("[data-sale-details], [data-delivery-person]");
     if (saleRow && ["Enter", " "].includes(event.key)) {
       event.preventDefault();

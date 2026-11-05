@@ -1,5 +1,17 @@
 # Branchline
 
+### Desktop daily sales drilldown (shell v143)
+
+On desktop (over 900px), click a past/current day bar in Sales > Daily sales
+summary to open that day's individual invoices. Enter/Space also opens a focused
+day. The popup follows the chart's authorized branch scope and current Price/SRP
+basis, includes signed returns, and excludes TEST sales. It does not inherit the
+separate sales log's search or date range. Click a transaction, or use Enter/Space
+on its row, to open the existing transaction details with products and serials.
+Empty days explicitly report no invoices. Summary-only historical amounts are
+not invented as invoice records; the popup explains possible total differences.
+Mobile hover/long-press tooltip behavior and the View table action are unchanged.
+
 ### Sales return presentation (shell v142)
 
 The return dialog expands to 1200px on desktop. Its header and close button stay
