@@ -117,13 +117,51 @@ test("brand-log sheets itemize serials and identity but never export peer prices
   assert.doesNotMatch(JSON.stringify(result), /999|Hidden|selling_price|customer_name/);
 });
 
-test("invalid serial quantities fail explicitly rather than duplicating or losing units", () => {
+test("legacy excess or unavailable serials export blank without losing quantities", () => {
   const { ctx, lines, serials, sale } = fixture();
   ctx.entries = [{ sale, line: lines[0] }];
   serials.push("4", "5");
-  assert.throws(() => vm.runInContext("itemizedSaleLines(entries)", ctx), /serial count or product quantity is invalid/);
+  assert.deepEqual(Array.from(vm.runInContext("itemizedSaleLines(entries)", ctx),row=>[row.serial,row.line.quantity]),[["",2]]);
   ctx.liveData.exportWarnings = ["Serial numbers"];
-  assert.throws(() => vm.runInContext("itemizedSaleLines(entries)", ctx), /Serial numbers failed to load/);
+  assert.deepEqual(Array.from(vm.runInContext("itemizedSaleLines(entries)", ctx),row=>[row.serial,row.line.quantity]),[["",2]]);
+  lines[0].quantity=0;
+  assert.throws(() => vm.runInContext("itemizedSaleLines(entries)", ctx), /product quantity is invalid/);
   ctx.liveData.brandSalesError = "Brand log unavailable";
   assert.throws(() => vm.runInContext("exportSales()", ctx), /Brand log unavailable/);
+});
+
+test("historical returns retain signed quantities and amounts with blank or recorded serials", () => {
+  const {ctx,lines,sale,serials}=fixture();
+  lines[0].quantity=-2;lines[1].quantity=-2;
+  ctx.entries=lines.slice(0,2).map(line=>({sale,line}));
+  let rows=vm.runInContext("itemizedSaleLines(entries)",ctx);
+  assert.deepEqual(Array.from(rows,row=>[row.serial,row.line.quantity]),[["S-001",-1],["S-002",-1],["S-003",-1],["",-1]]);
+  assert.equal(rows.reduce((sum,row)=>sum+A.salesLineAmount(row.line,"price"),0),-600);
+  serials.length=0;
+  rows=vm.runInContext("itemizedSaleLines(entries)",ctx);
+  assert.deepEqual(Array.from(rows,row=>[row.serial,row.line.quantity]),[["",-2],["",-2]]);
+  ctx.rows=[{invoice_number:"00025392",quantity:-1,serial_numbers:[]}];
+  const sheet=vm.runInContext("brandLogExportSheet(rows)",ctx);
+  assert.equal(sheet.rows[1][7],-1);assert.equal(sheet.rows[1][9],"");
+  ctx.rows[0].serial_numbers=["OLD","EXCESS"];
+  const excess=vm.runInContext("brandLogExportSheet(rows)",ctx);
+  assert.equal(excess.rows.length,2);assert.equal(excess.rows[1][7],-1);assert.equal(excess.rows[1][9],"");
+});
+
+test("invoice 00025392-style return downloads with blank serial and negative 17330 total",()=>{
+  const {ctx,lines,sale,serials,sheets}=fixture();
+  sale.invoice_number="00025392";
+  lines.splice(1);
+  Object.assign(lines[0],{barcode:"00058076",quantity:-1,selling_price:17330,srp:17330});
+  serials.length=0;
+  ctx.currentProfile.role="manager";
+  ctx.deliveryExport=()=>({name:"Delivery",rows:[["Total"],[0]]});
+  vm.runInContext("exportSales()",ctx);
+  const rows=sheets.find(sheet=>sheet.name==="Sales").rows;
+  const at=label=>rows[0].indexOf(label);
+  assert.equal(rows.length,2);
+  assert.equal(rows[1][at("Invoice")],"00025392");
+  assert.equal(rows[1][at("Serial numbers")],"");
+  assert.equal(rows[1][at("Qty")],-1);
+  assert.equal(rows[1][at("Amount")],-17330);
 });

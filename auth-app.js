@@ -6540,19 +6540,21 @@
   }
 
   function itemizedSaleLines(entries) {
-    if (liveData.exportWarnings?.includes("Serial numbers")) throw new Error("Serial numbers failed to load. Reload the workspace successfully before exporting sales.");
+    const serialsUnavailable = liveData.exportWarnings?.includes("Serial numbers");
+    if (serialsUnavailable) console.warn("Sales export: serial numbers failed to load; serial cells will be blank.");
     return entries.flatMap(({ sale, line }) => {
       const peers = linesForSale(sale.id).filter(item => item.barcode === line.barcode);
       const index = peers.indexOf(line);
       if (index < 0) throw new Error("A sale line changed during export. Reopen the report and try again.");
       const quantity = Number(line.quantity);
-      const serials = serialsFor(sale.id, line.barcode);
-      const total = peers.reduce((sum, item) => sum + Number(item.quantity), 0);
-      if (!Number.isInteger(quantity) || quantity <= 0 || serials.length > total) throw new Error(`Invoice ${sale.invoice_number || sale.id}: serial count or product quantity is invalid.`);
-      const start = peers.slice(0, index).reduce((sum, item) => sum + Number(item.quantity), 0);
-      const assigned = serials.slice(start, start + quantity);
-      return [...assigned.map(serial => ({ sale, line: { ...line, quantity: 1 }, serial })),
-        ...(quantity > assigned.length ? [{ sale, line: { ...line, quantity: quantity - assigned.length }, serial: "" }] : [])];
+      if (peers.some(item => !Number.isSafeInteger(Number(item.quantity)) || Number(item.quantity) === 0)) throw new Error(`Invoice ${sale.invoice_number || sale.id}: product quantity is invalid.`);
+      const serials = serialsUnavailable ? [] : serialsFor(sale.id, line.barcode);
+      const total = peers.reduce((sum, item) => sum + Math.abs(Number(item.quantity)), 0);
+      const start = peers.slice(0, index).reduce((sum, item) => sum + Math.abs(Number(item.quantity)), 0);
+      const units = Math.abs(quantity), sign = Math.sign(quantity);
+      const assigned = serials.length > total ? [] : serials.slice(start, start + units);
+      return [...assigned.map(serial => ({ sale, line: { ...line, quantity: sign }, serial })),
+        ...(units > assigned.length ? [{ sale, line: { ...line, quantity: sign * (units - assigned.length) }, serial: "" }] : [])];
     });
   }
 
@@ -6582,11 +6584,13 @@
     return { name, rows: [
       ["Date", "Invoice", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Qty", "Barcode", "Serial number", "Sales code", "PS name"],
       ...items.flatMap(row => {
-        const serials = row.serial_numbers || [];
         const quantity = Number(row.quantity);
-        if (serials.length > quantity) throw new Error(`Invoice ${row.invoice_number}: too many serial numbers in the brand log.`);
-        const units = [...serials.map(serial => ({ serial, quantity: 1 })),
-          ...(quantity > serials.length ? [{ serial: "", quantity: quantity - serials.length }] : [])];
+        if (!Number.isSafeInteger(quantity) || quantity === 0) throw new Error(`Invoice ${row.invoice_number}: product quantity is invalid.`);
+        const recorded = row.serial_numbers || [];
+        const serials = recorded.length > Math.abs(quantity) ? [] : recorded;
+        const sign = Math.sign(quantity);
+        const units = [...serials.map(serial => ({ serial, quantity: sign })),
+          ...(Math.abs(quantity) > serials.length ? [{ serial: "", quantity: sign * (Math.abs(quantity) - serials.length) }] : [])];
         return units.map(unit => [row.sold_on, row.invoice_number, row.ps_name, row.brand, row.category, row.sub_category,
           row.model_description, unit.quantity, row.barcode || "", unit.serial, ...exportPsIdentity(row)]);
       }),

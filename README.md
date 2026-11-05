@@ -1,5 +1,15 @@
 # Branchline
 
+### Historical sale downloads (shell v140)
+
+Missing serials no longer block downloads: unnumbered units export with blank
+serial cells. Legacy excess serial counts also export blank rather than guessing
+an assignment. A serial-load failure leaves serial cells blank and logs a warning,
+without blocking the workbook. Valid signed return quantities remain negative in
+both sales and brand-log exports, preserving their original amounts. Zero,
+fractional or otherwise invalid product quantities still block export explicitly.
+This changes downloads only, not saved transactions or serial-entry requirements.
+
 ### Table controls (shell v139)
 
 Data-column headers sort ascending/descending throughout the workspace,
