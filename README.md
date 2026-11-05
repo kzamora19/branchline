@@ -1,5 +1,21 @@
 # Branchline
 
+### Confirmed multiword brands
+
+Apply `supabase/migrations/20261211000000_confirmed_brand_names.sql` to enforce
+confirmed names across catalog imports, inventory imports, manual product saves
+and sale-line writes. `LA` resolves only when the description explicitly starts
+with `LA GERMANIA` or `LA-Z-BOY`; `LAGERMANIA` is the confirmed spelling alias for
+`LA GERMANIA`. `AMERICAN` resolves only from an explicit `AMERICAN HOME` or
+`AMERICAN MASTER` description prefix. Unresolved `LA` / `AMERICAN` saves fail
+with the barcode and a full-brand review message rather than guessing.
+Already complete brand names and other brands, including consignment labels,
+are unchanged. Existing role and branch restrictions remain enforced.
+
+The migration installs write safeguards only; existing labels need a separately
+audited, backed-up correction against original sources. Do not blanket-merge
+American brands or change prices, descriptions, quantities or historical amounts.
+
 ### Zero SRP valuation (shell v136)
 
 For MOH, explicit SRP `0.00` is a valid zero stock/sell-out valuation, not missing
