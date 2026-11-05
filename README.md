@@ -1,5 +1,14 @@
 # Branchline
 
+### Branch-wide sales-log timeout repair
+
+Apply `supabase/migrations/20261210000000_brand_scope_read_performance.sql` for
+slow branch-wide brand logs. The new dealer/canonical-brand index accelerates
+catalog-backed PS scope resolution, including peer assignments. It does not
+change RPC results, brand aliases, category scope exclusions, serial allocation,
+signed returns, price privacy, or saved sales. Reload the workspace to retry a
+previously failed log.
+
 ### Inventory SRP read timeout repair
 
 Apply `supabase/migrations/20261209000000_product_read_performance.sql` if the

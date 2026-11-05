@@ -38,6 +38,7 @@ test("database brand aliases preserve scoped routing, access checks, test exclus
     await db.exec(read("20261203000000_canonical_brand_matching"));
     await db.exec(read("20261204000000_itemized_brand_exports"));
     await db.exec(read("20261205000000_brand_log_returns"));
+    await db.exec(read("20261210000000_brand_scope_read_performance"));
     await db.exec(`insert into profiles(id,dealer_id,branch_id,role,assigned_brand,full_name) values
       ('${general}','${dealer}','${branch}','ps','CON-CONDURA','General'),
       ('${scoped}','${dealer}','${branch}','ps','CARRIER / CON-CONDURA - AIRCON','Scoped'),
@@ -99,6 +100,10 @@ test("database brand aliases preserve scoped routing, access checks, test exclus
     }
     const parts = await query("select * from ps_brand_parts('CARRIER / CON-CONDURA - AIRCON / CON-DEVANT',$1)", [dealer]);
     assert.deepEqual(parts, [{ base: "carrier", scope: null }, { base: "condura", scope: "aircon" }, { base: "devant", scope: null }]);
+    await db.exec("set enable_seqscan=off");
+    const lookupPlan = await query("explain (format json) select 1 from products where dealer_id=$1 and public.brand_key(brand)=$2", [dealer,"condura"]);
+    assert.match(JSON.stringify(lookupPlan), /products_dealer_brand_key_idx/);
+    await db.exec("reset enable_seqscan");
     await actor(admin); await db.exec("set role authenticated");
     await assert.rejects(query("select * from export_brand_branch_sales()"), /active Product Specialist/);
     await assert.rejects(query("select * from export_brand_branch_sales_v2()"), /active Product Specialist/);
