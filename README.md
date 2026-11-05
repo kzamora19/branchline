@@ -1,5 +1,41 @@
 # Branchline
 
+### Basic inventory/product view and search (shell v130)
+
+Inventory and product sales now defaults to Branch, Barcode, Product, Brand,
+Category, Sub-category, Available now, Units sold, 90+ day serials, Monthly
+forecast, Re-order qty, Stock status and Movement status. Sales amounts, duplicate observations
+and technical forecast columns are hidden until **Show details** is checked.
+The lengthy notice above this table is removed entirely, including in the detail
+view. Real forecast-loading errors and red shortage warnings remain visible.
+
+The table's own **Search products** field searches all authorized rows, not just
+the current page, by branch, barcode, product/model, brand, category or
+subcategory. Search is case-insensitive, resets this table to page one and does
+not filter other Analytics panels or change forecast history. Clear it to restore
+all scoped products. Search/details reset on account changes. Downloads retain
+all numeric source columns; Export All ignores this local search as it does
+other display filters.
+
+Automatic forecasts now use the last twelve completed months, limited to
+recorded branch history, instead of starting separately at each item's first
+sale. Quiet months count even before that first item sale. The partial current
+month is excluded from learning but its net branch sales still reduce remaining
+demand. A branch with less than one open-month equivalent of completed history
+shows Insufficient history instead of extrapolating a single sale. Explicit
+Forecast from/to dates still allow deliberate partial-month learning. Longer
+history remains available for the existing verified two-year seasonal patterns,
+and approved climate/events and actual closures retain their existing effects.
+
+Movement status is independent of stock status: fewer than one net branch unit
+per month with at least three open-month equivalents is **Slow moving**; higher
+rates are **Regular movement**. Separate labels identify No recorded net sales,
+Insufficient history and unavailable demand. Show details includes the branch
+units, history dates/months, rate and movement explanation. One sale across a
+year with two available units, without a justified demand increase, forecasts
+one unit and reorders zero. PS Units sold remains personal-period sales; demand
+and movement consistently use the authorized whole-branch product history.
+
 ### Campaign calendar colors (shell v129)
 
 Major Sale Event dates are orange/gold, Major Campaign dates purple and Special

@@ -35,6 +35,16 @@ test("summer category pattern raises April demand and other months use their own
   assert.equal(december.forecastMonth, "2026-12");
 });
 
+test("automatic twelve-month baseline retains older complete years for seasonal evidence",()=>{
+  const facts=[{...history()[0],date:"2024-01-01",barcode:"OTHER",category:"Other",quantity:1},
+    ...history(),...history().filter(row=>row.date.startsWith("2025")).map(row=>({...row,date:row.date.replace("2025","2026")}))];
+  const row=forecast({facts,from:"0001-01-01",to:"2026-10-31",targetMonth:"2027-04"}).products[0];
+  assert.equal(row.historyFrom,"2025-11-01");assert.equal(row.historyTo,"2026-10-31");
+  assert.equal(row.historyMonths,12);assert.equal(row.branchSold,140);
+  assert.equal(row.forecast,30);assert.equal(row.reorder,25);
+  assert.equal(row.forecastBasis,"Seasonal category pattern (2024, 2025)");
+});
+
 test("category seasonality is shared by other items but never by a different branch or category", () => {
   const facts = [...history(),
     ...history().map(row => ({ ...row, barcode: "002", quantity: row.quantity * 2 })),
@@ -110,7 +120,7 @@ test("two full prior years must lie inside learning dates, no target/future sale
   const future = forecast({ from: "2027-01-01", to: "2027-03-31" }).products[0];
   assert.equal(future.forecast, null);
   assert.equal(future.seasonalFactor, null);
-  assert.equal(future.forecastBasis, "Forecast unavailable");
+  assert.equal(future.forecastBasis, "Insufficient history");
 });
 
 test("fallback has no preset aircon summer boost, failed loads and zero history stay explicit", () => {

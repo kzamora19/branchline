@@ -96,12 +96,15 @@ test("partial-month whole-number forecasts do not acquire an extra unit from rou
   }
 });
 
-test("all-time starts at first authorized recorded sale and includes quiet months through today", () => {
+test("automatic history excludes the partial current month and never uses unauthorized branches", () => {
   const result = forecast({ from: "0001-01-01", to: "9999-12-31", today: "2026-10-31",
     facts: [sale(50, "2026-01-01"), sale(50), sale(999, "2000-01-01", "001", "foreign")] });
   assert.equal(result.from, "2026-01-01");
   assert.equal(result.months, 10);
-  assert.equal(result.products[0].forecast, 10);
+  assert.equal(result.products[0].historyMonths,9);
+  assert.equal(result.products[0].branchSold,50);
+  assert.equal(result.products[0].forecast, 6);
+  assert.equal(result.products[0].reorder,0);
   const empty = forecast({ from: "0001-01-01", to: "9999-12-31", facts: [] });
   assert.equal(empty.months, 0);
   assert.equal(empty.products[0].forecast, null);
@@ -223,28 +226,53 @@ test("failed PS branch log is visibly reported and forecasts are unavailable, ne
 });
 
 test("forecast calendars override demand history without changing personal sold units or amounts", () => {
-  const { table, html } = render("ps", {}, { inventoryForecastFrom: "2026-10-01", inventoryForecastTo: "2026-10-31" });
+  const { table, html } = render("ps", {}, { inventoryForecastFrom: "2026-10-01", inventoryForecastTo: "2026-10-31", inventoryProductDetails: true });
   assert.equal(table.rows[0][7], 20);
   assert.equal(table.rows[0][8], "P200");
   assert.deepEqual(Array.from(table.rows[0].slice(11, 15)), [100, 100, 95, "Critical stock"]);
   assert.equal(table.rows[0][20], "2026-10-01");
   assert.equal(table.rows[0][21], 1);
-  assert.match(html, /History ends 2026-10-31/);
+  assert.doesNotMatch(html, /History ends 2026-10-31/);
 });
 
-test("blank forecast calendars use complete product history, not Analytics display dates", () => {
+test("inventory product view is basic by default with local search and optional full forecast details",()=>{
+  const basic=render();
+  assert.match(basic.html,/data-inventory-product-search/);
+  assert.match(basic.html,/data-inventory-product-details/);
+  assert.match(basic.html,/inventory-product-basic/);
+  assert.doesNotMatch(basic.html,/History ends 2026-10-31/);
+  const detail=render("ps",{}, {inventoryProductDetails:true});
+  assert.doesNotMatch(detail.html,/inventory-product-basic/);
+  assert.doesNotMatch(detail.html,/History ends 2026-10-31/);
+  assert.deepEqual(JSON.parse(JSON.stringify(basic.table.rows)),JSON.parse(JSON.stringify(detail.table.rows)));
+  assert.equal(basic.table.headers.length,32);
+  assert.equal(basic.table.headers[14],"Stock status");
+  for(const role of ["ps","manager","district_manager","admin"]){
+    for(const search of [" zero ","ZeRo"]){
+      const filtered=render(role,{}, {inventoryProductSearch:search});
+      assert.equal(filtered.table.rows.length,1);assert.equal(filtered.table.rows[0][1],"ZERO");
+      const original=render(role).table.rows.find(row=>row[1]==="ZERO");
+      assert.deepEqual(Array.from(filtered.table.rows[0]),Array.from(original));
+    }
+    assert.equal(render(role,{}, {inventoryProductSearch:"tcl"}).table.rows.length,render(role).table.rows.filter(row=>row[3]==="TCL").length);
+    assert.equal(render(role,{}, {inventoryProductSearch:"nonexistent model"}).table.rows.length,0);
+    assert.equal(render(role,{}, {inventoryProductSearch:"foreign"}).table.rows.length,0);
+  }
+});
+
+test("blank forecast calendars use twelve completed months, not Analytics display dates or partial-month demand", () => {
   const { table } = render("ps", { brandSales: [
     { branch_id: "one", barcode: "001", sold_on: "2025-11-01", quantity: 150 },
     { branch_id: "one", barcode: "001", sold_on: "2026-11-04", quantity: 4 },
   ] }, { inventoryForecastFrom: "", inventoryForecastTo: "" });
   const row = table.rows.find(row => row[1] === "001");
-  assert.equal(row[11], 154);
+  assert.equal(row[11], 150);
   assert.equal(row[12], 13);
   assert.equal(row[18], 4);
   assert.equal(row[19], 9);
   assert.equal(row[13], 4);
   assert.equal(row[20], "2025-11-01");
-  assert.equal(row[21], 12 + 4 / 30);
+  assert.equal(row[21], 12);
 });
 
 test("150 historical units over twelve months: reorder ten, or six after four sold this month", () => {
@@ -275,15 +303,41 @@ test("returns reduce historical net sell-out and current-month fulfillment witho
   assert.equal(forecast({ facts: [sale(-5)] }).products[0].forecast, 0);
 });
 
-test("all-history denominators start separately for each exact branch/product", () => {
+test("automatic denominators include branch quiet months before each item's first sale", () => {
   const rows = forecast({ from: "0001-01-01", to: "2026-10-31",
     products: [product(), product("NEW"), product("NONE")],
     facts: [sale(100, "2026-01-01"), sale(10, "2026-10-01", "NEW")] }).products;
   assert.equal(rows[0].historyMonths, 10);
-  assert.equal(rows[1].historyMonths, 1);
+  assert.equal(rows[1].historyMonths, 10);
   assert.equal(rows[0].forecast, 10);
-  assert.equal(rows[1].forecast, 10);
-  assert.equal(rows[2].forecast, null);
+  assert.equal(rows[1].forecast, 1);
+  assert.equal(rows[2].forecast, 0);
+});
+
+test("one sale across a year with two units available is slow moving, forecasts one and never reorders",()=>{
+  const row=forecast({from:"0001-01-01",to:"2026-10-31",products:[product("SLOW",2)],
+    facts:[sale(10,"2025-11-01","OTHER"),sale(1,"2026-10-31","SLOW")]}).products[0];
+  assert.equal(row.historyFrom,"2025-11-01");assert.equal(row.historyMonths,12);
+  assert.equal(row.branchSold,1);assert.equal(row.forecast,1);assert.equal(row.reorder,0);
+  assert.equal(row.stockAlert,"Sufficient stock");assert.equal(row.movementStatus,"Slow moving");
+  assert.match(row.movementReason,/1 net branch units \/ 12/);
+});
+test("automatic thin history never extrapolates one day into a month's reorder; branch histories remain separate",()=>{
+  const rows=forecast({from:"0001-01-01",to:"2026-10-31",branchIds:new Set(["one","two"]),
+    products:[product("SLOW",2),product("SLOW",2,"two")],
+    facts:[sale(1,"2025-11-01","OTHER"),sale(1,"2026-10-31","SLOW"),sale(1,"2026-10-31","SLOW","two")]}).products;
+  assert.equal(rows[0].forecast,1);assert.equal(rows[0].reorder,0);
+  assert.equal(rows[1].forecast,null);assert.equal(rows[1].reorder,null);
+  assert.equal(rows[1].forecastBasis,"Insufficient history");
+  assert.equal(rows[1].movementStatus,"Insufficient history");
+});
+test("movement labels use raw net branch demand, three-month threshold, returns and exact barcode",()=>{
+  for(const [units,status] of [[0,"No recorded net sales"],[-1,"No recorded net sales"],[2,"Slow moving"],[3,"Regular movement"]]){
+    const row=forecast({from:"2026-08-01",to:"2026-10-31",facts:[sale(units)]}).products[0];
+    assert.equal(row.movementStatus,status);
+  }
+  assert.equal(forecast({from:"2026-09-01",to:"2026-10-31",facts:[sale(1)]}).products[0].movementStatus,"Insufficient history");
+  assert.equal(forecast({unavailable:true}).products[0].movementStatus,"Unavailable");
 });
 
 test("reversed forecast calendars are rejected without changing saved dates or results", () => {

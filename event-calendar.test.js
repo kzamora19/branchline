@@ -28,7 +28,7 @@ test("historical closed days are not mistaken for zero-demand selling exposure",
   const row=forecast({closures:[closure("2026-10-17","2026-10-31")]});
   assert.equal(row.historyMonths,16/31);
   assert.equal(row.forecast,59);
-  assert.equal(forecast({closures:[closure("2026-10-17","2026-10-31")],from:"0001-01-01"}).forecast,59);
+  assert.equal(forecast({closures:[closure("2026-10-17","2026-10-31")],from:"0001-01-01"}).forecast,null);
   const closedHistory=forecast({closures:[closure("2026-10-01","2026-10-31")]});
   assert.equal(closedHistory.forecast,null);
   assert.equal(closedHistory.stockAlert,"Forecast unavailable");

@@ -187,6 +187,8 @@
   }
 
   function resetUi() {
+    ui.inventoryProductSearch = "";
+    ui.inventoryProductDetails = false;
     ui.salesBasis = "price";
     ui.filtersOpen = false;
     ui.period = "month";
@@ -2467,10 +2469,12 @@
     return `<article class="connected-metric"><span>Daily sales needed</span><strong>${value}</strong><small>${escapeHTML(note)}</small></article>`;
   }
 
-  function analyticsDataTable(key, title, detail, headers, rows, cellClass = () => "", controls = "") {
+  function analyticsDataTable(key, title, detail, headers, rows, cellClass = () => "", controls = "", beforeTable = "") {
     const rowHtml = row => `<tr>${row.map((value, index) => `<td class="${escapeHTML(cellClass(row, index))}">${escapeHTML(value ?? "Unknown")}</td>`).join("")}</tr>`;
-    return panel(title, detail, tableBlock(key, headers, rows, rowHtml, "No data in this scope.", PAGE_SIZE,
-      (row, index) => row[index]), controls);
+    const table = tableBlock(key, headers, rows, rowHtml, "No data in this scope.", PAGE_SIZE,
+      (row, index) => row[index]);
+    return panel(title, detail, beforeTable + (key === "an-inventory-products"
+      ? `<div class="inventory-product-table${ui.inventoryProductDetails ? "" : " inventory-product-basic"}">${table}</div>` : table), controls);
   }
 
   function inventoryAnalyticsPanels(ids, facts, from, to, today) {
@@ -2502,7 +2506,6 @@
     const cards = `<div class="connected-metrics">${metric("Available units now", summary.units)}${metric("Tracked branch / product pairs", summary.tracked)}${metric("Out-of-stock branch / product pairs", summary.stockouts)}${metric("Not initialized", summary.uninitialized)}${metric("Awaiting classification", summary.unclassified)}${metric("Available serials aged 90+ days", summary.days90)}${!isPs ? metric("Missing SRP (unset or zero)", summary.missingSrp) : ""}</div>`;
     const rangeLabel = from === "0001-01-01" && to === "9999-12-31" ? "all recorded dates" : `${from} to ${to}`;
     const note = `Current inventory as of ${today}; sales/activity dates: ${rangeLabel}. Stock is not a historical balance. ${isPs ? "Your assigned brand/category stock; sold units and sales are your own, not branch-wide demand." : "Available quantities exclude reserved/in-transit stock."} Uninitialized inventory is unknown, not zero. No cost, profit or historical stock valuation is inferred.`;
-    const forecastNote = ` Forecast for ${forecast.targetMonth} (defaults to this month). Uses all available branch/product sales history, including returns, independently of the Analytics display period; optional Forecast from/to limits learning only. Monthly forecast = net historical units / elapsed history months x seasonal factor, rounded up. Each product's history starts at its first recorded positive sale unless Forecast from is set; quiet months count and partial months are prorated. History ends ${forecast.to}, never after today. Seasonality uses at least two complete prior category-sales years, otherwise the monthly average is used. Remaining demand = max(0, monthly forecast - net branch units already sold in the forecast month). Re-order qty = max(0, remaining demand - available now). Red = shortage; red/bold = zero stock with remaining demand. No lead time, pending orders or unrecorded demand is inferred.`;
     const products = forecast.products.map(row => [branchName(row.branch_id), row.barcode, row.model_description,
       row.brand, row.category || "Unclassified", row.sub_category || "", row.quantity ?? "Not initialized",
       row.sold, formatMoney(row.sales), row.days90,
@@ -2513,14 +2516,20 @@
       row.forecastMonth, row.seasonalFactor ?? "Unavailable", row.forecastBasis,
       row.soldThisMonth ?? "Unavailable", row.remainingDemand ?? "Unavailable", row.historyFrom || "No recorded sales",
       row.historyMonths, row.baselineForecast ?? "Unavailable", row.approvedPercent, row.adjustmentReason,
-      row.sellingDays,row.remainingSellingDays,row.calendarFactor,row.eventPercent,row.eventReason]);
+      row.sellingDays,row.remainingSellingDays,row.calendarFactor,row.eventPercent,row.eventReason,row.movementStatus,row.movementReason]);
     const stockCellClass = (row, index) => [6, 13, 14].includes(index)
       ? row[14] === "Needs attention" ? "inventory-stock-alert inventory-stock-attention"
         : row[14] === "Critical stock" ? "inventory-stock-alert" : "" : "";
     const demandWarning = demandError ? `<p class="connected-error" role="alert">Forecast unavailable: ${escapeHTML(demandError)}</p>` : "";
     const forecastControls = `<label class="field"><span>Forecast month</span><input type="month" data-filter="inventoryForecastMonth" value="${escapeHTML(forecast.targetMonth)}" required></label><label class="field"><span>Forecast from (optional)</span><input type="date" data-filter="inventoryForecastFrom" value="${escapeHTML(ui.inventoryForecastFrom || "")}"></label><label class="field"><span>Forecast to (optional)</span><input type="date" data-filter="inventoryForecastTo" value="${escapeHTML(ui.inventoryForecastTo || "")}"></label>`;
-    const productTable = eventCalendarPanel(ids) + demandWarning + analyticsDataTable("an-inventory-products", "Inventory and product sales", note + forecastNote + " Calendar closures (including old company-wide dates) are deduplicated. History months are open-day equivalents; target demand is scaled by open days / calendar days. With no remaining open days, no reorder is recommended. Otherwise every day is assumed open. Approved climate and combined event percentages multiply the unrounded calendar-adjusted seasonal estimate before rounding and deducting fulfilled demand. Avoid counting the same cause twice.",
-      ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Units sold", "Sales", "90+ day serials", "Observation", "Branch units sold", "Monthly forecast", "Re-order qty", "Stock alert", "Forecast month", "Seasonal factor", "Forecast basis", "Branch units sold in forecast month", "Remaining demand", "Product history from", "History months", "Baseline monthly forecast", "Approved external adjustment %", "Adjustment justification","Open days in forecast month","Remaining open days","Calendar factor","Approved event adjustment %","Event adjustment justification"], products, stockCellClass, forecastControls);
+    const search = String(ui.inventoryProductSearch || "").trim().toLowerCase();
+    const shownProducts = search ? products.filter(row=>row.slice(0,6).some(value=>String(value ?? "").toLowerCase().includes(search))) : products;
+    const productControls = `<div class="inventory-product-controls">
+      <label class="field"><span>Search products</span><input type="search" data-inventory-product-search value="${escapeHTML(ui.inventoryProductSearch || "")}" placeholder="Barcode, product / model, brand, category or branch" aria-label="Search inventory and product sales"></label>
+      <label class="inventory-product-details"><input type="checkbox" data-inventory-product-details ${ui.inventoryProductDetails ? "checked" : ""}> Show details</label>
+      </div>`;
+    const productTable = eventCalendarPanel(ids) + demandWarning + analyticsDataTable("an-inventory-products", "Inventory and product sales", "",
+      ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Units sold", "Sales", "90+ day serials", "Observation", "Branch units sold", "Monthly forecast", "Re-order qty", "Stock status", "Forecast month", "Seasonal factor", "Forecast basis", "Branch units sold in forecast month", "Remaining demand", "Product history from", "History months", "Baseline monthly forecast", "Approved external adjustment %", "Adjustment justification","Open days in forecast month","Remaining open days","Calendar factor","Approved event adjustment %","Event adjustment justification","Movement status","Movement explanation"], shownProducts, stockCellClass, forecastControls, productControls);
     const aging = analyticsDataTable("an-inventory-aging", "Current stock aging", "Available serialized units only. Missing/invalid receipt dates are unknown; nonserialized units have no receipt-age data.",
       ["Age band", "Available serials"], [["Current (0-29 days)", summary.current], ["30 days (30-59)", summary.days30],
         ["60 days (60-89)", summary.days60], ["90 days or more", summary.days90], ["Unknown receipt age", summary.unknown]]);
@@ -7388,6 +7397,19 @@
   window.addEventListener("scroll", hideChartTipOnScroll, { passive: true });
 
   connectedContent.addEventListener("input", event => {
+    const inventorySearch = event.target.closest("[data-inventory-product-search]");
+    if (inventorySearch) {
+      const start = inventorySearch.selectionStart, end = inventorySearch.selectionEnd;
+      ui.inventoryProductSearch = inventorySearch.value;
+      ui.pages["an-inventory-products"] = 1;
+      refreshResults();
+      const field = connectedContent.querySelector("[data-inventory-product-search]");
+      if (field) {
+        field.focus();
+        field.setSelectionRange(start, end);
+      }
+      return;
+    }
     const box = event.target.closest?.("[data-colfilter]");
     if (!box || !resultsView) return;
     const fieldScope = box.closest("[data-pie-table-content]") ? modalRoot : connectedContent;
@@ -7467,6 +7489,13 @@
   });
 
   connectedContent.addEventListener("change", event => {
+    const inventoryDetails = event.target.closest("[data-inventory-product-details]");
+    if (inventoryDetails) {
+      ui.inventoryProductDetails = inventoryDetails.checked;
+      refreshResults();
+      connectedContent.querySelector("[data-inventory-product-details]")?.focus();
+      return;
+    }
     const calendarMonth = event.target.closest("[data-event-month]");
     if(calendarMonth) {
       if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(calendarMonth.value)) {

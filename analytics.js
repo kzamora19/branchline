@@ -573,7 +573,19 @@
         months += ((toMs(last) - toMs(first)) / DAY_MS + 1) / daysInMonth(month);
       }
     }
-    const sold = new Map(), firstSale = new Map(), monthSold = new Map();
+    const sold = new Map(), monthSold = new Map();
+    const completedEnd = addDays(monthStart(today.slice(0,7)), -1);
+    const autoEnd = [end, cutoff, completedEnd].sort()[0];
+    const historyEnd = allTime ? autoEnd : end;
+    const rollingStart = `${shiftMonth(historyEnd.slice(0,7),-11)}-01`;
+    const branchFirst = new Map();
+    for (const row of facts) {
+      if (!branchIds.has(row.branchId) || !row.date || row.date > through) continue;
+      if (!branchFirst.has(row.branchId) || row.date < branchFirst.get(row.branchId)) branchFirst.set(row.branchId,row.date);
+    }
+    const historyStartFor = branch => allTime
+      ? branchFirst.has(branch) ? (branchFirst.get(branch) > rollingStart ? branchFirst.get(branch) : rollingStart) : ""
+      : start;
     const targetStart = monthStart(targetMonth), targetEnd = monthEnd(targetMonth);
     for (const row of facts) {
       if (!branchIds.has(row.branchId) || row.summary || !row.barcode || row.date > today
@@ -597,13 +609,13 @@
     const hasClosures = holidays.length > 0 || closures.length > 0;
     const monthCounts = new Map();
     const elapsedMonths = (first, branch) => {
-      if (!first || first > end) return 0;
+      if (!first || first > historyEnd) return 0;
       const key = hasClosures ? `${branch}\0${first}` : first;
       if (monthCounts.has(key)) return monthCounts.get(key);
       let count = 0;
-      for (let month = first.slice(0, 7); month <= end.slice(0, 7); month = shiftMonth(month, 1)) {
+      for (let month = first.slice(0, 7); month <= historyEnd.slice(0, 7); month = shiftMonth(month, 1)) {
         const a = first > monthStart(month) ? first : monthStart(month);
-        const b = end < monthEnd(month) ? end : monthEnd(month);
+        const b = historyEnd < monthEnd(month) ? historyEnd : monthEnd(month);
         count += (hasClosures ? countSellingDays(a, b, rulesFor(branch)) : (toMs(b) - toMs(a)) / DAY_MS + 1) / daysInMonth(month);
       }
       monthCounts.set(key, count);
@@ -623,8 +635,7 @@
         if (!branchActivity.has(row.branchId)) branchActivity.set(row.branchId, new Set());
         branchActivity.get(row.branchId).add(row.date.slice(0, 7));
       }
-      sold.set(key, (sold.get(key) || 0) + quantity);
-      if (quantity > 0 && (!firstSale.has(key) || row.date < firstSale.get(key))) firstSale.set(key, row.date);
+      if (row.date >= historyStartFor(row.branchId) && row.date <= historyEnd) sold.set(key, (sold.get(key) || 0) + quantity);
       const category = categoryKey(row.category) || catalogCategories.get(key);
       if (!category || category === "unclassified" || !quantity) continue;
       const groupKey = `${row.branchId}\0${category}`;
@@ -652,11 +663,12 @@
     return { from: start, to: end, months, targetMonth, products: products.map(row => {
       const key = `${row.branch_id}\0${row.barcode}`;
       const branchSold = unavailable ? null : sold.get(key) || 0;
-      const historyFrom = allTime ? firstSale.get(key) || "" : start;
+      const historyFrom = historyStartFor(row.branch_id);
       const historyMonths = elapsedMonths(historyFrom, row.branch_id);
       const soldThisMonth = unavailable ? null : monthSold.get(key) || 0;
       const pattern = seasonal.get(`${row.branch_id}\0${categoryKey(row.category)}`);
-      const seasonalFactor = unavailable || !historyMonths ? null : pattern?.factor ?? 1;
+      const insufficientHistory = !historyMonths || (allTime && historyMonths < 1);
+      const seasonalFactor = unavailable || insufficientHistory ? null : pattern?.factor ?? 1;
       const sellingDays = hasClosures ? openDays(row.branch_id, targetMonth) : daysInMonth(targetMonth);
       if (!remainingOpenCounts.has(row.branch_id)) remainingOpenCounts.set(row.branch_id,
         countSellingDays(targetStart > today ? targetStart : today, targetEnd, rulesFor(row.branch_id)));
@@ -678,10 +690,17 @@
       const stockAlert = forecast === null ? "Forecast unavailable" : row.quantity === null ? "Stock unknown"
         : reorder > 0 ? row.quantity === 0 ? "Needs attention" : "Critical stock"
           : forecast === 0 ? "No recorded demand" : "Sufficient stock";
-      const forecastBasis = rate === null ? "Forecast unavailable" : pattern
+      const forecastBasis = rate === null ? unavailable ? "Forecast unavailable" : "Insufficient history" : pattern
         ? `Seasonal category pattern (${pattern.years.join(", ")})`
         : "Monthly average (insufficient seasonal history)";
+      const monthlyRate = unavailable || !historyMonths ? null : Math.max(0, branchSold) / historyMonths;
+      const movementStatus = unavailable ? "Unavailable" : insufficientHistory ? "Insufficient history"
+        : branchSold <= 0 ? "No recorded net sales" : historyMonths < 3 ? "Insufficient history"
+          : monthlyRate < 1 ? "Slow moving" : "Regular movement";
+      const movementReason = unavailable ? "Branch demand data unavailable"
+        : `${branchSold} net branch units / ${Number(historyMonths.toFixed(2))} open-month equivalents (${historyFrom || "unknown"} to ${historyEnd}); ${monthlyRate === null ? "unknown" : Number(monthlyRate.toFixed(2))} units/month before seasonality or approved adjustments.`;
       return { ...row, branchSold, forecast, reorder, stockAlert, seasonalFactor, forecastBasis, forecastMonth: targetMonth,
+        movementStatus, movementReason, historyTo: historyEnd,
         soldThisMonth, remainingDemand, historyFrom, historyMonths, baselineForecast, approvedPercent,
         sellingDays, remainingSellingDays, calendarFactor, eventPercent, eventReason: eventAdjustment?.reason || "",
         adjustmentReason: adjustment?.reason || "No approved external adjustment" };
