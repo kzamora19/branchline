@@ -307,7 +307,8 @@ test("Analytics brand MOH uses branch-wide SRP value, stays independent of produ
     assert.equal(/inventory-stock-alert">3(?:\.1)?<\/td>/.test(result.table.html),stock>30);
   }
   const noSales=render("ps",{...options,brandSales:[]});
-  assert.match(noSales.table.html,/<td class="inventory-stock-alert">No sell-out<\/td>/);
+  assert.equal(noSales.table.rows[0][33],0);
+  assert.match(noSales.table.html,/<td class="inventory-stock-alert">0<\/td>/);
 });
 
 test("old saved learning calendars cannot override annual learning or change personal sales", () => {

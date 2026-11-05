@@ -100,7 +100,7 @@ test("missing/invalid SRP exposes priced subtotals and unit counts but never a p
   assert.equal(unknown.moh,null);
 });
 
-test("January, no sell-out, no stock and failed loads are explicit, not finite zero-MOH substitutes", () => {
+test("confirmed empty valuation has zero MOH; no sell-out with stock and failed loads remain explicit", () => {
   const january=calculate({today:"2027-01-05"}).brands[0];
   assert.equal(january.months,0);
   assert.equal(january.moh,null);
@@ -111,6 +111,7 @@ test("January, no sell-out, no stock and failed loads are explicit, not finite z
   assert.equal(noSales.mohBad,true);
   const empty=calculate({facts:[],products:[product("001",0)]}).brands[0];
   assert.equal(empty.stockValue,0);
+  assert.equal(empty.moh,0);
   assert.equal(empty.mohStatus,"No stock or sell-out");
   assert.equal(empty.mohBad,false);
   const failed=calculate({unavailable:true}).brands[0];

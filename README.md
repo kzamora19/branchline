@@ -1,5 +1,17 @@
 # Branchline
 
+### Numeric MOH display (shell v138)
+
+Confirmed zero stock value and zero completed sell-out calculate as `0.00` MOH.
+MOH card, brand/product dialogs and their exports keep quantitative columns
+numeric, displaying unavailable values as zero placeholders while preserving
+Status and load-error warnings. The dialogs explicitly identify this convention.
+These placeholders do not replace missing data in calculations or saved records.
+Stock with no sell-out still has an undefined underlying ratio and a red
+`No sell-out` warning; a displayed zero must not be interpreted as healthy MOH.
+Missing SRP, unmatched sales, January and failed loads remain flagged rather
+than becoming successful zero-valued calculations.
+
 ### Confirmed multiword brands
 
 Follow with `supabase/migrations/20261212000000_approved_brand_aliases.sql`

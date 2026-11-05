@@ -67,8 +67,36 @@ test("summary unavailable and missing-pricing states remain explicit; MOH over t
   const c=harness();c.liveData.inventoryStock=c.liveData.inventoryStock.map(row=>({...row,quantity:1000}));
   assert.match(c.inventoryMohCard(new Set(["one"]),c.analyticsFacts(),"2026-11-05"),/class="an-down"/);
   c.liveData.inventoryError="Stock load failed";
-  assert.match(c.inventoryMohCard(new Set(["one"]),c.analyticsFacts(),"2026-11-05"),/Unavailable/);
+  assert.match(c.inventoryMohCard(new Set(["one"]),c.analyticsFacts(),"2026-11-05"),/0.00 months/);
   assert.match(c.inventoryMohCard(new Set(["one"]),c.analyticsFacts(),"2026-11-05"),/Stock load failed/);
+});
+test("MOH numeric cells and exports use zero placeholders while preserving empty, unsold and unavailable statuses",()=>{
+  const c=harness("ps");
+  c.liveData.inventoryCatalog=[product("EMPTY",0,1000),product("UNKNOWN",5,null)];
+  c.liveData.inventoryStock=c.liveData.inventoryCatalog;
+  c.liveData.brandSales=[{branch_id:"one",barcode:"UNKNOWN",quantity:1,sold_on:"2025-01-01",brand:"TCL"}];
+  let data=c.inventoryMohData(new Set(["one"]),[],"2026-11-05");
+  assert.equal(data.products[0].moh,0);
+  assert.equal(data.products[0].mohStatus,"No stock or sell-out");
+  assert.equal(data.products[1].moh,null);
+  c.inventoryMohCard(new Set(["one"]),[],"2026-11-05");
+  let exported=c.tableStore["an-inventory-brand-moh"].items[0];
+  for(const index of [2,3,4,5,6,7]) assert.equal(typeof exported[index],"number");
+  assert.equal(exported[7],0);
+  assert.match(exported[8],/unavailable/);
+  c.openInventoryMoh(data,0);
+  assert.match(c.modal.body,/>0.00<\/td>/);
+  assert.match(c.modal.body,/No stock or sell-out/);
+  assert.match(c.modal.body,/Stock \/ SRP unavailable/);
+  assert.match(c.modal.intro,/display as zero only/);
+  c.liveData.inventoryCatalog=[product("UNSOLD",5,1000)];
+  c.liveData.inventoryStock=c.liveData.inventoryCatalog;
+  data=c.inventoryMohData(new Set(["one"]),[],"2026-11-05");
+  assert.equal(data.total.moh,null);
+  assert.equal(data.total.mohBad,true);
+  c.openInventoryMoh(data);
+  assert.match(c.modal.body,/inventory-stock-alert">0.00/);
+  assert.match(c.modal.body,/No sell-out/);
 });
 test("card is wired into monthly and all-time metric grids, not the lower inventory table",()=>{
   assert.equal((source.match(/\$\{inventoryMohCard\(ids, facts, today\)\}/g)||[]).length,2);

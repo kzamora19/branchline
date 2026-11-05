@@ -572,7 +572,8 @@
     const finish = row => {
       const average = unavailable || !months || (row.salesUnknown && !row.partialValuation) ? null : Math.max(0, row.selloutValue) / months;
       const stock = row.stockUnknown && !row.partialValuation ? null : row.stockValue;
-      const moh = row.stockUnknown || row.salesUnknown || stock === null || average === null || average === 0 ? null : stock / average;
+      const moh = row.stockUnknown || row.salesUnknown || stock === null || average === null ? null
+        : average === 0 ? stock === 0 ? 0 : null : stock / average;
       const status = unavailable ? "Sales unavailable" : !months ? "No completed months"
         : row.stockUnknown ? "Stock / SRP unavailable" : row.unmatchedSales ? "Unmatched product sales" : row.salesUnknown ? "SRP unavailable"
           : average === 0 ? stock > 0 ? "No sell-out" : "No stock or sell-out"

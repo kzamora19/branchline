@@ -2522,7 +2522,7 @@
       row.soldThisMonth ?? "Unavailable", row.remainingDemand ?? "Unavailable", row.historyFrom || "No recorded sales",
       row.historyMonths, row.baselineForecast ?? "Unavailable", row.approvedPercent, row.adjustmentReason,
       row.sellingDays,row.remainingSellingDays,row.calendarFactor,row.eventPercent,row.eventReason,row.movementStatus,row.movementReason,row.sold,
-      row.moh === null ? row.mohStatus : row.moh, row.forecast ?? "Unavailable"];
+      row.moh ?? 0, row.forecast ?? "Unavailable"];
       if (row.mohBad) mohAlerts.add(cells);
       return cells;
     });
@@ -2595,14 +2595,14 @@
     const data = inventoryMohData(ids, facts, today), total = data.total;
     tableStore["an-inventory-brand-moh"] = { title: "Brand MOH",
       headers: ["Branch","Brand","Available units","Priced stock (SRP)","Completed sell-out (SRP)","Monthly sell-out (SRP)","3-month target (SRP)","MOH","Status","Stock units missing SRP","Sell-out units missing SRP","Unmatched sell-out units"],
-      items: data.brands.map(row => [branchName(row.branch_id),row.brand,row.stockUnits ?? "Stock unknown",
-        row.stockValue ?? "Unavailable",row.selloutValue ?? "Unavailable",row.monthlySelloutValue ?? "Unavailable",
-        row.targetStockValue ?? "Unavailable",row.moh ?? row.mohStatus,row.mohStatus,
+      items: data.brands.map(row => [branchName(row.branch_id),row.brand,row.stockUnits ?? 0,
+        row.stockValue ?? 0,row.selloutValue ?? 0,row.monthlySelloutValue ?? 0,
+        row.targetStockValue ?? 0,row.moh ?? 0,row.mohStatus,
         row.missingStockSrpUnits,row.missingSalesSrpUnits,row.unmatchedSalesUnits]) };
-    const value = data.error ? "Unavailable" : total.moh === null ? total.mohStatus : `${Number(total.moh.toFixed(2))} months`;
+    const value = `${(data.error ? 0 : total.moh ?? 0).toFixed(2)} months`;
     return `<button type="button" class="connected-metric inventory-moh-card" data-open="inventory-moh" aria-haspopup="dialog">
       <span>Months-on-Hand (MOH)</span><strong${!data.error && total.mohBad ? ' class="an-down"' : ""}>${escapeHTML(value)}</strong>
-      <small>${escapeHTML(data.error || `${total.stockUnits ?? "Unknown"} available units · ${formatMoney(total.stockValue)} priced stock`)}</small>
+      <small>${escapeHTML(data.error || `${total.stockUnits ?? 0} available units · ${formatMoney(total.stockValue ?? 0)} priced stock · ${total.mohStatus}`)}</small>
       <small>Target: 3 months · View brands</small></button>`;
   }
 
@@ -2619,14 +2619,14 @@
       ? ["Barcode","Product","Available units","Priced stock (SRP)","Completed sell-out (SRP)","Monthly sell-out (SRP)","3-month target (SRP)","MOH","Status"]
       : ["Branch","Brand","Available units","Priced stock (SRP)","Completed sell-out (SRP)","Monthly sell-out (SRP)","3-month target (SRP)","MOH","Status","Stock units missing SRP","Sell-out units missing SRP","Unmatched sell-out units"];
     const values = row => [brand ? row.barcode : branchName(row.branch_id), brand ? row.model_description : row.brand,
-      (brand ? row.quantity : row.stockUnits) ?? "Stock unknown", row.stockValue ?? "Unavailable", row.selloutValue ?? "Unavailable",
-      row.monthlySelloutValue ?? "Unavailable", row.targetStockValue ?? "Unavailable", row.moh ?? row.mohStatus, row.mohStatus,
+      (brand ? row.quantity : row.stockUnits) ?? 0, row.stockValue ?? 0, row.selloutValue ?? 0,
+      row.monthlySelloutValue ?? 0, row.targetStockValue ?? 0, row.moh ?? 0, row.mohStatus,
       ...(!brand ? [row.missingStockSrpUnits,row.missingSalesSrpUnits,row.unmatchedSalesUnits] : [])];
     const rowHtml = row => `<tr${brand ? "" : ` data-moh-brand="${data.brands.indexOf(row)}" tabindex="0" role="button" aria-label="${escapeHTML(`View ${row.brand} products in ${branchName(row.branch_id)}`)}"`}>${values(row).map((value,index) =>
-      `<td${row.mohBad && [7,8].includes(index) ? ' class="inventory-stock-alert"' : ""}>${escapeHTML(typeof value === "number" && index >= 3 && index <= 6 ? formatMoney(value) : index === 7 && typeof value === "number" ? Number(value.toFixed(2)) : value)}</td>`).join("")}</tr>`;
+      `<td${row.mohBad && [7,8].includes(index) ? ' class="inventory-stock-alert"' : ""}>${escapeHTML(typeof value === "number" && index >= 3 && index <= 6 ? formatMoney(value) : index === 7 && typeof value === "number" ? value.toFixed(2) : value)}</td>`).join("")}</tr>`;
     openModal({ title: brand ? `${brand.brand} products · ${branchName(brand.branch_id)}` : "Months-on-Hand · Brands",
       wide: true, readOnly: true,
-      intro: `${data.from} to ${data.to} · ${data.months} completed months. Target: 3 months. SRP values are priced subtotals; incomplete valuations are flagged.`,
+      intro: `${data.from} to ${data.to} · ${data.months} completed months. Target: 3 months. SRP values are priced subtotals. Unavailable numbers display as zero only; check Status. Zero MOH with no sell-out or unavailable data is not a valid stock-coverage ratio.`,
       body: `${data.error ? `<p role="alert" class="connected-error">${escapeHTML(data.error)}</p>` : ""}
         ${brand ? '<button type="button" class="button button-outline" data-moh-back>Back to brands</button>' : ""}
         <label class="field"><span>${brand ? "Search products" : "Search brands"}</span><input type="search" data-moh-search></label>
