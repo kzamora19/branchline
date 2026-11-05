@@ -57,11 +57,11 @@ test("approved percentage adjusts unrounded seasonal demand before sold units an
       {branchId:"one",barcode:"01",date:"2026-11-02",quantity:4}],
     branchIds:new Set(["one"]),from:"2025-11-01",to:"2026-10-31",today:"2026-11-04"};
   const baseline=A.inventoryForecast(options).products[0];
-  assert.equal(baseline.forecast,13); assert.equal(baseline.reorder,6);
+  assert.equal(baseline.forecast,13); assert.equal(baseline.stockTarget,38); assert.equal(baseline.reorder,35);
   const adjustment={branch_id:"one",category:"aircon",percent:20,reason:"Verified local evidence and reviewer estimate"};
   const changed=A.inventoryForecast({...options,adjustments:[adjustment]}).products[0];
   assert.equal(changed.baselineForecast,13);
-  assert.equal(changed.forecast,15); assert.equal(changed.remainingDemand,11); assert.equal(changed.reorder,8);
+  assert.equal(changed.forecast,15); assert.equal(changed.remainingDemand,11); assert.equal(changed.stockTarget,45); assert.equal(changed.reorder,42);
   assert.equal(changed.approvedPercent,20);
   const cancelled=A.inventoryForecast({...options,adjustments:[{...adjustment,percent:-100}],
     facts:[options.facts[0],{...options.facts[1],quantity:-2}]}).products[0];
@@ -69,7 +69,7 @@ test("approved percentage adjusts unrounded seasonal demand before sold units an
   assert.equal(cancelled.remainingDemand,0);
   assert.equal(cancelled.reorder,0);
   for(const other of [{...adjustment,branch_id:"two"},{...adjustment,category:"TV"}])
-    assert.equal(A.inventoryForecast({...options,adjustments:[other]}).products[0].reorder,6);
+    assert.equal(A.inventoryForecast({...options,adjustments:[other]}).products[0].reorder,35);
   assert.throws(()=>A.inventoryForecast({...options,adjustments:[{...adjustment,percent:Infinity}]}),/invalid approved adjustment/);
 });
 

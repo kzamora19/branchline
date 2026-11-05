@@ -331,6 +331,7 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .log-total-highlight strong { color: var(--blue); }
 .connected-table td.inventory-stock-alert { color: var(--red); }
 .connected-table td.inventory-stock-low { color: #854500; }
+.connected-table td.inventory-stock-moderate { color: #1d5e8a; }
 .connected-table td.inventory-stock-attention { font-weight: 700; }
 .table-tools.log-tools { align-items: flex-end; }
 .log-tools .button { min-height: 36px; }
@@ -643,7 +644,7 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .inventory-product-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; margin-bottom: 14px; }
 .inventory-product-controls > .field { flex: 1 1 280px; }
 .inventory-product-details { display: inline-flex; align-items: center; gap: 6px; min-height: 35px; font-size: 12px; }
-.inventory-product-basic :is(th,td):is(:nth-child(9),:nth-child(11),:nth-child(12),:nth-child(n+16)):not(:nth-child(31)) { display: none; }
+.inventory-product-basic :is(th,td):is(:nth-child(9),:nth-child(11),:nth-child(12),:nth-child(n+16)):not(:nth-child(31),:nth-child(34)) { display: none; }
 .event-calendar th { width: calc(100% / 7); padding: 10px 0; text-align: center; color: var(--muted); font-size: 11px; }
 .event-calendar td { height: 72px; padding: 8px 0; text-align: center; vertical-align: middle; border: 1px solid var(--line); }
 .calendar-date { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--ink); font-size: 14px; font-weight: 400; }

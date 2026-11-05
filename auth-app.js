@@ -2469,8 +2469,8 @@
     return `<article class="connected-metric"><span>Daily sales needed</span><strong>${value}</strong><small>${escapeHTML(note)}</small></article>`;
   }
 
-  function analyticsDataTable(key, title, detail, headers, rows, cellClass = () => "", controls = "", beforeTable = "") {
-    const rowHtml = row => `<tr>${row.map((value, index) => `<td class="${escapeHTML(cellClass(row, index))}">${escapeHTML(value ?? "Unknown")}</td>`).join("")}</tr>`;
+  function analyticsDataTable(key, title, detail, headers, rows, cellClass = () => "", controls = "", beforeTable = "", formatCell = value => value) {
+    const rowHtml = row => `<tr>${row.map((value, index) => `<td class="${escapeHTML(cellClass(row, index))}">${escapeHTML(formatCell(value, index) ?? "Unknown")}</td>`).join("")}</tr>`;
     const table = tableBlock(key, headers, rows, rowHtml, "No data in this scope.", PAGE_SIZE,
       (row, index) => row[index]);
     return panel(title, detail, beforeTable + (key === "an-inventory-products"
@@ -2493,11 +2493,11 @@
       ? "Branch-wide product demand is unavailable. Reload the workspace before using forecasts." : "") : "";
     const demandError = liveData.calendar?.error || salesError;
     const demandFacts = isPs ? (liveData.brandSales || []).map(row => ({
-      branchId: row.branch_id, barcode: row.barcode, date: row.sold_on, quantity: row.quantity, category: row.category,
+      branchId: row.branch_id, barcode: row.barcode, date: row.sold_on, quantity: row.quantity, category: row.category, brand: row.brand,
     })) : facts;
     const forecast = window.BranchlineAnalytics.inventoryForecast({
       products: summary.products, facts: demandFacts, branchIds: ids, today,
-      from: ui.inventoryForecastFrom || "0001-01-01", to: ui.inventoryForecastTo || today, unavailable: Boolean(demandError),
+      from: "0001-01-01", to: today, unavailable: Boolean(demandError),
       annualUnavailable: Boolean(salesError),
       targetMonth: ui.inventoryForecastMonth || today.slice(0, 7),
       adjustments: activeClimateAdjustments(today, ui.inventoryForecastMonth || today.slice(0, 7)),
@@ -2508,22 +2508,30 @@
     const cards = `<div class="connected-metrics">${metric("Available units now", summary.units)}${metric("Tracked branch / product pairs", summary.tracked)}${metric("Out-of-stock branch / product pairs", summary.stockouts)}${metric("Not initialized", summary.uninitialized)}${metric("Awaiting classification", summary.unclassified)}${metric("Available serials aged 90+ days", summary.days90)}${!isPs ? metric("Missing SRP (unset or zero)", summary.missingSrp) : ""}</div>`;
     const rangeLabel = from === "0001-01-01" && to === "9999-12-31" ? "all recorded dates" : `${from} to ${to}`;
     const note = `Current inventory as of ${today}; sales/activity dates: ${rangeLabel}. Stock is not a historical balance. Annual sell-out is branch-wide net product units from January 1 through today, independent of the selected sales period. ${isPs ? "Your assigned brand/category stock; selected-period units and sales are your own, not branch-wide demand." : "Available quantities exclude reserved/in-transit stock."} Uninitialized inventory is unknown, not zero. No cost, profit or historical stock valuation is inferred.`;
-    const products = forecast.products.map(row => [branchName(row.branch_id), row.barcode, row.model_description,
+    const mohAlerts = new WeakSet();
+    const products = forecast.products.map(row => {
+      const cells = [branchName(row.branch_id), row.barcode, row.model_description,
       row.brand, row.category || "Unclassified", row.sub_category || "", row.quantity ?? "Not initialized",
       row.annualSold ?? "Unavailable", formatMoney(row.sales), row.days90,
       row.quantity === null ? "Not initialized" : row.quantity === 0 ? row.sold > 0 ? "Sold in period; currently out of stock" : "Out of stock"
         : row.sold === 0 ? "Stock available; no recorded sales in period" : "Stock available",
-      row.branchSold ?? "Unavailable", row.forecast ?? "Unavailable",
+      row.branchSold ?? "Unavailable", row.stockTarget ?? "Unavailable",
       row.reorder ?? (row.quantity === null ? "Stock unknown" : "Unavailable"), row.stockAlert,
       row.forecastMonth, row.seasonalFactor ?? "Unavailable", row.forecastBasis,
       row.soldThisMonth ?? "Unavailable", row.remainingDemand ?? "Unavailable", row.historyFrom || "No recorded sales",
       row.historyMonths, row.baselineForecast ?? "Unavailable", row.approvedPercent, row.adjustmentReason,
-      row.sellingDays,row.remainingSellingDays,row.calendarFactor,row.eventPercent,row.eventReason,row.movementStatus,row.movementReason,row.sold]);
-    const stockCellClass = (row, index) => [6, 13, 14].includes(index)
+      row.sellingDays,row.remainingSellingDays,row.calendarFactor,row.eventPercent,row.eventReason,row.movementStatus,row.movementReason,row.sold,
+      row.moh === null ? row.mohStatus : row.moh, row.forecast ?? "Unavailable"];
+      if (row.mohBad) mohAlerts.add(cells);
+      return cells;
+    });
+    const stockCellClass = (row, index) => index === 33
+      ? mohAlerts.has(row) ? "inventory-stock-alert" : ""
+      : [6, 13, 14].includes(index)
       ? row[14] === "Critical stock" ? `inventory-stock-alert${row[6] === 0 ? " inventory-stock-attention" : ""}`
-        : row[14] === "Low stock" ? "inventory-stock-low" : "" : "";
+        : row[14] === "Low stock" ? "inventory-stock-low" : row[14] === "Moderate stock" ? "inventory-stock-moderate" : "" : "";
     const demandWarning = demandError ? `<p class="connected-error" role="alert">Forecast unavailable: ${escapeHTML(demandError)}</p>` : "";
-    const forecastControls = `<label class="field"><span>Forecast month</span><input type="month" data-filter="inventoryForecastMonth" value="${escapeHTML(forecast.targetMonth)}" required></label><label class="field"><span>Forecast from (optional)</span><input type="date" data-filter="inventoryForecastFrom" value="${escapeHTML(ui.inventoryForecastFrom || "")}"></label><label class="field"><span>Forecast to (optional)</span><input type="date" data-filter="inventoryForecastTo" value="${escapeHTML(ui.inventoryForecastTo || "")}"></label>`;
+    const forecastControls = `<label class="field"><span>Adjustment month</span><input type="month" data-filter="inventoryForecastMonth" value="${escapeHTML(forecast.targetMonth)}" required></label>`;
     const search = String(ui.inventoryProductSearch || "").trim().toLowerCase();
     const shownProducts = search ? products.filter(row=>row.slice(0,6).some(value=>String(value ?? "").toLowerCase().includes(search))) : products;
     const productControls = `<div class="inventory-product-controls">
@@ -2531,7 +2539,17 @@
       <label class="inventory-product-details"><input type="checkbox" data-inventory-product-details ${ui.inventoryProductDetails ? "checked" : ""}> Show details</label>
       </div>`;
     const productTable = demandWarning + analyticsDataTable("an-inventory-products", "Inventory and product sales", "",
-      ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Annual sell-out (YTD)", "Sales", "90+ day serials", "Observation", "Branch units sold", "Monthly forecast", "Re-order qty", "Stock status", "Forecast month", "Seasonal factor", "Forecast basis", "Branch units sold in forecast month", "Remaining demand", "Product history from", "History months", "Baseline monthly forecast", "Approved external adjustment %", "Adjustment justification","Open days in forecast month","Remaining open days","Calendar factor","Approved event adjustment %","Event adjustment justification","Movement status","Movement explanation",isPs ? "Your units sold (selected period)" : "Units sold (selected period)"], shownProducts, stockCellClass, forecastControls, productControls);
+      ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Annual sell-out (YTD)", "Sales", "90+ day serials", "Observation", "Branch units sold", "3-month stock target", "Re-order qty", "Stock status", "Adjustment month", "Seasonal factor", "Forecast basis", "Branch units sold in adjustment month", "Remaining monthly demand", "Annual learning from", "History months", "Baseline monthly forecast", "Approved external adjustment %", "Adjustment justification","Open days in adjustment month","Remaining open days","Calendar factor","Approved event adjustment %","Event adjustment justification","Movement status","Movement explanation",isPs ? "Your units sold (selected period)" : "Units sold (selected period)","Months-on-Hand (MOH)","Adjusted monthly forecast"], shownProducts, stockCellClass, forecastControls, productControls,
+      (value,index) => index === 33 && typeof value === "number" ? Number(value.toFixed(2)) : value);
+    const brandMohRows = forecast.moh.brands.map(row => [branchName(row.branch_id), row.brand,
+      row.stockValue ?? "Unavailable", row.selloutValue ?? "Unavailable",
+      row.monthlySelloutValue ?? "Unavailable", row.targetStockValue ?? "Unavailable",
+      row.moh === null ? row.mohStatus : row.moh, row.mohStatus]);
+    const brandMoh = analyticsDataTable("an-inventory-brand-moh", "Brand Months-on-Hand (MOH)",
+      `January through last completed month (${forecast.moh.from} to ${forecast.moh.to}; ${forecast.moh.months} months). Available stock value / average monthly branch sell-out, both at current catalog SRP. Target: 3 months; above 3 is red. Unadjusted; independent of product search.`,
+      ["Branch","Brand","Available stock (SRP)","Completed-year sell-out (SRP)","Average monthly sell-out (SRP)","3-month target value (SRP)","Months-on-Hand (MOH)","MOH status"],
+      brandMohRows, (row,index) => [6,7].includes(index) && ["Over 3 months","No sell-out"].includes(row[7]) ? "inventory-stock-alert" : "", "", "",
+      (value,index) => typeof value !== "number" ? value : index >= 2 && index <= 5 ? formatMoney(value) : index === 6 ? Number(value.toFixed(2)) : value);
     const aging = analyticsDataTable("an-inventory-aging", "Current stock aging", "Available serialized units only. Missing/invalid receipt dates are unknown; nonserialized units have no receipt-age data.",
       ["Age band", "Available serials"], [["Current (0-29 days)", summary.current], ["30 days (30-59)", summary.days30],
         ["60 days (60-89)", summary.days60], ["90 days or more", summary.days90], ["Unknown receipt age", summary.unknown]]);
@@ -2563,7 +2581,7 @@
       ["Imported", "Report date", "Branch", "Products", "Snapshot units"],
       (liveData.inventorySnapshots || []).filter(row => ids.has(row.branch_id) && within(row.imported_at))
         .map(row => [row.imported_at, row.reported_at, branchName(row.branch_id), row.products, row.quantity]));
-    return `${panel("Inventory overview", note, cards)}${productTable}${aging}${transfers}${history}${snapshots}`;
+    return `${panel("Inventory overview", note, cards)}${brandMoh}${productTable}${aging}${transfers}${history}${snapshots}`;
   }
 
   function allTimeAnalyticsPanels(ids, facts, isPs, today) {
@@ -7118,7 +7136,7 @@
   // Exports every row of a table (all pages), not just the visible page.
   function tableToSheet(table, name) {
     if (tableStore.brandlog === table) return brandLogExportSheet(table.items, name);
-    if (tableStore["an-inventory-products"] === table) return { name, rows: [table.headers, ...table.items] };
+    if (tableStore["an-inventory-products"] === table || tableStore["an-inventory-brand-moh"] === table) return { name, rows: [table.headers, ...table.items] };
     const keep = table.headers.map(isDataHeader);
     const doc = new DOMParser().parseFromString(`<table><tbody>${table.items.map(table.rowHtml).join("")}</tbody></table>`, "text/html");
     const rows = [...doc.querySelectorAll("tr")].map(tr =>

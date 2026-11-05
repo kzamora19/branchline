@@ -18,7 +18,7 @@ test("company and branch closures are inclusive, overlapping/legacy dates dedupl
   assert.equal(row.sellingDays,15);
   assert.equal(row.calendarFactor,0.5);
   assert.equal(row.forecast,15);
-  assert.equal(row.reorder,12);
+  assert.equal(row.reorder,42);
   assert.equal(forecast({closures:[closure("2026-11-01","2026-11-30",["other"])]}).forecast,30);
   const full=forecast({closures:[closure("2026-11-01","2026-11-30")]});
   assert.equal(full.forecast,0);assert.equal(full.reorder,0);assert.equal(full.remainingSellingDays,0);
@@ -28,7 +28,7 @@ test("historical closed days are not mistaken for zero-demand selling exposure",
   const row=forecast({closures:[closure("2026-10-17","2026-10-31")]});
   assert.equal(row.historyMonths,16/31);
   assert.equal(row.forecast,59);
-  assert.equal(forecast({closures:[closure("2026-10-17","2026-10-31")],from:"0001-01-01"}).forecast,null);
+  assert.equal(forecast({closures:[closure("2026-10-17","2026-10-31")],from:"0001-01-01"}).forecast,3);
   const closedHistory=forecast({closures:[closure("2026-10-01","2026-10-31")]});
   assert.equal(closedHistory.forecast,null);
   assert.equal(closedHistory.stockAlert,"Forecast unavailable");
@@ -42,7 +42,7 @@ test("one approved combined event percentage and climate multiply before roundin
   const row=forecast({closures:[closure("2026-11-01","2026-11-15")],
     adjustments:[{branch_id:"one",category:"tv",percent:20,reason:"Verified climate reviewer estimate"}],
     eventAdjustments:[{branch_id:"one",category:"tv",percent:10,reason:"Combined event reviewer estimate"}]});
-  assert.equal(row.baselineForecast,15);assert.equal(row.forecast,20);assert.equal(row.reorder,17);
+  assert.equal(row.baselineForecast,15);assert.equal(row.forecast,20);assert.equal(row.stockTarget,60);assert.equal(row.reorder,57);
   assert.equal(row.eventPercent,10);
   assert.equal(forecast({eventAdjustments:[{branch_id:"other",category:"tv",percent:100}]}).forecast,30);
   assert.throws(()=>forecast({eventAdjustments:[{branch_id:"one",category:"tv",percent:NaN}]}),/invalid approved adjustment/);
