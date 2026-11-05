@@ -2,7 +2,7 @@
 
 ### Inventory SRP read timeout repair
 
-Apply `supabase/migrations/20261126000000_product_read_performance.sql` if the
+Apply `supabase/migrations/20261209000000_product_read_performance.sql` if the
 workspace reports **Unable to load inventory SRP prices** with a statement
 timeout. Product SELECT authorization now caches the permitted dealer and branch
 sets instead of calling both permission helpers for each product row. Existing
