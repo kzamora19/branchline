@@ -1,4 +1,4 @@
-import { detect, extractSheet, consolidate, dateISO, filenameYear, text, key, FIELDS } from "./import-engine/core.mjs";
+import { detect, extractSheet, consolidate, dateISO, filenameYear, text, key, FIELDS, canonicalBrand, isAmbiguousBrand } from "./import-engine/core.mjs";
 
 export { FIELDS };
 export const TYPES = {
@@ -87,6 +87,10 @@ function validateSalesSheet(sheet, api) {
     for (const line of sale.lines) {
       if (!text(line.barcode) || !Number.isSafeInteger(line.qty) || line.qty === 0 || !Number.isFinite(line.price)) {
         throw new Error(`Invalid sale line in invoice ${sale.invoice}.`);
+      }
+      line.brand = canonicalBrand(line.brand, line.description);
+      if (isAmbiguousBrand(line.brand)) {
+        throw new Error(`Barcode ${line.barcode}: shortened brand "${line.brand}" needs a confirmed full brand in the source description; no brand was guessed.`);
       }
     }
   }

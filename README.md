@@ -2,13 +2,27 @@
 
 ### Confirmed multiword brands
 
+Follow with `supabase/migrations/20261212000000_approved_brand_aliases.sql`
+to enforce **all previously approved aliases** on every product and sale-line
+write: `ALPHA` -> `ALPHA STEEL`, `MULTI` -> `MULTI-PURPOSE`,
+`ROYAL` -> `ROYAL KLUDGE`, and `TOUGH` -> `TOUGH MAMA`.
+These match the extraction engine's existing approved alias reference.
+Source-verified shortened `FISHER` and `G` resolve only from explicit
+`FISHER & PAYKEL` and `G SKILL` description prefixes. Import review uses the same
+rules for these, `LA` / `LAGERMANIA` and the American brands; ambiguous shortened
+names block jobs before submission, rather than only failing during a save.
+Regression tests compare the database behavior with that reference, check all
+390 approved labels and preserve all `CON-` labels. Adding an approved alias
+requires updating both the import reference and database mapping, with tests.
+
 Apply `supabase/migrations/20261211000000_confirmed_brand_names.sql` to enforce
 confirmed names across catalog imports, inventory imports, manual product saves
 and sale-line writes. `LA` resolves only when the description explicitly starts
 with `LA GERMANIA` or `LA-Z-BOY`; `LAGERMANIA` is the confirmed spelling alias for
 `LA GERMANIA`. `AMERICAN` resolves only from an explicit `AMERICAN HOME` or
 `AMERICAN MASTER` description prefix. Unresolved `LA` / `AMERICAN` saves fail
-with the barcode and a full-brand review message rather than guessing.
+with the barcode and a full-brand review message rather than guessing. The
+follow-up migration extends that safeguard to unresolved `FISHER` / `G`.
 Already complete brand names and other brands, including consignment labels,
 are unchanged. Existing role and branch restrictions remain enforced.
 

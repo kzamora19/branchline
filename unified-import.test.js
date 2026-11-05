@@ -59,6 +59,68 @@ test("missing catalog SRP is null; conflicting SRP is blank and blocks writes", 
   assert.throws(() => createImportJobs(invalid, () => "uuid"), /blocking/);
 });
 
+test("every approved brand alias is canonical in import review and jobs without rewriting original evidence", async () => {
+  const { BRAND_REFERENCE } = await import("./import-engine/brand-reference.mjs");
+  const aliases=Object.entries(BRAND_REFERENCE.aliases).filter(([,value])=>typeof value==="string");
+  const rows=[catalogHeader,...aliases.map(([alias,canonical],index)=>[String(101+index),`${canonical} Fixture`,alias,"CATEGORY","",index===0 ? 0 : ""])];
+  const original=JSON.stringify(rows);
+  const source=await sheet(rows);
+  const result=await prepare([source]);
+  assert.equal(result.valid,true);
+  assert.deepEqual(result.catalog.map(row=>row.brand),aliases.map(([,canonical])=>canonical));
+  assert.deepEqual(result.catalog.map(row=>row.srp),[0,...aliases.slice(1).map(()=>null)]);
+  assert.equal(JSON.stringify(rows),original);
+  assert.equal(JSON.stringify(source.rows),original);
+  const { createImportJobs }=await engine;
+  const job=createImportJobs(result,()=>"fixture").find(row=>row.rpc==="import_unified_products");
+  assert.deepEqual(job.params.p_items.map(row=>row.brand),aliases.map(([,canonical])=>canonical));
+});
+
+test("shortened multiword brands require exact full-name evidence and never guess ambiguous names", async () => {
+  const { BRAND_REFERENCE } = await import("./import-engine/brand-reference.mjs");
+  for (const [alias,canonicals] of Object.entries(BRAND_REFERENCE.aliases).filter(([,value])=>Array.isArray(value))) {
+    for (const canonical of canonicals) {
+      for (const description of [canonical,`${canonical} Fixture`]) {
+        const source=await sheet([catalogHeader,["101",description,alias,"CATEGORY","",0]]);
+        const result=await prepare([source]);
+        assert.equal(result.valid,true);
+        assert.equal(result.catalog[0].brand,canonical);
+        assert.equal(source.rows[1][2],alias);
+      }
+    }
+    for (const description of ["Unidentified model",`${canonicals[0]}X unrelated`]) {
+      const invalid=await prepare([await sheet([catalogHeader,["101",description,alias,"CATEGORY","",0]])]);
+      assert.equal(invalid.valid,false);
+      assert.ok(invalid.issues.some(row=>row.issue==="BRAND_AMBIGUOUS" && row.barcode==="00000101"));
+      const { createImportJobs }=await engine;
+      assert.throws(()=>createImportJobs(invalid,()=>"fixture"),/blocking/);
+    }
+  }
+});
+
+test("sales-only imports use approved brand rules without changing source cells or historical amounts", async () => {
+  const { BRAND_REFERENCE } = await import("./import-engine/brand-reference.mjs");
+  for (const [alias,value] of Object.entries(BRAND_REFERENCE.aliases)) {
+    const canonical=Array.isArray(value) ? value[0] : value;
+    const source=await sheet([salesHeader,saleRow({7:`${canonical} Fixture`,6:alias})],"Sales","sales.xlsx");
+    const original=JSON.stringify(source.rows);
+    const result=await prepare([source],{operations:["sales"],divisionMap:{STG:"one"}});
+    assert.equal(result.valid,true);
+    const line=result.sales[0].sales[0].lines[0];
+    assert.equal(line.brand,canonical);
+    assert.equal(line.srp,100);
+    assert.equal(line.price,90);
+    assert.equal(line.qty,1);
+    assert.equal(JSON.stringify(source.rows),original);
+    if (Array.isArray(value)) {
+      const invalid=await prepare([await sheet([salesHeader,saleRow({6:alias,7:"Unidentified model"})],"Sales","sales.xlsx")],
+        {operations:["sales"],divisionMap:{STG:"one"}});
+      assert.equal(invalid.valid,false);
+      assert.ok(invalid.issues.some(row=>/confirmed full brand/.test(row.message)));
+    }
+  }
+});
+
 test("unknown sheets are blocking until explicitly excluded, and saved extractor workbooks are rejected", async () => {
   const unknown = await sheet([["Odd layout"], ["some data"]], "Summary", "source.xlsx");
   const good = await sheet([catalogHeader, ["101", "TCL TV", "TCL", "TV", "", 100]], "Products", "source.xlsx", {}, "1");

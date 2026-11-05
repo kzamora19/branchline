@@ -48,6 +48,12 @@ test("confirmed multiword brands survive every catalog and sales write without c
       ["AMERICAN HOME","AMERICAN MASTER source disagreement","AMERICAN HOME"],
       ["TCL","LA GERMANIA unrelated text","TCL"],
       ["CON-DEVANT","DEVANT TV","CON-DEVANT"],
+      ["Alpha","Alpha Steel Cabinet","ALPHA STEEL"],
+      [" multi ","Generic supplied description","MULTI-PURPOSE"],
+      ["Royal","ROYAL KLUDGE Keyboard","ROYAL KLUDGE"],
+      ["Tough","Tough Mama Rice Cooker","TOUGH MAMA"],
+      ["Fisher","Fisher & Paykel Fridge","FISHER & PAYKEL"],
+      ["G","G Skill Memory","G SKILL"],
       ["LA","LA GERMANIAX unrelated","LA"],
       ["AMERICAN","AMERICAN HOMEWARE unrelated","AMERICAN"],
       ["AMERICAN","Unidentified range","AMERICAN"],
@@ -55,11 +61,38 @@ test("confirmed multiword brands survive every catalog and sales write without c
     for (const [brand,description,expected] of examples) {
       assert.equal((await call("select confirmed_product_brand($1,$2) as brand",[brand,description]))[0].brand,expected);
     }
+    const { BRAND_REFERENCE } = await import("./import-engine/brand-reference.mjs");
+    const approvedAliases = Object.entries(BRAND_REFERENCE.aliases).filter(([,value])=>typeof value==="string");
+    for (const [alias,canonicals] of Object.entries(BRAND_REFERENCE.aliases).filter(([,value])=>Array.isArray(value))) {
+      for (const canonical of canonicals) {
+        assert.equal((await call("select confirmed_product_brand($1,$2) as brand",[alias,canonical]))[0].brand,canonical);
+        assert.equal((await call("select confirmed_product_brand($1,$2) as brand",[alias,`${canonical} Fixture`]))[0].brand,canonical);
+      }
+    }
+    for (const [alias,canonical] of approvedAliases) {
+      for (const brand of [alias,alias.toLowerCase(),` ${alias} `]) {
+        assert.equal((await call("select confirmed_product_brand($1,'No model details supplied') as brand",[brand]))[0].brand,canonical);
+      }
+    }
+    for (const { name } of BRAND_REFERENCE.brands) {
+      const expected=typeof BRAND_REFERENCE.aliases[name]==="string" ? BRAND_REFERENCE.aliases[name] : name;
+      assert.equal((await call("select confirmed_product_brand($1,'Unrelated source description') as brand",[name]))[0].brand,expected);
+    }
     await actor(admin);
     for (const rpc of ["import_products","import_unified_products"]) {
-      for (const [brand,description,expected] of examples.slice(0,9)) {
+      for (const [brand,description,expected] of examples.slice(0,-3)) {
         await call(`select ${rpc}($1::jsonb)`,[JSON.stringify([item(brand,description)])]);
         assert.deepEqual(await brands(),[expected,expected]);
+      }
+      for (const [alias,canonical] of approvedAliases) {
+        await call(`select ${rpc}($1::jsonb)`,[JSON.stringify([item(canonical,`${canonical} Fixture`,450)])]);
+        await call(`select ${rpc}($1::jsonb)`,[JSON.stringify([item(alias,`${canonical} Fixture`,null)])]);
+        assert.deepEqual(await brands(),[canonical,canonical]);
+        assert.ok((await call("select srp from products where barcode='00000101'")).every(row=>Number(row.srp)===450));
+        await call(`select ${rpc}($1::jsonb)`,[JSON.stringify([item(alias,`${canonical} Fixture`,0)])]);
+        await call(`select ${rpc}($1::jsonb)`,[JSON.stringify([item(alias,`${canonical} Fixture`,null)])]);
+        assert.deepEqual(await brands(),[canonical,canonical]);
+        assert.ok((await call("select srp from products where barcode='00000101'")).every(row=>Number(row.srp)===0));
       }
       const before=await call("select * from products order by id");
       await assert.rejects(call(`select ${rpc}($1::jsonb)`,[JSON.stringify([item("American","Unidentified range")])]),/ambiguous.*confirmed full brand/);
@@ -86,6 +119,16 @@ test("confirmed multiword brands survive every catalog and sales write without c
       lines:[{barcode:"00000102",description:"American Master Range",brand:"American",qty:1,price:90,srp:120}],
     }])]);
     assert.equal((await call("select brand from sale_lines"))[0].brand,"AMERICAN MASTER");
+    for (const [index,[alias,canonical]] of approvedAliases.entries()) {
+      await call("select import_unified_sales_history($1,'Historical','fixture',$2::jsonb)",[id(40+index),JSON.stringify([{
+        branch_id:branch,invoice:`ALIAS-${index}`,sold_on:"2026-01-16",ps_name:"Source",customer:"Historical",payment_mode:"Cash",
+        lines:[{barcode:String(301+index),description:`${canonical} Fixture`,brand:alias,qty:1,price:90,srp:120}],
+      }])]);
+      const line=(await call("select brand,selling_price,srp from sale_lines where barcode=$1",[String(301+index).padStart(8,"0")]))[0];
+      assert.equal(line.brand,canonical);
+      assert.equal(Number(line.selling_price),90);
+      assert.equal(Number(line.srp),120);
+    }
     const salesBefore=await call("select * from sale_lines order by id");
     const stockBefore=await call("select * from inventory_stock order by branch_id,barcode");
     await call("update products set brand='La',model_description='La Germania Stove' where barcode='00000101'");
