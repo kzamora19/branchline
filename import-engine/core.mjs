@@ -4,14 +4,15 @@ export const FORMAT_VERSION = "1.1";
 const CONFIRMED_BRANDS = BRAND_REFERENCE.brands.filter(brand => brand.automaticMatch).map(brand => brand.name);
 const BRAND_ALIASES = BRAND_REFERENCE.aliases;
 const CONDITIONAL_BRANDS = new Set(Object.entries(BRAND_ALIASES).filter(([, value]) => Array.isArray(value)).map(([alias]) => alias));
-function canonicalBrand(value, description = "") {
+export function canonicalBrand(value, description = "") {
   const id = identity(value);
   const canonical = BRAND_ALIASES[id];
   if (typeof canonical === "string") return canonical;
-  if (Array.isArray(canonical)) return canonical.find(name => identity(description).startsWith(`${name} `)) || text(value);
+  if (Array.isArray(canonical)) return canonical.find(name => identity(description) === name || identity(description).startsWith(`${name} `)) || text(value);
   if (id === "AMERICAN HOME" || id === "AMERICAN MASTER") return text(value);
   return text(value);
 }
+export function isAmbiguousBrand(value) { return CONDITIONAL_BRANDS.has(identity(value)); }
 export const ROLES = ["forecast", "memo", "reference", "inventory", "serials", "products", "skip"];
 export const FIELDS = {
   barcode: ["barcode", "itemcode", "itembarcode", "ean", "upc"],
@@ -514,7 +515,7 @@ export function consolidate(parts, mappings = [], now = new Date().toISOString()
     item.brand_resolution = "";
     if (!item.brand && !records.some(row => text(row.brand) && memoEligible(row, asOf))) {
       const description = identity(item.description);
-      const matched = brandNames.filter(brand => brand !== "AMERICAN")
+      const matched = brandNames.filter(brand => !CONDITIONAL_BRANDS.has(brand))
         .find(brand => description.startsWith(`${brand} `));
       if (matched) {
         const evidence = explicitBrands.get(matched);
@@ -523,6 +524,10 @@ export function consolidate(parts, mappings = [], now = new Date().toISOString()
         item.brand_source = `Description match: ${item.description_source}\nKnown brand: ${evidence.source}`;
         issue(issues, "INFO", "BRAND_INFERRED", "Missing brand recovered from the longest exact known-brand prefix in the description (uploaded or user-confirmed); explicit brands are never replaced.", descriptions[0], item.barcode, item.brand);
       }
+    }
+    if (CONDITIONAL_BRANDS.has(identity(item.brand))) {
+      issue(issues, "ERROR", "BRAND_AMBIGUOUS", "A shortened brand needs an explicit confirmed full name in the source description; no brand was guessed.",
+        sorted[0], item.barcode, BRAND_ALIASES[identity(item.brand)].join(" / "));
     }
     if (!item.description && text(item.model) && !/^[*?#-]+$/.test(text(item.model)) && (item.brand || item.category)) {
       const fields = ["brand", "category", "model"].filter(field => text(item[field]));

@@ -4,6 +4,10 @@ export const BRAND_REFERENCE = {
   "aliases": {
     "ALPHA": "ALPHA STEEL",
     "AMERICAN": ["AMERICAN HOME", "AMERICAN MASTER"],
+    "FISHER": ["FISHER & PAYKEL"],
+    "G": ["G SKILL"],
+    "LA": ["LA GERMANIA", "LA-Z-BOY"],
+    "LAGERMANIA": "LA GERMANIA",
     "MULTI": "MULTI-PURPOSE",
     "ROYAL": "ROYAL KLUDGE",
     "TOUGH": "TOUGH MAMA"
