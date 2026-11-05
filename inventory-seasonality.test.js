@@ -35,13 +35,13 @@ test("summer category pattern raises April demand and other months use their own
   assert.equal(december.forecastMonth, "2026-12");
 });
 
-test("automatic twelve-month baseline retains older complete years for seasonal evidence",()=>{
+test("automatic three-month baseline retains older complete years for seasonal evidence",()=>{
   const facts=[{...history()[0],date:"2024-01-01",barcode:"OTHER",category:"Other",quantity:1},
     ...history(),...history().filter(row=>row.date.startsWith("2025")).map(row=>({...row,date:row.date.replace("2025","2026")}))];
   const row=forecast({facts,from:"0001-01-01",to:"2026-10-31",targetMonth:"2027-04"}).products[0];
-  assert.equal(row.historyFrom,"2025-11-01");assert.equal(row.historyTo,"2026-10-31");
-  assert.equal(row.historyMonths,12);assert.equal(row.branchSold,140);
-  assert.equal(row.forecast,30);assert.equal(row.reorder,25);
+  assert.equal(row.historyFrom,"2026-08-01");assert.equal(row.historyTo,"2026-10-31");
+  assert.equal(row.historyMonths,3);assert.equal(row.branchSold,30);
+  assert.equal(row.forecast,26);assert.equal(row.reorder,21);
   assert.equal(row.forecastBasis,"Seasonal category pattern (2024, 2025)");
 });
 
@@ -268,7 +268,8 @@ test("actual inventory table wires target month, seasonal metadata, branch-only 
     vm.runInContext(source.slice(start, source.indexOf("  function allTimeAnalyticsPanels(", start)), context);
     const html = vm.runInContext('inventoryAnalyticsPanels(ids,inputFacts,"2024-01-01","2025-12-31","2026-11-04")', context);
     const table = tables.get("an-inventory-products"), row = table.items[0];
-    assert.equal(row[7], role === "ps" ? 28 : 280);
+    assert.equal(row[7], 0);
+    assert.equal(row[32], role === "ps" ? 28 : 280);
     assert.equal(row[12], 30);
     assert.equal(row[13], 30);
     assert.equal(row[15], "2027-04");

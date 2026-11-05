@@ -1,5 +1,31 @@
 # Branchline
 
+### Three-month forecast, coverage alerts and annual sell-out (shell v132)
+
+The automatic monthly forecast uses the **last three completed months**, limited
+to recorded branch history. Quiet months count; the incomplete current month is
+excluded from learning. Explicit Forecast from/to overrides remain available.
+Verified seasonal evidence, approved climate/event adjustments, closures, returns
+and current-month fulfillment still apply. Reorder remains remaining demand
+minus current available stock, never below zero.
+
+Stock status compares current available stock with the **full monthly forecast**:
+below 30% is **Critical stock** (red), 30% to below 100% is **Low stock** (amber),
+and 100% or above is **Sufficient stock**. Zero stock with positive forecast is
+critical and bold. Zero forecast is **No recorded demand**; unknown stock or
+failed demand loading remains explicitly unavailable. Status is coverage, not
+reorder size: 7 available / 8 forecast is Low stock with reorder 1. Fulfillment
+can reduce reorder to zero without changing this full-month coverage measure.
+
+The basic product table replaces Units sold with **Annual sell-out (YTD)**:
+authorized branch-wide product units, net of returns, from January 1 through
+today. It is independent of Analytics display dates and forecast learning/target
+dates, including for PS accounts. Negative net returns remain visible. Show
+details and downloads retain selected-period units separately (personal for PS);
+sales amounts retain their original scope. No peer identities or prices are
+added. Calendar errors block forecasts but do not hide successfully loaded annual
+sales; a failed branch-sales load shows Unavailable, never personal sales or zero.
+
 ### Settings-only event calendar (shell v131)
 
 The full event calendar is now shown only in Settings, not Analytics. Event
@@ -10,7 +36,7 @@ closures; only the duplicate calendar display was removed.
 ### Basic inventory/product view and search (shell v130)
 
 Inventory and product sales now defaults to Branch, Barcode, Product, Brand,
-Category, Sub-category, Available now, Units sold, 90+ day serials, Monthly
+Category, Sub-category, Available now, Annual sell-out (YTD), 90+ day serials, Monthly
 forecast, Re-order qty, Stock status and Movement status. Sales amounts, duplicate observations
 and technical forecast columns are hidden until **Show details** is checked.
 The lengthy notice above this table is removed entirely, including in the detail
@@ -24,7 +50,7 @@ all scoped products. Search/details reset on account changes. Downloads retain
 all numeric source columns; Export All ignores this local search as it does
 other display filters.
 
-Automatic forecasts now use the last twelve completed months, limited to
+Automatic forecasts now use the last three completed months, limited to
 recorded branch history, instead of starting separately at each item's first
 sale. Quiet months count even before that first item sale. The partial current
 month is excluded from learning but its net branch sales still reduce remaining
@@ -40,7 +66,8 @@ rates are **Regular movement**. Separate labels identify No recorded net sales,
 Insufficient history and unavailable demand. Show details includes the branch
 units, history dates/months, rate and movement explanation. One sale across a
 year with two available units, without a justified demand increase, forecasts
-one unit and reorders zero. PS Units sold remains personal-period sales; demand
+one unit and reorders zero if the sale is in the recent learning window; otherwise
+the recent baseline is zero. Detailed selected-period PS units remain personal; demand
 and movement consistently use the authorized whole-branch product history.
 
 ### Campaign calendar colors (shell v129)
@@ -253,9 +280,10 @@ branch/product net units sold divided by elapsed history months, independently
 of the selected Analytics display period, rounded up to whole units. Returns
 reduce net sell-out. Zero-sale months count. Partial months use
 inclusive elapsed days divided by that calendar month's days; future days do not
-count. With blank forecast calendars, each exact branch/barcode uses its own
-first recorded positive sale through the learning cutoff above. A product with
-no recorded positive history has no forecast.
+count. With blank forecast calendars, each exact branch/barcode uses the last
+three completed months, limited to recorded branch history. Quiet months count
+even before an item's first sale; less than one open-month equivalent is
+insufficient history.
 Remaining demand is `max(0, forecast - net branch units already sold in the forecast month)`.
 Re-order qty is `max(0, remaining demand - available)`.
 For example, 150 net units over twelve complete months forecasts 13 units;
@@ -266,18 +294,20 @@ product history start and numeric elapsed history months.
 Sorting tables preserves their horizontal scroll position.
 In **Filters > Inventory and product sales**, optional **Forecast from/to**
 calendars override only the demand/forecast history (for example January 1 to
-October 31 for ten months). Blank calendars use all available product history,
+October 31 for ten months). Blank calendars use the last three completed months,
 not the selected Analytics period. These account-specific dates persist; reversed ranges are rejected.
-Existing Units sold/Sales and other Analytics panels retain their own period.
+Detailed selected-period units/Sales and other Analytics panels retain their own period.
 
 Forecasts use shared branch demand even for PS accounts, via the existing complete
-price-free brand log. PS **Units sold** and **Sales** remain personal and forecasts
+price-free brand log. **Annual sell-out (YTD)** is branch-wide; PS detailed
+selected-period units and **Sales** remain personal and forecasts
 stay within assigned brand/category and authorized branches. No peer prices or
 customer details are added. Branch/barcode pairs are separate; barcode leading
 zeroes are retained. Current available stock excludes reserved/in-transit units.
-Stock below remaining demand is **red**; zero stock with remaining demand is **red and
-bold**, labelled **Needs attention**. Stock covering remaining demand is not flagged.
-Zero stock without recorded demand is not an urgent forecast shortage.
+Stock below 30% of the full monthly forecast is **Critical stock** (red);
+30% to below 100% is **Low stock** (amber); 100% or more is sufficient.
+Zero stock with positive monthly forecast is critical and bold.
+Zero forecast is labelled **No recorded demand**.
 
 Unknown stock has an unknown re-order quantity, not a zero balance. A failed
 branch-demand load shows an explicit error and unavailable forecasts, never a

@@ -330,6 +330,7 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .log-total-highlight { border-color: var(--blue); background: var(--blue-soft); }
 .log-total-highlight strong { color: var(--blue); }
 .connected-table td.inventory-stock-alert { color: var(--red); }
+.connected-table td.inventory-stock-low { color: #854500; }
 .connected-table td.inventory-stock-attention { font-weight: 700; }
 .table-tools.log-tools { align-items: flex-end; }
 .log-tools .button { min-height: 36px; }

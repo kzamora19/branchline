@@ -553,7 +553,7 @@
       missingSrp: products.filter(row => row.missing_srp).length };
   }
 
-  function inventoryForecast({ products, facts, branchIds, from, to, today, targetMonth = today.slice(0, 7), unavailable = false, adjustments = [], closures = [], holidays = [], eventAdjustments = [] }) {
+  function inventoryForecast({ products, facts, branchIds, from, to, today, targetMonth = today.slice(0, 7), unavailable = false, annualUnavailable = unavailable, adjustments = [], closures = [], holidays = [], eventAdjustments = [] }) {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(targetMonth)) throw new Error("Choose a valid forecast month.");
     const cutoff = addDays(monthStart(targetMonth), -1);
     const through = targetMonth === today.slice(0, 7) ? today : cutoff < today ? cutoff : today;
@@ -573,11 +573,19 @@
         months += ((toMs(last) - toMs(first)) / DAY_MS + 1) / daysInMonth(month);
       }
     }
-    const sold = new Map(), monthSold = new Map();
+    const sold = new Map(), monthSold = new Map(), annualSold = new Map();
+    const annualFrom = `${today.slice(0,4)}-01-01`;
+    for (const row of facts) {
+      if (!branchIds.has(row.branchId) || row.summary || !row.barcode || row.date < annualFrom || row.date > today) continue;
+      const quantity = Number(row.quantity);
+      if (row.quantity == null || !Number.isSafeInteger(quantity)) throw new Error("Cannot calculate annual sell-out: a product sale has an invalid unit quantity.");
+      const key = `${row.branchId}\0${row.barcode}`;
+      annualSold.set(key, (annualSold.get(key) || 0) + quantity);
+    }
     const completedEnd = addDays(monthStart(today.slice(0,7)), -1);
     const autoEnd = [end, cutoff, completedEnd].sort()[0];
     const historyEnd = allTime ? autoEnd : end;
-    const rollingStart = `${shiftMonth(historyEnd.slice(0,7),-11)}-01`;
+    const rollingStart = `${shiftMonth(historyEnd.slice(0,7),-2)}-01`;
     const branchFirst = new Map();
     for (const row of facts) {
       if (!branchIds.has(row.branchId) || !row.date || row.date > through) continue;
@@ -688,8 +696,9 @@
       const remainingDemand = forecast === null ? null : sellingDays < daysInMonth(targetMonth) && !remainingSellingDays ? 0 : Math.max(0, forecast - Math.max(0, soldThisMonth));
       const reorder = remainingDemand === null || row.quantity === null ? null : Math.max(0, remainingDemand - row.quantity);
       const stockAlert = forecast === null ? "Forecast unavailable" : row.quantity === null ? "Stock unknown"
-        : reorder > 0 ? row.quantity === 0 ? "Needs attention" : "Critical stock"
-          : forecast === 0 ? "No recorded demand" : "Sufficient stock";
+        : forecast === 0 ? "No recorded demand"
+          : row.quantity < forecast * 0.3 ? "Critical stock"
+            : row.quantity < forecast ? "Low stock" : "Sufficient stock";
       const forecastBasis = rate === null ? unavailable ? "Forecast unavailable" : "Insufficient history" : pattern
         ? `Seasonal category pattern (${pattern.years.join(", ")})`
         : "Monthly average (insufficient seasonal history)";
@@ -701,6 +710,7 @@
         : `${branchSold} net branch units / ${Number(historyMonths.toFixed(2))} open-month equivalents (${historyFrom || "unknown"} to ${historyEnd}); ${monthlyRate === null ? "unknown" : Number(monthlyRate.toFixed(2))} units/month before seasonality or approved adjustments.`;
       return { ...row, branchSold, forecast, reorder, stockAlert, seasonalFactor, forecastBasis, forecastMonth: targetMonth,
         movementStatus, movementReason, historyTo: historyEnd,
+        annualSold: annualUnavailable ? null : annualSold.get(key) || 0, annualFrom, annualTo: today,
         soldThisMonth, remainingDemand, historyFrom, historyMonths, baselineForecast, approvedPercent,
         sellingDays, remainingSellingDays, calendarFactor, eventPercent, eventReason: eventAdjustment?.reason || "",
         adjustmentReason: adjustment?.reason || "No approved external adjustment" };
