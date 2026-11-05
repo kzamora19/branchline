@@ -1,5 +1,24 @@
 # Branchline
 
+### Live SRP valuation and visible stock quantities (shell v134)
+
+The inventory catalog RPC deliberately omits SRP. Sales-role workspace loading
+now separately pages authorized active product prices through normal products
+RLS and joins them by **exact branch + barcode**, including refreshes. It does
+not reuse another branch's catalog prices. Inventory-only roles still do not
+request or receive sales prices. Failed price loading raises an explicit error.
+
+The Analytics **Inventory overview** panel and all its metric cards are removed.
+The brand MOH table now shows **Available units** before currency values:
+missing SRP does not turn real stock into zero units. Currency columns are
+explicitly **priced subtotals**. No recorded sell-out shows numeric zero for
+sell-out, monthly average and target value, including brands with missing stock
+SRP. Columns count stock/sell-out units missing SRP and unmatched sell-out units.
+Uninitialized stock remains unknown. Partial pricing does not produce a valid
+MOH; missing prices/unmatched products remain explicit in status. Real failed
+sales loads still show unavailable, not invented zero sales. Stock with zero
+sell-out retains No sell-out rather than claiming finite zero months of coverage.
+
 ### Annual-based three-month stock target and Months-on-Hand (shell v133)
 
 The automatic baseline is net branch/product units sold **January through the
@@ -44,8 +63,9 @@ MOH is unadjusted; modifiers affect the unit stock target, not this historical
 ratio. Exactly 3 is not red; above 3 is red using the unrounded ratio. Positive
 stock with zero/negative net sell-out shows **No sell-out** in red instead of a
 finite zero. Missing required SRP, unknown stock, unmatched sold products and
-failed sales loads make the affected valuation explicitly unavailable, never a
-partial-success brand total. Zero units do not require a fictitious valuation.
+failed sales loads make MOH explicitly unavailable. Brand currency columns
+show priced subtotals with missing-unit counts (v134), never a partial-success
+MOH. Zero units do not require a fictitious valuation.
 January shows No completed months, never a prior-year fallback.
 
 Product search does not filter brand totals. Basic/detail modes, sorting,

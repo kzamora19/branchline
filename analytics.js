@@ -568,14 +568,15 @@
       if (row.brand) saleBrands.set(key, String(row.brand).trim().toLowerCase());
     }
     const finish = row => {
-      const average = unavailable || !months || row.salesUnknown ? null : Math.max(0, row.selloutValue) / months;
-      const stock = row.stockUnknown ? null : row.stockValue;
-      const moh = stock === null || average === null || average === 0 ? null : stock / average;
+      const average = unavailable || !months || (row.salesUnknown && !row.partialValuation) ? null : Math.max(0, row.selloutValue) / months;
+      const stock = row.stockUnknown && !row.partialValuation ? null : row.stockValue;
+      const moh = row.stockUnknown || row.salesUnknown || stock === null || average === null || average === 0 ? null : stock / average;
       const status = unavailable ? "Sales unavailable" : !months ? "No completed months"
         : row.stockUnknown ? "Stock / SRP unavailable" : row.unmatchedSales ? "Unmatched product sales" : row.salesUnknown ? "SRP unavailable"
           : average === 0 ? stock > 0 ? "No sell-out" : "No stock or sell-out"
             : moh > 3 ? "Over 3 months" : "Within 3 months";
-      return { ...row, stockValue: stock, selloutValue: unavailable || row.salesUnknown ? null : row.selloutValue,
+      return { ...row, stockUnits: row.unknownStockProducts ? null : row.stockUnits,
+        stockValue: stock, selloutValue: unavailable || (row.salesUnknown && !row.partialValuation) ? null : row.selloutValue,
         monthlySelloutValue: average, targetStockValue: average === null ? null : average * 3,
         moh, mohStatus: status, mohBad: status === "No sell-out" || (moh !== null && moh > 3),
         from, to, months };
@@ -590,8 +591,15 @@
       if (![stockValue, selloutValue].every(Number.isFinite)) throw new Error("Cannot calculate months-on-hand: SRP valuation exceeds supported amounts.");
       const key = `${row.branch_id}\0${String(row.brand || "Unclassified").trim().toLowerCase()}`;
       if (!brands.has(key)) brands.set(key, { branch_id: row.branch_id, brand: row.brand || "Unclassified",
-        stockValue: 0, selloutValue: 0, stockUnknown: false, salesUnknown: false });
+        stockValue: 0, selloutValue: 0, stockUnknown: false, salesUnknown: false, partialValuation: true,
+        stockUnits: 0, missingStockSrpUnits: 0, missingSalesSrpUnits: 0, unmatchedSalesUnits: 0, unknownStockProducts: 0 });
       const brand = brands.get(key);
+      if (row.quantity === null || !Number.isFinite(row.quantity)) brand.unknownStockProducts += 1;
+      else brand.stockUnits += row.quantity;
+      if (!validSrp) {
+        if (row.quantity !== null && Number.isFinite(row.quantity)) brand.missingStockSrpUnits += row.quantity;
+        brand.missingSalesSrpUnits += Math.abs(units);
+      }
       brand.stockValue += stockValue;
       brand.selloutValue += selloutValue;
       if (![brand.stockValue, brand.selloutValue].every(Number.isFinite)) throw new Error("Cannot calculate brand months-on-hand: valuation exceeds supported amounts.");
@@ -599,16 +607,17 @@
       brand.salesUnknown ||= salesUnknown;
       return { ...row, ...finish({ stockValue, selloutValue, stockUnknown, salesUnknown }) };
     });
-    const unmatchedBrands = new Set(), unmatchedBranches = new Set();
+    const unmatchedBrands = new Map(), unmatchedBranches = new Map();
     for (const [key, units] of sold) {
       if (!units || known.has(key)) continue;
       const branch = key.split("\0")[0], brandName = saleBrands.get(key);
-      if (brandName) unmatchedBrands.add(`${branch}\0${brandName}`);
-      else unmatchedBranches.add(branch);
+      const group = brandName ? unmatchedBrands : unmatchedBranches, groupKey = brandName ? `${branch}\0${brandName}` : branch;
+      group.set(groupKey, (group.get(groupKey) || 0) + Math.abs(units));
     }
     for (const [key, brand] of brands) if (unmatchedBrands.has(key) || unmatchedBranches.has(brand.branch_id)) {
       brand.salesUnknown = true;
       brand.unmatchedSales = true;
+      brand.unmatchedSalesUnits = (unmatchedBrands.get(key) || 0) + (unmatchedBranches.get(brand.branch_id) || 0);
     }
     return { from, to, months, products: rows, brands: [...brands.values()].map(finish) };
   }

@@ -297,11 +297,12 @@ test("Analytics brand MOH uses branch-wide SRP value, stays independent of produ
   const {table,tables,html}=render("ps",options);
   const brand=tables.get("an-inventory-brand-moh");
   assert.equal(brand.rows.length,1);
-  assert.deepEqual(Array.from(brand.rows[0]),["one","TCL",4000,10000,1000,3000,4,"Over 3 months"]);
+  assert.deepEqual(Array.from(brand.rows[0]),["one","TCL",40,4000,10000,1000,3000,4,"Over 3 months",0,0,0]);
   assert.equal(table.rows[0][33],4);
   assert.match(table.html,/<td class="inventory-stock-alert">4<\/td>/);
   assert.match(brand.html,/<td class="inventory-stock-alert">4<\/td>/);
-  assert.match(html,/current catalog SRP/);
+  assert.match(html,/SRP values are priced subtotals/);
+  assert.doesNotMatch(html,/<h2>Inventory overview<\/h2>/);
   const filtered=render("ps",options,{inventoryProductSearch:"no-match"});
   assert.equal(filtered.table.rows.length,0);
   assert.deepEqual(Array.from(filtered.tables.get("an-inventory-brand-moh").rows[0]),Array.from(brand.rows[0]));
@@ -310,9 +311,10 @@ test("Analytics brand MOH uses branch-wide SRP value, stays independent of produ
   const start=source.indexOf("  function tableToSheet(");
   vm.runInContext(source.slice(start,source.indexOf("  function exportTable(",start)),context);
   const sheet=vm.runInContext('tableToSheet(table,"Brand MOH")',context);
-  assert.equal(sheet.rows[1][2],4000);
-  assert.equal(sheet.rows[1][6],4);
-  assert.equal(typeof sheet.rows[1][2],"number");
+  assert.equal(sheet.rows[1][2],40);
+  assert.equal(sheet.rows[1][3],4000);
+  assert.equal(sheet.rows[1][7],4);
+  assert.equal(typeof sheet.rows[1][3],"number");
   for(const stock of [30,31]){
     const result=render("ps",{...options,inventoryCatalog:[product("001",stock)],inventoryStock:[product("001",stock)]});
     assert.equal(result.table.rows[0][33],stock/10);

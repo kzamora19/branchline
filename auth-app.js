@@ -343,15 +343,20 @@
       currentProfile.role === "admin" ? fetchAll("inventory_branch_users", "*", [["user_id", true], ["branch_id", true]]) : { data: [], error: null },
       fetchAll("inventory_transfer_batches", "*", [["requested_at", false], ["id", true]]),
       fetchInventoryRpc("inventory_sales_serials", ["branch_id", "barcode", "serial"], inventoryClient),
+      ["ps", "manager", "district_manager", "admin"].includes(currentProfile.role)
+        ? fetchAll("products", "branch_id,barcode,srp", [["branch_id", true], ["barcode", true]], query => query.eq("active", true))
+        : { data: [], error: null },
     ];
     let completed = 0;
-    const [catalog, stock, serials, snapshots, transfers, events, destinations, assignments, batches, salesSerials] = await Promise.all(
+    const [catalog, stock, serials, snapshots, transfers, events, destinations, assignments, batches, salesSerials, prices] = await Promise.all(
       requests.map(request => Promise.resolve(request).then(result => {
         onProgress(++completed / requests.length);
         return result;
       })));
+    const priceMap = new Map(checkResult(prices, "Unable to load inventory SRP prices").map(row => [`${row.branch_id}\0${row.barcode}`, row.srp]));
     return {
-      inventoryCatalog: catalog, inventoryStock: checkResult(stock, "Unable to load stock"),
+      inventoryCatalog: catalog.map(row => ({ ...row, srp: priceMap.get(`${row.branch_id}\0${row.barcode}`) ?? null })),
+      inventoryStock: checkResult(stock, "Unable to load stock"),
       inventorySerials: checkResult(serials, "Unable to load serials"), inventorySnapshots: checkResult(snapshots, "Unable to load snapshots"),
       inventoryTransfers: checkResult(transfers, "Unable to load transfers"), inventoryEvents: checkResult(events, "Unable to load inventory history"),
       inventoryDestinations: destinations, inventoryAssignments: checkResult(assignments, "Unable to load inventory assignments"),
@@ -2504,10 +2509,6 @@
       closures: calendarClosures(), holidays: companyHolidayDates(),
       eventAdjustments: activeEventAdjustments(ui.inventoryForecastMonth || today.slice(0,7)),
     });
-    const metric = (label, value) => `<article class="connected-metric"><span>${escapeHTML(label)}</span><strong>${value}</strong></article>`;
-    const cards = `<div class="connected-metrics">${metric("Available units now", summary.units)}${metric("Tracked branch / product pairs", summary.tracked)}${metric("Out-of-stock branch / product pairs", summary.stockouts)}${metric("Not initialized", summary.uninitialized)}${metric("Awaiting classification", summary.unclassified)}${metric("Available serials aged 90+ days", summary.days90)}${!isPs ? metric("Missing SRP (unset or zero)", summary.missingSrp) : ""}</div>`;
-    const rangeLabel = from === "0001-01-01" && to === "9999-12-31" ? "all recorded dates" : `${from} to ${to}`;
-    const note = `Current inventory as of ${today}; sales/activity dates: ${rangeLabel}. Stock is not a historical balance. Annual sell-out is branch-wide net product units from January 1 through today, independent of the selected sales period. ${isPs ? "Your assigned brand/category stock; selected-period units and sales are your own, not branch-wide demand." : "Available quantities exclude reserved/in-transit stock."} Uninitialized inventory is unknown, not zero. No cost, profit or historical stock valuation is inferred.`;
     const mohAlerts = new WeakSet();
     const products = forecast.products.map(row => {
       const cells = [branchName(row.branch_id), row.barcode, row.model_description,
@@ -2541,15 +2542,16 @@
     const productTable = demandWarning + analyticsDataTable("an-inventory-products", "Inventory and product sales", "",
       ["Branch", "Barcode", "Product", "Brand", "Category", "Sub-category", "Available now", "Annual sell-out (YTD)", "Sales", "90+ day serials", "Observation", "Branch units sold", "3-month stock target", "Re-order qty", "Stock status", "Adjustment month", "Seasonal factor", "Forecast basis", "Branch units sold in adjustment month", "Remaining monthly demand", "Annual learning from", "History months", "Baseline monthly forecast", "Approved external adjustment %", "Adjustment justification","Open days in adjustment month","Remaining open days","Calendar factor","Approved event adjustment %","Event adjustment justification","Movement status","Movement explanation",isPs ? "Your units sold (selected period)" : "Units sold (selected period)","Months-on-Hand (MOH)","Adjusted monthly forecast"], shownProducts, stockCellClass, forecastControls, productControls,
       (value,index) => index === 33 && typeof value === "number" ? Number(value.toFixed(2)) : value);
-    const brandMohRows = forecast.moh.brands.map(row => [branchName(row.branch_id), row.brand,
+    const brandMohRows = forecast.moh.brands.map(row => [branchName(row.branch_id), row.brand, row.stockUnits ?? "Stock unknown",
       row.stockValue ?? "Unavailable", row.selloutValue ?? "Unavailable",
       row.monthlySelloutValue ?? "Unavailable", row.targetStockValue ?? "Unavailable",
-      row.moh === null ? row.mohStatus : row.moh, row.mohStatus]);
+      row.moh === null ? row.mohStatus : row.moh, row.mohStatus,
+      row.missingStockSrpUnits, row.missingSalesSrpUnits, row.unmatchedSalesUnits]);
     const brandMoh = analyticsDataTable("an-inventory-brand-moh", "Brand Months-on-Hand (MOH)",
-      `January through last completed month (${forecast.moh.from} to ${forecast.moh.to}; ${forecast.moh.months} months). Available stock value / average monthly branch sell-out, both at current catalog SRP. Target: 3 months; above 3 is red. Unadjusted; independent of product search.`,
-      ["Branch","Brand","Available stock (SRP)","Completed-year sell-out (SRP)","Average monthly sell-out (SRP)","3-month target value (SRP)","Months-on-Hand (MOH)","MOH status"],
-      brandMohRows, (row,index) => [6,7].includes(index) && ["Over 3 months","No sell-out"].includes(row[7]) ? "inventory-stock-alert" : "", "", "",
-      (value,index) => typeof value !== "number" ? value : index >= 2 && index <= 5 ? formatMoney(value) : index === 6 ? Number(value.toFixed(2)) : value);
+      `January through last completed month (${forecast.moh.from} to ${forecast.moh.to}; ${forecast.moh.months} months). Target: 3 months; above 3 is red. No recorded sell-out = 0. SRP values are priced subtotals when pricing is incomplete; MOH requires complete stock and sales valuation.`,
+      ["Branch","Brand","Available units","Priced stock value (SRP)","Priced sell-out (SRP)","Average monthly priced sell-out (SRP)","3-month priced target (SRP)","Months-on-Hand (MOH)","MOH status","Stock units missing SRP","Sell-out units missing SRP","Unmatched sell-out units"],
+      brandMohRows, (row,index) => [7,8].includes(index) && ["Over 3 months","No sell-out"].includes(row[8]) ? "inventory-stock-alert" : "", "", "",
+      (value,index) => typeof value !== "number" ? value : index >= 3 && index <= 6 ? formatMoney(value) : index === 7 ? Number(value.toFixed(2)) : value);
     const aging = analyticsDataTable("an-inventory-aging", "Current stock aging", "Available serialized units only. Missing/invalid receipt dates are unknown; nonserialized units have no receipt-age data.",
       ["Age band", "Available serials"], [["Current (0-29 days)", summary.current], ["30 days (30-59)", summary.days30],
         ["60 days (60-89)", summary.days60], ["90 days or more", summary.days90], ["Unknown receipt age", summary.unknown]]);
@@ -2581,7 +2583,7 @@
       ["Imported", "Report date", "Branch", "Products", "Snapshot units"],
       (liveData.inventorySnapshots || []).filter(row => ids.has(row.branch_id) && within(row.imported_at))
         .map(row => [row.imported_at, row.reported_at, branchName(row.branch_id), row.products, row.quantity]));
-    return `${panel("Inventory overview", note, cards)}${brandMoh}${productTable}${aging}${transfers}${history}${snapshots}`;
+    return `${brandMoh}${productTable}${aging}${transfers}${history}${snapshots}`;
   }
 
   function allTimeAnalyticsPanels(ids, facts, isPs, today) {

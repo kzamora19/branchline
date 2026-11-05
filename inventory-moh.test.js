@@ -70,21 +70,32 @@ test("completed-year valuation excludes November, prior years, future, summary a
   assert.equal(negative.mohBad,true);
 });
 
-test("missing/invalid SRP cannot become zero brand value or a partial-success MOH", () => {
+test("missing/invalid SRP exposes priced subtotals and unit counts but never a partial-success MOH", () => {
   for (const srp of [null,undefined,0,-1,NaN,Infinity]) {
     const result=calculate({products:[{...product(),srp}]});
-    for (const row of [result.products[0],result.brands[0]]) {
+    for (const row of [result.products[0]]) {
       assert.equal(row.stockValue,null);
       assert.equal(row.selloutValue,null);
       assert.equal(row.moh,null);
       assert.match(row.mohStatus,/unavailable/);
     }
+    const brand=result.brands[0];
+    assert.equal(brand.stockValue,0);
+    assert.equal(brand.selloutValue,0);
+    assert.equal(brand.stockUnits,40);
+    assert.equal(brand.missingStockSrpUnits,40);
+    assert.equal(brand.missingSalesSrpUnits,100);
+    assert.equal(brand.moh,null);
+    assert.match(brand.mohStatus,/unavailable/);
   }
   const partial=calculate({products:[product(),product("002",1,null)]}).brands[0];
-  assert.equal(partial.stockValue,null);
+  assert.equal(partial.stockValue,40000);
+  assert.equal(partial.stockUnits,41);
+  assert.equal(partial.missingStockSrpUnits,1);
   assert.equal(partial.moh,null);
   const unknown=calculate({products:[product("001",null)]}).brands[0];
-  assert.equal(unknown.stockValue,null);
+  assert.equal(unknown.stockValue,0);
+  assert.equal(unknown.stockUnits,null);
   assert.equal(unknown.selloutValue,100000);
   assert.equal(unknown.moh,null);
 });
@@ -110,10 +121,26 @@ test("January, no sell-out, no stock and failed loads are explicit, not finite z
   assert.throws(()=>calculate({products:[product("001",100,Number.MAX_VALUE)]}),/valuation exceeds/);
 });
 
+test("EUROTEK-style stock remains 67 units even with two stocked products missing SRP and no sell-out", () => {
+  const result=calculate({products:[product("A",30,1000,"EUROTEK"),product("B",35,2000,"Eurotek"),
+    product("C",1,null,"EUROTEK"),product("D",1,0,"Eurotek")],facts:[]});
+  assert.equal(result.brands.length,1);
+  const row=result.brands[0];
+  assert.equal(row.stockUnits,67);
+  assert.equal(row.stockValue,100000);
+  assert.equal(row.missingStockSrpUnits,2);
+  assert.equal(row.selloutValue,0);
+  assert.equal(row.monthlySelloutValue,0);
+  assert.equal(row.targetStockValue,0);
+  assert.equal(row.moh,null);
+  assert.equal(row.mohStatus,"Stock / SRP unavailable");
+});
+
 test("unmatched sold products make affected brand valuation unavailable instead of reporting a partial total", () => {
   const result=calculate({facts:[sale(),{...sale(5,"2026-03-01","MISSING"),brand:"TCL"}]});
   assert.equal(result.products[0].moh,4);
-  assert.equal(result.brands[0].selloutValue,null);
+  assert.equal(result.brands[0].selloutValue,100000);
+  assert.equal(result.brands[0].unmatchedSalesUnits,5);
   assert.equal(result.brands[0].moh,null);
   assert.equal(result.brands[0].mohStatus,"Unmatched product sales");
 });
