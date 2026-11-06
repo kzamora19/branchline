@@ -203,6 +203,13 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 .connected-panel-heading { margin-bottom: 14px; }
 .connected-panel-heading h2,.connected-sale-form h2 { margin: 0; font: 700 13px/1.4 "Manrope","Segoe UI",sans-serif; }
 .connected-panel-heading p { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
+.section-collapse-heading { cursor: pointer; }
+.section-toggle { display: inline-flex; align-items: center; gap: 12px; max-width: 100%; min-height: 36px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.section-toggle::after { content: "-"; flex: none; font-size: 18px; font-weight: 400; }
+.section-toggle[aria-expanded="false"]::after { content: "+"; }
+.section-toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; border-radius: 3px; }
+.section-collapsed > .section-collapse-heading { margin-bottom: 0; }
+.section-collapse-body { min-width: 0; }
 .connected-table-wrap { overflow-x: auto; }
 .connected-table { width: 100%; min-width: 620px; border-collapse: collapse; text-align: left; font-size: 11px; }
 .connected-table th { padding: 10px 9px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; white-space: nowrap; }

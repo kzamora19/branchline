@@ -1,5 +1,17 @@
 # Branchline
 
+### Collapsible sections (shell v144)
+
+Sales, Analytics, Settings, Targets, and People & access sections start collapsed.
+Click a section header to expand its table/chart/content; click it again to hide
+the content. The title button also supports Enter/Space and reports its expanded
+state to assistive technology. Each section's choice is remembered on this device,
+including after filtering, sorting, paging, navigation, or reopening the app.
+Header downloads and other controls remain separate and do not toggle the section.
+Tables, totals, charts and exports retain their existing data and permissions;
+dialog tables and other pages are unchanged. If device storage is unavailable,
+preferences last for the current session and a warning is logged.
+
 ### Desktop daily sales drilldown (shell v143)
 
 On desktop (over 900px), click a past/current day bar in Sales > Daily sales

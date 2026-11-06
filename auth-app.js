@@ -1360,6 +1360,7 @@
     const container = document.querySelector("#live-results");
     if (container && resultsView) container.innerHTML = `${universalPages.has(activePage) ? `<p class="an-note" data-sales-basis-note>${escapeHTML(salesBasisNote())}</p>` : ""}${resultsView()}`;
     consolidatePanelFilters();
+    window.BranchlineTableUI?.enhanceSections(container, activePage);
     if (pieTablePopup) renderPieTablePopup();
   }
 

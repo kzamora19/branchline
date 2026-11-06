@@ -4,6 +4,78 @@
   const icon = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg>';
   const sorts = new WeakMap();
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  const sectionPages = new Set(["sales", "analytics", "settings", "targets", "users"]);
+  const sectionStates = new Map();
+  let sectionId = 0;
+  let storageUnavailable = false;
+
+  function sectionOpen(key, open) {
+    if (open !== undefined) sectionStates.set(key, open);
+    if (!storageUnavailable) {
+      try {
+        if (open !== undefined) localStorage.setItem(key, open ? "open" : "closed");
+        else {
+          const saved = localStorage.getItem(key);
+          if (saved !== null && saved !== "open" && saved !== "closed") throw new Error("Invalid saved section state");
+          sectionStates.set(key, saved === "open");
+        }
+      } catch (error) {
+        storageUnavailable = true;
+        console.warn("Unable to remember Branchline section preferences on this device. Changes will last for this session only.", error);
+      }
+    }
+    return sectionStates.get(key) === true;
+  }
+
+  function enhanceSections(root, page) {
+    if (!root || !sectionPages.has(page)) return;
+    root.querySelectorAll(".connected-panel").forEach(panel => {
+      if (panel.dataset.collapsibleSection) return;
+      const heading = panel.querySelector(":scope > .connected-panel-heading");
+      const title = heading?.querySelector("h2");
+      if (!title) return;
+      const label = title.textContent.trim();
+      const identity = panel.dataset.pieSource || panel.querySelector("[data-table-key]")?.dataset.tableKey || "";
+      const key = `branchline-sections-v1:${page}:${identity}:${label}`;
+      for (const download of panel.querySelectorAll(":scope > .chart-download")) {
+        let actions = heading.querySelector(".panel-actions");
+        if (!actions) {
+          actions = document.createElement("div");
+          actions.className = "panel-actions";
+          heading.classList.add("panel-heading-row");
+          heading.append(actions);
+        }
+        actions.append(download);
+      }
+      const body = document.createElement("div");
+      body.id = `section-body-${++sectionId}`;
+      body.className = "section-collapse-body";
+      body.append(...[...panel.childNodes].filter(node => node !== heading));
+      panel.append(body);
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "section-toggle";
+      toggle.textContent = label;
+      toggle.setAttribute("aria-label", label);
+      toggle.setAttribute("aria-controls", body.id);
+      title.replaceChildren(toggle);
+      panel.dataset.collapsibleSection = key;
+      heading.classList.add("section-collapse-heading");
+      function setOpen(open) {
+        body.hidden = !open;
+        toggle.setAttribute("aria-expanded", String(open));
+        panel.classList.toggle("section-collapsed", !open);
+      }
+      setOpen(sectionOpen(key));
+      heading.addEventListener("click", event => {
+        const control = event.target.closest("button, a, input, select, textarea, label, [role=button]");
+        if (control && control !== toggle) return;
+        const open = body.hidden;
+        setOpen(open);
+        sectionOpen(key, open);
+      });
+    });
+  }
 
   function key(value) {
     const text = String(value ?? "").trim();
@@ -94,7 +166,7 @@
     });
   }
 
-  window.BranchlineTableUI = { enhance, compare };
+  window.BranchlineTableUI = { enhance, compare, enhanceSections };
   const observer = new MutationObserver(() => enhance());
   observer.observe(document.body, { childList: true, subtree: true });
   enhance();
