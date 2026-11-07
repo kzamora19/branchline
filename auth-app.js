@@ -5377,12 +5377,19 @@
     const ctx = walkInDailyCtx;
     if (!ctx) return;
     const { ids, isPs } = ctx;
+    const showAssistedComparison = ["manager", "district_manager", "admin"].includes(currentProfile.role);
     const monthStart = range?.from || ctx.monthStart;
     const through = range?.to || ctx.through;
     const storeCounts = storeCountsFor(ids, isPs);
     const psCounts = liveData.psWalkins.filter(row => ids.has(row.branch_id) && (!isPs || row.ps_id === currentProfile.id));
+    const assistedByDay = new Map();
+    if (showAssistedComparison) psCounts.forEach(row => {
+      const date = String(row.counted_on).slice(0, 10);
+      if (!assistedByDay.has(date)) assistedByDay.set(date, 0);
+      assistedByDay.set(date, assistedByDay.get(date) + Math.max(0, Math.trunc(Number(row.clients_assisted) || 0)));
+    });
     const transactions = withHistoryTransactions(analyticsFacts(ids), ids, isPs);
-    const summarize = (from, to) => A.walkInSummary({ from, to, storeCounts, psCounts, transactions });
+    const summarize = (from, to) => A.walkInSummary({ from, to, storeCounts, psCounts: showAssistedComparison ? [] : psCounts, transactions });
     const label = isPs ? "Clients assisted" : "Walk-in traffic";
     const total = summarize(monthStart, through);
     const priorFrom = A.sameDayPriorYear(monthStart);
@@ -5401,9 +5408,10 @@
     const body = days.map(day => {
       const now = summarize(day, day);
       const before = summarize(A.sameDayPriorYear(day), A.sameDayPriorYear(day));
-      return `<tr><td>${escapeHTML(day)}</td><td>${value(now)}</td><td>${escapeHTML(A.sameDayPriorYear(day))}</td><td>${value(before)}</td><td>${change(now, before)}</td></tr>`;
+      return `<tr><td>${escapeHTML(day)}</td>${showAssistedComparison ? `<td>${assistedByDay.has(day) ? assistedByDay.get(day) : "—"}</td>` : ""}<td>${value(now)}</td><td>${escapeHTML(A.sameDayPriorYear(day))}</td><td>${value(before)}</td><td>${change(now, before)}</td></tr>`;
     }).reverse().join("");
-    if (collectingExports) return dailyComparisonSheet(`${label} by day`, body);
+    const headers = ["Date", ...(showAssistedComparison ? ["Clients assisted"] : []), "This year", "Last year date", "Last year", "Change"];
+    if (collectingExports) return dailyComparisonSheet(`${label} by day`, body, headers);
     closeModal();
     modalRoot = document.createElement("div");
     modalRoot.className = "dlg-backdrop";
@@ -5419,7 +5427,8 @@
           <article class="connected-metric"><span>Same days last year</span><strong>${value(priorTotal)}</strong><small>${priorTotal.coveredDays} day(s) counted · conversion ${rate(priorTotal)}</small></article>
           <article class="connected-metric"><span>Change</span><strong>${change(total, priorTotal)}</strong><small>Only days with a recorded count are included</small></article>
         </div>
-        <div class="ps-lines"><table class="connected-table"><thead><tr><th>Date</th><th>This year</th><th>Last year date</th><th>Last year</th><th>Change</th></tr></thead><tbody>${body}</tbody></table></div>
+        ${showAssistedComparison ? '<p class="an-note">Clients assisted is the sum of available PS entries, which may be incomplete. This year and last year use recorded store visitors or imported store history, not PS assistance. Other traffic totals may differ because they can use PS counts as a fallback. A dash means no count was recorded.</p>' : ""}
+        <div class="ps-lines"><table class="connected-table"><thead><tr>${headers.map(header => `<th>${escapeHTML(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
         <div class="dlg-actions">${exportButton('data-download-dialog', `Download ${label} by day`)}<button class="button button-primary" type="button" data-modal-close>Close</button></div>
       </div></div>`;
     document.body.appendChild(root);
@@ -6472,9 +6481,9 @@
     return { name, rows: [...copy.querySelectorAll("tr")].map(row => [...row.children].map(cell => cell.textContent.trim())) };
   }
 
-  function dailyComparisonSheet(name, body) {
+  function dailyComparisonSheet(name, body, headers = ["Date", "This year", "Last year date", "Last year", "Change"]) {
     const template = document.createElement("template");
-    template.innerHTML = `<table><thead><tr><th>Date</th><th>This year</th><th>Last year date</th><th>Last year</th><th>Change</th></tr></thead><tbody>${body}</tbody></table>`;
+    template.innerHTML = `<table><thead><tr>${headers.map(header => `<th>${escapeHTML(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table>`;
     return tableElementSheet(template.content.querySelector("table"), name);
   }
 

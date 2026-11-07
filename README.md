@@ -1,5 +1,19 @@
 # Branchline
 
+### PS assistance comparison (shell v145)
+
+In the daily Walk-in Traffic comparison for Managers, District Managers, and
+Admins, a **Clients assisted** column appears before **This year**. It sums PS
+daily assistance records within the selected branch scope for each date, so
+leaders can compare client assistance with store visitors. An em dash means no
+PS assistance was recorded that day; an explicit zero remains `0`. The existing
+PS view is unchanged and does not show a duplicate column. The downloaded daily
+comparison includes the same column and ordering. The comparison's current and
+previous-year store counts and totals use manager-recorded store visitors, or
+imported store history when no store entry exists, never PS counts as fallback.
+Other traffic analytics retain their existing PS fallback rules. PS totals are
+based only on entries received and can be incomplete.
+
 ### Collapsible sections (shell v144)
 
 Sales, Analytics, Settings, Targets, and People & access sections start collapsed.
