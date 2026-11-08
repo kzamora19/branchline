@@ -4596,8 +4596,8 @@
         <datalist id="sale-products"></datalist>
         <label class="check-row sale-unlisted-toggle"><input type="checkbox" name="show_unavailable"> Show unavailable products for manual late-sale serial entry</label>
         <p data-sale-promotion-status role="status"></p>
-        ${promotion ? `<div data-promotion-header class="field"><strong>${escapeHTML(promotion.description)} · ${escapeHTML(promotion.barcode)}</strong><span>${escapeHTML(`Source: ${promotion.source_name}, page ${promotion.source_page}`)}</span><span>${escapeHTML(promotion.source_excerpt)}</span>
-          ${fieldHTML("Bundle selling price (PHP)", "bundle_price", `<input name="bundle_price" type="number" min="0" step="0.01" required value="${escapeHTML(promotion.tag_price ?? "")}">`)}
+        ${promotion ? `<div data-promotion-header class="field"><strong>${escapeHTML(promotion.description)} · ${escapeHTML(promotion.barcode)}</strong>
+          <input name="bundle_price" aria-label="Bundle selling price (PHP)" placeholder="Enter bundle selling price (PHP)" type="number" min="0" step="0.01" required value="${escapeHTML(promotion.tag_price ?? "")}">
           ${!promotion.valid_from || !promotion.valid_to || promotion.price_conflict ? '<label class="check-row"><input type="checkbox" name="confirm_promotion_warning" required> I checked the incomplete dates or conflicting prices against the source.</label>' : ""}</div>` : ""}
         <div id="sale-rows">${lines.map(saleLineRow).join("")}</div>
         <div class="sale-footer"><span class="sale-footer-actions"><button class="button button-outline button-small" type="button" data-add-line>+ Add product line</button></span><strong>Sale total: <span id="sale-total">${formatMoney(lines.reduce((sum, line) => sum + Number(line.selling_price || 0) * Number(line.quantity || 0), 0))}</span></strong></div>
@@ -4607,6 +4607,7 @@
           row.dataset.promotionComponent = "true";
           for (const name of ["product", "srp", "price", "quantity"]) row.querySelector(`[name="${name}"]`).readOnly = true;
           for (const name of ["price", "linetotal"]) row.querySelector(`[name="${name}"]`).closest("label").hidden = true;
+          row.querySelector('[name="product"]').closest("label").querySelector("span").hidden = true;
           row.querySelector("[data-remove-line]").hidden = true;
         });
         const syncDelivery = () => {
@@ -4851,11 +4852,9 @@
           if (row.dataset.outdoorRow) form.querySelector(`[data-outdoor-of="${row.dataset.outdoorRow}"]`)?.remove();
           promotion = item;
           row.insertAdjacentHTML("beforebegin", `<div data-promotion-header class="field"><strong>${escapeHTML(promotionLabel(item))}</strong>
-            <span>${escapeHTML(`Memo SRP: ${item.memo_srp == null ? "not supplied" : formatMoney(item.memo_srp)} · Source: ${item.source_name}, page ${item.source_page}`)}</span>
-            ${fieldHTML("Bundle tag / selling price (PHP)", "bundle_price", `<input name="bundle_price" type="number" min="0" step="0.01" required value="${escapeHTML(item.tag_price ?? "")}">`)}
+            <input name="bundle_price" aria-label="Bundle selling price (PHP)" placeholder="Enter bundle selling price (PHP)" type="number" min="0" step="0.01" required value="${escapeHTML(item.tag_price ?? "")}">
             ${!item.valid_from || !item.valid_to || item.price_conflict ? '<label class="check-row"><input type="checkbox" name="confirm_promotion_warning" required> I checked the incomplete dates or conflicting prices against the source.</label>' : ""}
-            <button type="button" class="button button-outline button-small" data-remove-promotion>Remove bundle</button><strong>Included inventory products</strong>
-            <span>${escapeHTML(item.components.map(part => `${part.barcode}: ${part.quantity} ${part.free ? "free" : "paid"}`).join(" · "))}</span></div>${components.map(saleLineRow).join("")}`);
+            <button type="button" class="button button-outline button-small" data-remove-promotion>Remove bundle</button></div>${components.map(saleLineRow).join("")}`);
           const header = row.previousElementSibling;
           const inserted = [];
           let previous = header;
@@ -4865,10 +4864,11 @@
             component.dataset.promotionComponent = "true";
             for (const name of ["product", "srp", "price", "quantity"]) component.querySelector(`[name="${name}"]`).readOnly = true;
             for (const name of ["price", "linetotal"]) component.querySelector(`[name="${name}"]`).closest("label").hidden = true;
+            component.querySelector('[name="product"]').closest("label").querySelector("span").hidden = true;
             component.querySelector("[data-remove-line]").hidden = true;
             enableCurrencyInput(component);
           }
-          message.textContent = item.tag_price == null ? "This older promotion has no saved tag price. Check the memo and enter the bundle price." : "";
+          message.textContent = "";
           recalc();
         };
         let linkSeq = 0;

@@ -74,6 +74,9 @@ test("promotion sales show one price, actual products and stock protection on de
       assert.equal(await dialog.locator('[name="code"]').inputValue(), barcode);
       assert.equal(await dialog.locator('[name="price"]').isVisible(), false);
       assert.equal(await dialog.locator('[name="quantity"]').evaluate(node => node.readOnly), true);
+      assert.equal(await dialog.locator('[name="bundle_price"]').inputValue(), "");
+      assert.equal(await dialog.locator('[name="bundle_price"]').evaluate(node => node.validity.valueMissing), true);
+      assert.equal(await dialog.locator('[name="bundle_price"]').getAttribute("placeholder"), "Enter bundle selling price (PHP)");
       await dialog.locator('[name="bundle_price"]').fill("999");
       assert.match(await dialog.locator("#sale-total").textContent(), /999/);
       await dialog.locator("form").evaluate(form => form.requestSubmit());
@@ -116,6 +119,10 @@ test("promotion sales show one price, actual products and stock protection on de
       assert.equal(await dialog.locator('[name="quantity"]').inputValue(), "6");
       assert.equal(await dialog.locator('[name="code"]').inputValue(), barcode);
       assert.equal(await dialog.locator('[name="srp"]').isVisible(), true);
+      assert.equal(await dialog.locator('.sale-row [name="product"]').locator("xpath=../span").isVisible(), false);
+      assert.equal(await dialog.locator("[data-promotion-header]").getByText("Included inventory products").count(), 0);
+      assert.equal(await dialog.locator("[data-promotion-header]").getByText(/Memo SRP|Source:/).count(), 0);
+      assert.equal(await dialog.locator('[name="bundle_price"]').getAttribute("aria-label"), "Bundle selling price (PHP)");
       assert.match(await dialog.locator("#sale-total").textContent(), /99.50/);
       await dialog.locator("[data-add-line]").click();
       await dialog.locator(".sale-row").last().locator('[name="product"]').fill(await page.evaluate(() => window.promotionOtherProduct));

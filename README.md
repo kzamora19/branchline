@@ -1,6 +1,6 @@
 # Branchline
 
-### Promotion bundles (shell v148)
+### Promotion bundles (shell v149)
 
 Managers, District Managers and Admins can use **Settings → Import promotion
 memo** to read one or more selectable-text PDFs locally and review suggested rows. Check all
