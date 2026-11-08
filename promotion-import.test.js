@@ -6,7 +6,7 @@ test("batch import selects only unique ordinary products with usable SRP", async
   const { preparePromotionImport } = await import("./import-engine/promotion-import.mjs");
   const row = (barcode, excerpt, extra = {}) => ({
     barcode, description: "Fan", sourceName: "ordinary.pdf", sourceExcerpt: excerpt,
-    sourcePage: 1, warnings: [], ...extra,
+    sourcePage: 1, warnings: [], memoSrp: 100, tagPrice: 90, ...extra,
   });
   const rows = [
     row("12345", "12345 Fan 100.00 90.00"),

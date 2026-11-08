@@ -1,6 +1,6 @@
 ﻿"use strict";
 
-const CACHE_NAME = "branchline-shell-v147";
+const CACHE_NAME = "branchline-shell-v148";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",

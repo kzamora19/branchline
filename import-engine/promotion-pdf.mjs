@@ -50,6 +50,23 @@ export async function inspectPromotionPdf(pdfjs, bytes, sourceName) {
   }
 }
 
+function promotionPrices(page, items, y) {
+  const headers = page.items.filter(item => item.transform[5] > y);
+  const find = expression => {
+    const header = headers.filter(item => expression.test(item.text.trim()))
+      .sort((a, b) => a.transform[5] - b.transform[5])[0];
+    if (!header) return null;
+    const center = item => item.transform[4] + (Number.isFinite(item.width) ? item.width / 2 : 0);
+    const amounts = items.filter(item => /^(?:₱\s*)?[\d,]+\.\d{2}$/.test(item.text.trim()))
+      .map(item => ({ item, distance: Math.min(Math.abs(center(item) - center(header)), Math.abs(item.transform[4] - header.transform[4])) }))
+      .filter(match => match.distance <= 12)
+      .sort((a, b) => a.distance - b.distance);
+    if (amounts.length !== 1) return null;
+    return Number(amounts[0].item.text.replace(/[₱,\s]/g, ""));
+  };
+  return { memoSrp: find(/^srp$/i), tagPrice: find(/^(?:cash\s*\/\s*)?tag(?:\s*this)?$|^now\s+price$/i) };
+}
+
 // Candidate rows are suggestions only: layouts and source text must be checked by a manager.
 export function promotionPdfCandidates(document) {
   if (!document || !Array.isArray(document.pages) || typeof document.sourceName !== "string") {
@@ -78,9 +95,11 @@ export function promotionPdfCandidates(document) {
       const description = (priceAt < 0 ? after : after.slice(0, priceAt))
         .map(item => item.text.trim()).join(" ").replace(/\s+/g, " ").trim();
       const excerpt = items.map(item => item.text.trim()).join(" ").replace(/\s+/g, " ").trim();
+      const prices = promotionPrices(page, items, line.y);
       rows.push({
         barcode: code.text.trim(), description, sourceName: document.sourceName,
         sourcePage: page.number, sourceExcerpt: excerpt, validFrom: period.validFrom, validTo: period.validTo,
+        ...prices,
         warnings: [
           ...(!description ? ["Description was not detected; enter it from the PDF."] : []),
           ...(priceAt < 0 ? ["Price columns were not identified; review the PDF."] : []),

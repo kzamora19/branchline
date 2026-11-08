@@ -4595,9 +4595,10 @@
         <datalist id="sale-barangays"></datalist>
         <datalist id="sale-products"></datalist>
         <label class="check-row sale-unlisted-toggle"><input type="checkbox" name="show_unavailable"> Show unavailable products for manual late-sale serial entry</label>
-        ${promotion ? `<div class="field"><strong>${escapeHTML(promotion.description)} · ${escapeHTML(promotion.barcode)}</strong><span>${escapeHTML(`Source: ${promotion.source_name}, page ${promotion.source_page}`)}</span><span>${escapeHTML(promotion.source_excerpt)}</span></div>
-          ${fieldHTML("Bundle selling price (PHP)", "bundle_price", '<input name="bundle_price" type="number" min="0" step="0.01" required>')}
-          ${!promotion.valid_from || !promotion.valid_to || promotion.price_conflict ? '<label class="check-row"><input type="checkbox" name="confirm_promotion_warning" required> I checked the incomplete dates or conflicting prices against the source.</label>' : ""}` : ""}
+        <p data-sale-promotion-status role="status"></p>
+        ${promotion ? `<div data-promotion-header class="field"><strong>${escapeHTML(promotion.description)} · ${escapeHTML(promotion.barcode)}</strong><span>${escapeHTML(`Source: ${promotion.source_name}, page ${promotion.source_page}`)}</span><span>${escapeHTML(promotion.source_excerpt)}</span>
+          ${fieldHTML("Bundle selling price (PHP)", "bundle_price", `<input name="bundle_price" type="number" min="0" step="0.01" required value="${escapeHTML(promotion.tag_price ?? "")}">`)}
+          ${!promotion.valid_from || !promotion.valid_to || promotion.price_conflict ? '<label class="check-row"><input type="checkbox" name="confirm_promotion_warning" required> I checked the incomplete dates or conflicting prices against the source.</label>' : ""}</div>` : ""}
         <div id="sale-rows">${lines.map(saleLineRow).join("")}</div>
         <div class="sale-footer"><span class="sale-footer-actions"><button class="button button-outline button-small" type="button" data-add-line>+ Add product line</button></span><strong>Sale total: <span id="sale-total">${formatMoney(lines.reduce((sum, line) => sum + Number(line.selling_price || 0) * Number(line.quantity || 0), 0))}</span></strong></div>
         ${sale ? '<label class="check-row"><input name="reconcile" type="checkbox"> Apply quantity/serial corrections to current inventory if this sale was included in a replacement snapshot. Prices and customer corrections do not require this.</label>' : ""}`,
@@ -4605,7 +4606,7 @@
         if (promotion) form.querySelectorAll(".sale-row").forEach(row => {
           row.dataset.promotionComponent = "true";
           for (const name of ["product", "srp", "price", "quantity"]) row.querySelector(`[name="${name}"]`).readOnly = true;
-          for (const name of ["srp", "price", "linetotal"]) row.querySelector(`[name="${name}"]`).closest("label").hidden = true;
+          for (const name of ["price", "linetotal"]) row.querySelector(`[name="${name}"]`).closest("label").hidden = true;
           row.querySelector("[data-remove-line]").hidden = true;
         });
         const syncDelivery = () => {
@@ -4816,6 +4817,60 @@
           form.querySelector("#sale-total").textContent = formatMoney(grand + (promotion ? (parseCurrency(form.elements.bundle_price.value) ?? 0) : 0));
           showSerialFields();
         };
+        let availablePromotions = [];
+        const promotionLabel = item => `PROMOTION · ${item.barcode} · ${item.description}`;
+        const applicablePromotions = () => availablePromotions.filter(item => {
+          const date = form.elements.date.value;
+          return !date || ((!item.valid_from || date >= item.valid_from) && (!item.valid_to || date <= item.valid_to));
+        });
+        if (!sale && !promotion && !demoStore && currentProfile?.role === "ps") {
+          const lookupClient = client, profileId = currentProfile.id, branch = currentProfile.branch_id;
+          form.querySelector("[data-sale-promotion-status]").textContent = "Loading promotion barcodes...";
+          fetchAllFrom(lookupClient, "reviewed_promotions", "*", [["reviewed_at", false], ["id", true]],
+            query => query.eq("branch_id", branch).is("revoked_at", null)).then(result => {
+            if (result.error) throw result.error;
+            if (client !== lookupClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen the sale.");
+            availablePromotions = result.data;
+            form.querySelector("[data-sale-promotion-status]").textContent = "Promotion barcodes loaded. Select the promotion from product suggestions.";
+          }).catch(error => {
+            console.error("Promotion search failed.", error);
+            form.querySelector("[data-sale-promotion-status]").textContent = `Unable to load promotion barcodes: ${friendlyError(error)}`;
+          });
+        }
+        const activatePromotion = (item, row) => {
+          const message = form.querySelector("[data-sale-promotion-status]");
+          if (promotion) { message.textContent = "Only one bundle can be added to a sale. Use a separate invoice for another bundle."; return; }
+          const quantities = new Map();
+          for (const part of item.components) quantities.set(part.barcode, (quantities.get(part.barcode) || 0) + part.quantity);
+          const components = [...quantities].map(([barcode, quantity]) => {
+            const product = catalog.find(entry => entry.barcode === barcode);
+            if (!product) throw new Error(`Promotion product ${barcode} is unavailable. Ask a manager to review it.`);
+            return { barcode, quantity, srp: product.srp, selling_price: 0 };
+          });
+          if (!components.length) throw new Error("This promotion has no reviewed products.");
+          if (row.dataset.outdoorRow) form.querySelector(`[data-outdoor-of="${row.dataset.outdoorRow}"]`)?.remove();
+          promotion = item;
+          row.insertAdjacentHTML("beforebegin", `<div data-promotion-header class="field"><strong>${escapeHTML(promotionLabel(item))}</strong>
+            <span>${escapeHTML(`Memo SRP: ${item.memo_srp == null ? "not supplied" : formatMoney(item.memo_srp)} · Source: ${item.source_name}, page ${item.source_page}`)}</span>
+            ${fieldHTML("Bundle tag / selling price (PHP)", "bundle_price", `<input name="bundle_price" type="number" min="0" step="0.01" required value="${escapeHTML(item.tag_price ?? "")}">`)}
+            ${!item.valid_from || !item.valid_to || item.price_conflict ? '<label class="check-row"><input type="checkbox" name="confirm_promotion_warning" required> I checked the incomplete dates or conflicting prices against the source.</label>' : ""}
+            <button type="button" class="button button-outline button-small" data-remove-promotion>Remove bundle</button><strong>Included inventory products</strong>
+            <span>${escapeHTML(item.components.map(part => `${part.barcode}: ${part.quantity} ${part.free ? "free" : "paid"}`).join(" · "))}</span></div>${components.map(saleLineRow).join("")}`);
+          const header = row.previousElementSibling;
+          const inserted = [];
+          let previous = header;
+          while (previous && !previous.hasAttribute("data-promotion-header")) { inserted.unshift(previous); previous = previous.previousElementSibling; }
+          row.remove();
+          for (const component of inserted) {
+            component.dataset.promotionComponent = "true";
+            for (const name of ["product", "srp", "price", "quantity"]) component.querySelector(`[name="${name}"]`).readOnly = true;
+            for (const name of ["price", "linetotal"]) component.querySelector(`[name="${name}"]`).closest("label").hidden = true;
+            component.querySelector("[data-remove-line]").hidden = true;
+            enableCurrencyInput(component);
+          }
+          message.textContent = item.tag_price == null ? "This older promotion has no saved tag price. Check the memo and enter the bundle price." : "";
+          recalc();
+        };
         let linkSeq = 0;
         const syncOutdoor = row => {
           const typed = row.querySelector('[name="product"]');
@@ -4850,12 +4905,19 @@
             return;
           }
           if (event.target.name === "product") {
-            form.querySelector("#sale-products").innerHTML = productSuggestions(event.target.value, item => form.elements.show_unavailable.checked || !stockState(item, 1).blocked)
-              .map(item => `<option value="${escapeHTML(productLabel(item))}"></option>`).join("");
-            syncOutdoor(event.target.closest(".sale-row"));
+            const search = event.target.value.trim().toLowerCase();
+            const promoOptions = search ? applicablePromotions().filter(item => `${item.barcode} ${item.description}`.toLowerCase().includes(search)
+              || item.barcode === normBarcode(search)).slice(0, 30) : [];
+            form.querySelector("#sale-products").innerHTML = promoOptions.map(item => `<option value="${escapeHTML(promotionLabel(item))}"></option>`).join("") +
+              productSuggestions(event.target.value, item => form.elements.show_unavailable.checked || !stockState(item, 1).blocked)
+                .map(item => `<option value="${escapeHTML(productLabel(item))}"></option>`).join("");
             const row = event.target.closest(".sale-row");
-            notifyAvailability(row);
-            if (row.dataset.outdoorRow) notifyAvailability(form.querySelector(`[data-outdoor-of="${row.dataset.outdoorRow}"]`));
+            const exactPromotion = applicablePromotions().some(item => promotionLabel(item).toLowerCase() === search || item.barcode === normBarcode(search));
+            if (!exactPromotion) {
+              syncOutdoor(row);
+              notifyAvailability(row);
+              if (row.dataset.outdoorRow) notifyAvailability(form.querySelector(`[data-outdoor-of="${row.dataset.outdoorRow}"]`));
+            }
           }
           if (event.target.name === "quantity") {
             const row = event.target.closest(".sale-row");
@@ -4867,7 +4929,26 @@
           recalc();
         });
         form.addEventListener("change", event => {
+          if (event.target.name === "product" && !sale) {
+            const value = event.target.value.trim();
+            const exact = applicablePromotions().filter(item => promotionLabel(item).toLowerCase() === value.toLowerCase()
+              || item.barcode === normBarcode(value));
+            if (exact.length === 1) {
+              try { activatePromotion(exact[0], event.target.closest(".sale-row")); }
+              catch (error) { form.querySelector("[data-sale-promotion-status]").textContent = error.message; }
+              return;
+            }
+            if (exact.length > 1) form.querySelector("[data-sale-promotion-status]").textContent = "Multiple promotions use this barcode. Ask a manager to retire the incorrect offer.";
+          }
           if (["product", "quantity"].includes(event.target.name)) notifyAvailability(event.target.closest(".sale-row"));
+        });
+        form.addEventListener("keydown", event => {
+          if (event.key !== "Enter" || event.target.name !== "product" || sale) return;
+          const value = event.target.value.trim();
+          if (applicablePromotions().some(item => promotionLabel(item).toLowerCase() === value.toLowerCase() || item.barcode === normBarcode(value))) {
+            event.preventDefault();
+            event.target.dispatchEvent(new Event("change", { bubbles: true }));
+          }
         });
         form.addEventListener("focusout", event => {
           if (event.target.name === "price" || event.target.name === "srp") {
@@ -4875,6 +4956,18 @@
           }
         });
         form.addEventListener("click", event => {
+          if (event.target.closest("[data-remove-promotion]")) {
+            form.querySelectorAll('[data-promotion-component="true"]').forEach(row => row.remove());
+            form.querySelector("[data-promotion-header]").remove();
+            promotion = null;
+            if (!form.querySelector(".sale-row")) {
+              form.querySelector("#sale-rows").insertAdjacentHTML("beforeend", saleLineRow());
+              enableCurrencyInput(form.querySelector(".sale-row:last-child"));
+            }
+            form.querySelector("[data-sale-promotion-status]").textContent = "";
+            recalc();
+            return;
+          }
           if (event.target.closest("[data-add-line]")) {
             form.querySelector("#sale-rows").insertAdjacentHTML("beforeend", saleLineRow());
             enableCurrencyInput(form.querySelector(".sale-row:last-child"));

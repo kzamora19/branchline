@@ -21,6 +21,7 @@ export function preparePromotionImport(candidates, products, existing) {
     const matches = productByCode.get(code) || [];
     const reasons = [];
     if (!row.description) reasons.push("Description is missing.");
+    if (row.tagPrice == null || !Number.isFinite(row.tagPrice) || row.tagPrice < 0) reasons.push("Tag/now price needs review.");
     if (row.warnings.length) reasons.push(...row.warnings);
     if (/\b(?:bundle|free|buy\s*\d|buy\s+one|get\s*\d|get\s+one)\b/i.test(`${row.sourceName} ${row.sourceExcerpt}`)) {
       reasons.push("Bundle or free-item terms need product mapping.");

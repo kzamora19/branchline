@@ -16,9 +16,9 @@ export function openPromotionReview(env) {
     title: "Import promotional memo", wide: true, submitLabel: "Approve selected exception",
     intro: "Read a PDF, review its rows, then import the clear matches together. Bundles and other uncertain rows need review before they can be sold. Standard product prices are not changed.",
     body: `<label class="field"><span>Branch</span><select name="branch" required><option value="">Choose branch</option>${branches.map(branch => `<option value="${esc(branch.id)}">${esc(branch.name)}</option>`).join("")}</select></label>
-      <label class="field"><span>Promotion PDF</span><input name="file" type="file" accept=".pdf,application/pdf"></label>
-      <button class="button button-outline" type="button" data-read-pdf>Read PDF</button>
-      <p data-pdf-status role="status">Choose a PDF and read it first.</p>
+      <label class="field"><span>Promotion PDFs</span><input name="file" type="file" accept=".pdf,application/pdf" multiple></label>
+      <button class="button button-outline" type="button" data-read-pdf>Read PDFs</button>
+      <p data-pdf-status role="status">Choose one or more PDFs and read them first.</p>
       <button class="button button-outline" type="button" data-prepare-import>Check all rows against branch products</button>
       <p data-import-status role="status">Choose a branch and read a PDF to check its rows.</p>
       <div data-import-results></div>
@@ -28,6 +28,8 @@ export function openPromotionReview(env) {
       <p data-candidate-warnings role="status"></p>
       <label class="field"><span>Promotion barcode</span><input name="barcode" maxlength="80" required></label>
       <label class="field"><span>Promotion description</span><input name="description" maxlength="500" required></label>
+      <div class="dlg-grid"><label class="field"><span>Memo SRP (optional)</span><input name="memo_srp" type="number" min="0" max="9999999999.99" step="0.01"></label>
+      <label class="field"><span>Tag / now selling price</span><input name="tag_price" type="number" min="0" max="9999999999.99" step="0.01" required></label></div>
       <div class="dlg-grid"><label class="field"><span>Start date (leave blank if unknown)</span><input name="valid_from" type="date"></label>
       <label class="field"><span>End date (leave blank if unknown)</span><input name="valid_to" type="date"></label></div>
       <label class="field"><span>Conflicting prices or terms for this barcode?</span><select name="price_conflict" required>
@@ -64,6 +66,8 @@ export function openPromotionReview(env) {
         selected = candidate.value === "" ? null : candidates[Number(candidate.value)];
         form.elements.barcode.value = selected?.barcode || "";
         form.elements.description.value = selected?.description || "";
+        form.elements.memo_srp.value = selected?.memoSrp ?? "";
+        form.elements.tag_price.value = selected?.tagPrice ?? "";
         form.elements.evidence.value = selected?.sourceExcerpt || "";
         form.elements.price_conflict.value = "";
         form.elements.valid_from.value = selected?.validFrom || "";
@@ -97,29 +101,37 @@ export function openPromotionReview(env) {
         form.querySelector("[data-import-ready]").disabled = true;
         candidate.innerHTML = '<option value="">Read the selected PDF</option>';
         setCandidate();
-        status.textContent = "File changed. Read the selected PDF.";
+        status.textContent = "Files changed. Read the selected PDFs.";
       });
       form.querySelector("[data-read-pdf]").addEventListener("click", async event => {
-        const button = event.currentTarget, file = form.elements.file.files[0], token = ++revision;
+        const button = event.currentTarget, files = [...form.elements.file.files], token = ++revision;
         candidates = []; selected = null; saved = new Set(); prepared = [];
         form.querySelector("[data-import-results]").innerHTML = "";
         form.querySelector("[data-import-ready]").disabled = true;
         candidate.innerHTML = '<option value="">Reading...</option>'; setCandidate();
-        if (!file || !/\.pdf$/i.test(file.name)) { status.textContent = "Choose a PDF file."; return; }
+        if (!files.length || files.some(file => !/\.pdf$/i.test(file.name))) { status.textContent = "Choose one or more PDF files."; return; }
         button.disabled = true;
-        status.textContent = "Reading PDF on this device...";
+        status.textContent = "Reading PDFs on this device...";
         try {
           const pdfjs = await import(PDF_READER);
           pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER;
-          const document = await inspectPromotionPdf(pdfjs, new Uint8Array(await file.arrayBuffer()), file.name);
-          if (token !== revision) return;
-          candidates = promotionPdfCandidates(document);
+          const warnings = [];
+          for (const file of files) {
+            const document = await inspectPromotionPdf(pdfjs, new Uint8Array(await file.arrayBuffer()), file.name);
+            if (token !== revision) return;
+            candidates.push(...promotionPdfCandidates(document));
+            warnings.push(...document.pages.flatMap(page => page.warnings.map(warning => `${file.name}, page ${page.number}: ${warning}`)));
+          }
           candidate.innerHTML = '<option value="">Choose a source row</option>' + candidates.map((row, index) =>
-            `<option value="${index}">${esc(`Page ${row.sourcePage} · ${row.barcode} · ${row.description || "(description missing)"}`)}</option>`).join("");
-          const warnings = document.pages.flatMap(page => page.warnings.map(warning => `Page ${page.number}: ${warning}`));
-          status.textContent = `${candidates.length} candidate rows found. ${warnings.join(" ")}${candidates.length ? "" : " No rows were recognized; review the PDF manually."}`;
+            `<option value="${index}">${esc(`${row.sourceName}, page ${row.sourcePage} · ${row.barcode} · ${row.description || "(description missing)"}`)}</option>`).join("");
+          status.textContent = `${candidates.length} candidate rows found in ${files.length} PDF(s). ${warnings.join(" ")}${candidates.length ? "" : " No rows were recognized; review the PDFs manually."}`;
         } catch (error) {
-          if (token === revision) { console.error("Promotion PDF reading failed.", error); status.textContent = `Unable to read PDF: ${error.message}`; }
+          if (token === revision) {
+            candidates = [];
+            candidate.innerHTML = '<option value="">Read the selected PDFs</option>';
+            console.error("Promotion PDF reading failed.", error);
+            status.textContent = `Unable to read PDFs; no rows are ready to import: ${error.message}`;
+          }
         } finally { button.disabled = false; }
       });
       form.querySelector("[data-prepare-import]").addEventListener("click", async event => {
@@ -137,7 +149,8 @@ export function openPromotionReview(env) {
           const ready = prepared.filter(item => item.ready).length;
           form.querySelector("[data-import-results]").innerHTML = prepared.map((item, index) =>
             `<div class="field"><span>${esc(`${item.row.barcode} · ${item.row.description || "(description missing)"} · ${item.ready ? "Ready: matched inventory barcode" : `Review: ${item.reasons.join(" ")}`}`)}</span>
-            <small>${esc(`Page ${item.row.sourcePage}: ${item.row.sourceExcerpt}`)}</small>
+            <small>${esc(`${item.row.sourceName}, page ${item.row.sourcePage}: ${item.row.sourceExcerpt}`)}</small>
+            <small>${esc(`Memo SRP: ${item.row.memoSrp ?? "not detected"} · Tag price: ${item.row.tagPrice ?? "not detected"}`)}</small>
             ${item.ready ? "" : `<button type="button" class="button button-outline button-small" data-review-row="${index}">Review this row</button>`}</div>`).join("");
           status.textContent = `${ready} ready to import; ${prepared.length - ready} need review. Dates missing from the PDF remain blank and will be flagged during sales.`;
           form.querySelector("[data-import-ready]").disabled = ready === 0;
@@ -165,12 +178,13 @@ export function openPromotionReview(env) {
           }
           for (const item of ready) {
             if (revision !== token) throw new Error("The import changed. Check the remaining rows again.");
-            await rpc("review_promotion", {
+            await rpc("review_priced_promotion", {
               p_branch: branch, p_barcode: item.code, p_description: item.row.description,
               p_valid_from: item.row.validFrom || null, p_valid_to: item.row.validTo || null,
               p_price_conflict: false, p_source_name: item.row.sourceName,
               p_source_page: item.row.sourcePage, p_source_excerpt: item.row.sourceExcerpt,
               p_components: [{ id: "component-1", barcode: item.code, quantity: 1, free: false }],
+              p_memo_srp: item.row.memoSrp, p_tag_price: item.row.tagPrice,
             });
             item.ready = false;
             item.reasons = ["Imported in this session."];
@@ -255,12 +269,22 @@ export function openPromotionReview(env) {
       if (!components.length || components.some(row => !row.barcode || !Number.isSafeInteger(row.quantity) || row.quantity <= 0)) {
         throw new Error("Enter every included product barcode and a positive whole quantity.");
       }
-      await rpc("review_promotion", {
-        p_branch: form.elements.branch.value, p_barcode: form.elements.barcode.value.trim(),
+      const code = form.elements.barcode.value.trim(), branch = form.elements.branch.value;
+      const normalized = value => /^\d{1,7}$/.test(value) ? value.padStart(8, "0") : value;
+      const existing = await listPromotions(branch);
+      if (revision !== savedRevision || selected !== source || form.elements.branch.value !== branch || form.elements.barcode.value.trim() !== code) {
+        throw new Error("The selection changed. Review it again before saving.");
+      }
+      if (existing.some(row => normalized(row.barcode) === normalized(code))) {
+        throw new Error("An active promotion already uses this barcode. Retire the old offer before approving a replacement.");
+      }
+      await rpc("review_priced_promotion", {
+        p_branch: branch, p_barcode: code,
         p_description: form.elements.description.value.trim(), p_valid_from: form.elements.valid_from.value || null,
         p_valid_to: form.elements.valid_to.value || null, p_price_conflict: form.elements.price_conflict.value === "true",
         p_source_name: source.sourceName, p_source_page: source.sourcePage, p_source_excerpt: source.sourceExcerpt,
-        p_components: components,
+        p_components: components, p_memo_srp: form.elements.memo_srp.value === "" ? null : Number(form.elements.memo_srp.value),
+        p_tag_price: form.elements.tag_price.value === "" ? null : Number(form.elements.tag_price.value),
       });
       if (revision === savedRevision) saved.add(savedCandidate);
       prepared = [];

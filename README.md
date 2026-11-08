@@ -1,12 +1,14 @@
 # Branchline
 
-### Promotion bundles (shell v147)
+### Promotion bundles (shell v148)
 
 Managers, District Managers and Admins can use **Settings → Import promotion
-memo** to read selectable PDF text locally and review suggested rows. Check all
+memo** to read one or more selectable-text PDFs locally and review suggested rows. Check all
 rows against branch products, then import the clear single-product barcode
 matches together. Duplicates, existing promotions, missing product prices,
-bundles and uncertain matches require individual review. If a batch stops on
+bundles, missing tag prices and uncertain matches require individual review. The
+detected SRP and TAG THIS/NOW PRICE are suggestions and must be checked against
+the source; installment values are not substituted for the tag price. If a batch stops on
 an error, the screen reports how many rows were saved; check the rows again
 before retrying. The PDF
 reader is loaded from a pinned CDN, so the first use requires a connection.
@@ -17,8 +19,12 @@ then approve the offer for its branch. PDF extraction can miss rows: compare
 the list with the source. A manager can retire an incorrect offer without changing past sales.
 Promotional prices do not overwrite catalog SRP.
 
-On Sales, a PS can choose **Record promotion sale**, find an approved offer by
-its promotion barcode, enter the bundle selling price, and select the serials
+On Sales, a PS can use **+ Record sale** and search for an approved offer by
+its promotion barcode. The bundle expands into its actual products with their
+individual standard SRPs and fills the selling price from the reviewed tag
+price. Older approved promotions have no saved tag price and require it to be
+entered manually, or can be retired and reimported with a reviewed price.
+The PS selects the serials
 for its actual inventory products. Incomplete dates or conflicting prices
 require explicit confirmation; known out-of-period offers are blocked.
 This first workflow records one bundle per promotion sale; other distinct
@@ -26,6 +32,8 @@ products can be added as regular lines. Every component needs a catalog
 SRP under existing manual-sale rules, and paid components must have a positive
 combined SRP. The bundle total is allocated to paid units in proportion to SRP,
 with free units allocated zero; rounding preserves the total exactly.
+The promotion-price migration `20261220000000_promotion_memo_prices.sql`
+must be applied before importing priced promotion memos.
 
 Selecting a bundle item in Sales return selects the whole bundle. Choose the
 actual serials for all included units; partial bundle returns are blocked.
