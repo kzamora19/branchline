@@ -153,6 +153,8 @@ test("company import checks every branch and replaces an existing offer only aft
           { barcode: "56682", brand: "CAMEL", model_description: "CAMEL E. KETTLE CK-2010S", srp: 710 },
           { barcode: "29070", brand: "CAMEL", model_description: "CAMEL FLAT IRON CFI1010 NON STICK", srp: 560 },
           { barcode: "36109", brand: "FREE", model_description: "FREE CAMEL FLAT IRON CFI-1010", srp: 0 },
+          { barcode: "54736", brand: "CAMEL", model_description: "CAMEL ELECTRIC FAN 1MS-SF", srp: 1140 },
+          { barcode: "60000", brand: "MEGASAVER", model_description: "MEGASAVER OTHER ZZ999", srp: 100 },
         ],
         listPromotions: async branch => branch === "c" ? [
           { id: "old", barcode: "12345" }, ...(window.oldBundle ? [{ id: "old-bundle", barcode: "65433" }] : []),
@@ -281,6 +283,20 @@ test("company import checks every branch and replaces an existing offer only aft
     const datedCalls = (await page.evaluate(() => window.calls)).slice(-2);
     assert.equal(datedCalls[0].args.p_valid_from, "2026-12-01");
     assert.equal(datedCalls[0].args.p_valid_to, "2026-12-31");
+    await page.evaluate(() => {
+      window.XLSX.utils.sheet_to_json = () => [
+        ["Barcode", "Description", "TAG THIS"], ["65148", "CAMEL BUY1 GET1 1MS-SF MEGASAVER STAND FAN", "2159"],
+      ];
+    });
+    await page.locator('[name="file"]').setInputFiles({ name: "camel.csv", mimeType: "text/csv", buffer: Buffer.from("csv") });
+    const callsBeforeCamel = (await page.evaluate(() => window.calls)).length;
+    await page.locator("[data-import-files]").click();
+    await page.waitForFunction(count => window.calls.length === count + 2, callsBeforeCamel);
+    const camelCall = (await page.evaluate(() => window.calls)).at(-1);
+    assert.deepEqual(camelCall.args.p_components, [
+      { id: "paid", barcode: "00054736", quantity: 1, free: false },
+      { id: "free", barcode: "00054736", quantity: 1, free: true },
+    ]);
     await page.close();
   } finally { await browser.close(); }
 });

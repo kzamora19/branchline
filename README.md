@@ -1,6 +1,6 @@
 # Branchline
 
-### Promotion bundles (shell v152)
+### Promotion bundles (shell v153)
 
 Managers, District Managers and Admins can use **Settings → Import promotion
 memo** to choose one or more selectable-text PDFs, Excel or CSV files and select **Import files**.
@@ -17,7 +17,9 @@ quantities kept separately. For simple offers with a different promotion barcode
 the importer also matches an exact model from the description to an existing
 branch product, ignoring hyphens; a named catalog brand disambiguates regular
 products from matching free-item catalog entries. Multiple matching products or
-models remain flagged. Duplicates, existing promotions, missing product prices,
+models remain flagged. An unrelated brand mentioned in the description does not
+block an otherwise unique matching model with a named matching brand; if multiple
+matching products have named brands, the row remains flagged. Duplicates, existing promotions, missing product prices,
 complex or unclear bundles, missing tag prices and uncertain matches require individual review. The
 detected SRP and TAG THIS/NOW PRICE are suggestions and must be checked against
 the source; installment values are not substituted for the tag price. If a batch stops on

@@ -82,3 +82,24 @@ test("description models match real barcodes and disambiguate by named catalog b
   assert.equal(preparePromotionImport([{ ...plain, tagPrice: null }], [paid], [])[0].ready, false);
   assert.equal(preparePromotionImport([plain], [{ ...paid, model_description: "CAMEL CFI1010A" }], [])[0].ready, false);
 });
+
+test("buy/get model matching ignores unrelated catalog brands but not matching model conflicts", async () => {
+  const { preparePromotionImport } = await import("./import-engine/promotion-import.mjs");
+  const row = {
+    barcode: "00065148", description: "CAMEL BUY1 GET1 1MS-SF MEGASAVER STAND FAN",
+    sourceName: "BUY1 GET1.pdf",
+    sourceExcerpt: "CAMEL BUY1 GET1 00065148 CAMEL BUY1 GET1 1MS-SF MEGASAVER STAND FAN ₱2,280.00 ₱2,159.00",
+    warnings: [], tagPrice: 2159,
+  };
+  const camel = { barcode: "00054736", brand: "CAMEL", model_description: "CAMEL ELECTRIC FAN 1MS-SF", srp: 1140 };
+  const unrelated = { barcode: "10000", brand: "MEGASAVER", model_description: "MEGASAVER OTHER ZZ999", srp: 100 };
+  const result = preparePromotionImport([row], [camel, unrelated], [])[0];
+  assert.equal(result.ready, true);
+  assert.deepEqual(result.components.map(part => [part.barcode, part.quantity, part.free]), [
+    ["00054736", 1, false], ["00054736", 1, true],
+  ]);
+  const otherMatch = { ...unrelated, model_description: "MEGASAVER 1MS-SF" };
+  assert.equal(preparePromotionImport([row], [camel, otherMatch], [])[0].ready, false);
+  assert.equal(preparePromotionImport([row], [{ ...camel, brand: "OTHER" }, unrelated], [])[0].ready, false);
+  assert.equal(preparePromotionImport([{ ...row, description: `${row.description} & MUG`, sourceExcerpt: `${row.sourceExcerpt} & MUG` }], [camel, unrelated], [])[0].ready, false);
+});

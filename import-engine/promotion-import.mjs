@@ -17,8 +17,12 @@ function matchingModel(row, catalog) {
   const matches = [...new Set(models.flatMap(model => catalog.models.get(model) || []))];
   if (!matches.length) return null;
   const words = description.replace(/[^A-Z0-9]+/g, " ").trim();
-  const mentionedBrands = new Set([...catalog.brands].filter(brand => (` ${words} `).includes(` ${brand} `)));
+  const hasNamedBrand = [...catalog.brands].some(brand => (` ${words} `).includes(` ${brand} `));
+  const mentionedBrands = new Set(matches.map(product =>
+    String(product.brand || "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim())
+    .filter(brand => brand.length >= 3 && (` ${words} `).includes(` ${brand} `)));
   if (mentionedBrands.size > 1) return null;
+  if (hasNamedBrand && !mentionedBrands.size) return null;
   const branded = matches.filter(product => {
     const brand = String(product.brand || "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
     return mentionedBrands.has(brand);
