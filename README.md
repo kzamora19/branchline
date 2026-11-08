@@ -1,13 +1,17 @@
 # Branchline
 
-### Promotion bundles (shell v151)
+### Promotion bundles (shell v152)
 
 Managers, District Managers and Admins can use **Settings → Import promotion
-memo** to read one or more selectable-text PDFs, Excel or CSV files locally and review suggested rows. Spreadsheet
+memo** to choose one or more selectable-text PDFs, Excel or CSV files and select **Import files**.
+Clear matches are imported automatically; exceptions are shown for review. If the
+files omit their promotion period, enter one common start and end date for those
+files before importing. Otherwise, rows without both dates need attention.
+Spreadsheet
 files need recognizable barcode and description headers; only named tag/now-price columns
 are used for selling prices. Sheets with unrecognized or duplicate headings are rejected,
-and recognized dates in sheet rows require review. Check all
-rows against branch products, then import clear matches together. Simple buy/get
+and only unambiguous ISO-format start and end date columns are read automatically;
+other populated date formats require review. Simple buy/get
 offers can be matched using one unambiguous product model, with the paid and free
 quantities kept separately. For simple offers with a different promotion barcode,
 the importer also matches an exact model from the description to an existing

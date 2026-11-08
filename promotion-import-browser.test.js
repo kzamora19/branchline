@@ -63,6 +63,7 @@ test("promotion import previews all rows, imports only clear matches, and report
           },
         });
       });
+      await page.locator("[data-import-details] > summary").click();
       await page.locator('[name="branch"]').selectOption("branch");
       await page.locator('[name="file"]').setInputFiles({ name: "ordinary.pdf", mimeType: "application/pdf", buffer: Buffer.from("pdf") });
       await page.locator("[data-read-pdf]").click();
@@ -171,7 +172,12 @@ test("company import checks every branch and replaces an existing offer only aft
         },
       });
     });
+    await page.locator("[data-import-details] > summary").click();
     await page.locator('[name="file"]').setInputFiles({ name: "offer.csv", mimeType: "text/csv", buffer: Buffer.from("csv") });
+    await page.locator("[data-import-files]").click();
+    await page.waitForFunction(() => /0 promotion\(s\) imported/.test(document.querySelector("[data-simple-status]").textContent));
+    assert.equal((await page.evaluate(() => window.calls)).length, 0);
+    assert.match(await page.locator("[data-import-results]").innerText(), /start and end dates are needed/);
     await page.locator("[data-read-pdf]").click();
     await page.waitForFunction(() => /1 candidate rows/.test(document.querySelector("[data-pdf-status]").textContent));
     await page.locator("[data-prepare-import]").click();
@@ -247,6 +253,34 @@ test("company import checks every branch and replaces an existing offer only aft
       { id: "paid", barcode: "00029070", quantity: 5, free: false },
       { id: "free", barcode: "00029070", quantity: 1, free: true },
     ]);
+    await page.evaluate(() => {
+      window.XLSX.utils.sheet_to_json = () => [
+        ["Barcode", "Description", "TAG THIS", "Start date", "End date"],
+        ["99999", "CFI-1010 CAMEL", "500", "2026-11-01", "2026-11-30"],
+      ];
+    });
+    await page.locator('[name="file"]').setInputFiles({ name: "dated.csv", mimeType: "text/csv", buffer: Buffer.from("csv") });
+    await page.locator("[data-import-files]").click();
+    await page.waitForFunction(() => /2 promotion\(s\) imported/.test(document.querySelector("[data-simple-status]").textContent));
+    const simpleCalls = (await page.evaluate(() => window.calls)).slice(-2);
+    assert.deepEqual(simpleCalls.map(call => call.args.p_branch), ["a", "c"]);
+    assert.equal(simpleCalls[0].args.p_valid_from, "2026-11-01");
+    assert.equal(simpleCalls[0].args.p_valid_to, "2026-11-30");
+    assert.match(await page.locator("[data-simple-status]").innerText(), /1 row\(s\) need attention/);
+    await page.evaluate(() => {
+      window.XLSX.utils.sheet_to_json = () => [
+        ["Barcode", "Description", "TAG THIS"], ["99998", "CFI-1010 CAMEL", "500"],
+      ];
+    });
+    await page.locator('[name="file"]').setInputFiles({ name: "undated.csv", mimeType: "text/csv", buffer: Buffer.from("csv") });
+    await page.locator('[name="batch_from"]').fill("2026-12-01");
+    await page.locator('[name="batch_to"]').fill("2026-12-31");
+    const previousCount = (await page.evaluate(() => window.calls)).length;
+    await page.locator("[data-import-files]").click();
+    await page.waitForFunction(count => window.calls.length === count + 2, previousCount);
+    const datedCalls = (await page.evaluate(() => window.calls)).slice(-2);
+    assert.equal(datedCalls[0].args.p_valid_from, "2026-12-01");
+    assert.equal(datedCalls[0].args.p_valid_to, "2026-12-31");
     await page.close();
   } finally { await browser.close(); }
 });

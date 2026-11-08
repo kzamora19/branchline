@@ -34,3 +34,18 @@ test("promotion sheets do not guess installment prices or ambiguous columns", as
   assert.throws(() => promotionSheetCandidates([["Barcode", "Item Code", "Description"]], "offer.csv", "Sheet1", 1), /duplicate/);
   assert.throws(() => promotionSheetCandidates([["Product", "Price"]], "offer.csv", "Sheet1", 1), /not recognized/);
 });
+
+test("promotion sheets accept only unambiguous valid ISO date ranges", async () => {
+  const { promotionSheetCandidates } = await import("./import-engine/promotion-sheet.mjs");
+  const rows = promotionSheetCandidates([
+    ["Barcode", "Description", "TAG THIS", "Start date", "End date"],
+    ["12345", "Fan", "90", "2026-11-01", "2026-11-30"],
+    ["12346", "Fan", "90", "2026-02-30", "2026-03-01"],
+    ["12347", "Fan", "90", "2026-12-01", "2026-11-30"],
+    ["12348", "Fan", "90", "11/01/2026", "11/30/2026"],
+  ], "offers.csv", "Sheet1", 1);
+  assert.equal(rows[0].validFrom, "2026-11-01");
+  assert.equal(rows[0].validTo, "2026-11-30");
+  assert.deepEqual(rows[0].warnings, []);
+  for (const row of rows.slice(1)) assert.match(row.warnings.join(" "), /dates.*review/);
+});

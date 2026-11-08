@@ -25,6 +25,14 @@ export function promotionSheetCandidates(rows, sourceName, sheetName, sheetNumbe
   if (header < 0) throw new Error(`${sourceName}, sheet ${sheetName}: barcode and description headings were not recognized.`);
   const result = [];
   const dateColumns = (rows[header] || []).flatMap((value, index) => DATE_HEADERS.includes(key(value)) ? [index] : []);
+  const starts = dateColumns.filter(index => ["startdate", "validfrom"].includes(key(rows[header][index])));
+  const ends = dateColumns.filter(index => ["enddate", "validto", "expirydate"].includes(key(rows[header][index])));
+  const isoDate = value => {
+    const raw = text(value);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return "";
+    const date = new Date(`${raw}T00:00:00Z`);
+    return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === raw ? raw : "";
+  };
   for (let i = header + 1; i < rows.length; i++) {
     const values = rows[i] || [];
     if (!values.some(value => text(value))) continue;
@@ -37,7 +45,13 @@ export function promotionSheetCandidates(rows, sourceName, sheetName, sheetNumbe
     if (!code) warnings.push("Barcode is missing.");
     if (/^\d{16,}$/.test(code)) warnings.push("Long numeric barcode may have lost precision in the spreadsheet.");
     if (!description) warnings.push("Description is missing.");
-    if (dateColumns.some(index => text(values[index]))) warnings.push("Promotion dates in this sheet need review.");
+    const validFrom = starts.length === 1 ? isoDate(values[starts[0]]) : "";
+    const validTo = ends.length === 1 ? isoDate(values[ends[0]]) : "";
+    if (dateColumns.some(index => text(values[index])) &&
+        (starts.length !== 1 || ends.length !== 1 || !validFrom || !validTo ||
+          validFrom > validTo || dateColumns.length !== 2)) {
+      warnings.push("Promotion dates in this sheet need review.");
+    }
     if (!validPrice(memoSrp)) warnings.push("Memo SRP is invalid.");
     if (!validPrice(tagPrice)) warnings.push("Tag/now price is invalid.");
     const excerpt = `${sheetName}, row ${i + 1}: ${values.map(text).join(" | ")}`;
@@ -45,7 +59,7 @@ export function promotionSheetCandidates(rows, sourceName, sheetName, sheetNumbe
     result.push({
       barcode: code, description, sourceName, sourcePage: sheetNumber, sourceExcerpt: excerpt.slice(0, 4000),
       memoSrp: validPrice(memoSrp) ? memoSrp : null, tagPrice: validPrice(tagPrice) ? tagPrice : null,
-      validFrom: "", validTo: "", warnings,
+      validFrom, validTo, warnings,
     });
   }
   return result;

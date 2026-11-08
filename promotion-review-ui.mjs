@@ -15,10 +15,15 @@ export function openPromotionReview(env) {
     <button class="button button-outline" type="button" data-remove-component>Remove product</button></div>`;
   openModal({
     title: "Import promotional memo", wide: true, submitLabel: "Approve selected exception",
-    intro: "Read promotion files, then import clear matches together. Uncertain bundles and other unclear rows need review before they can be sold. Standard product prices are not changed.",
+    intro: "Choose your promotion files and import them. Clear matches are saved automatically; only uncertain rows need attention.",
     body: `${companyImport ? '<label class="field"><span>Import scope</span><select name="scope"><option value="company">All branches</option><option value="branch">Selected branch only</option></select></label>' : ""}
       <label class="field"><span>Branch for exception review</span><select name="branch" ${companyImport ? "" : "required"}><option value="">Choose branch</option>${branches.map(branch => `<option value="${esc(branch.id)}">${esc(branch.name)}</option>`).join("")}</select></label>
       <label class="field"><span>Promotion files</span><input name="file" type="file" accept=".pdf,.xlsx,.xls,.csv,application/pdf" multiple></label>
+      <div class="dlg-grid"><label class="field"><span>Start date, if missing from files</span><input name="batch_from" type="date"></label>
+      <label class="field"><span>End date, if missing from files</span><input name="batch_to" type="date"></label></div>
+      <button class="button button-primary" type="button" data-import-files>Import files</button>
+      <p data-simple-status role="status">Choose one or more files to begin.</p>
+      <details data-import-details><summary>Import details and exceptions</summary>
       <button class="button button-outline" type="button" data-read-pdf>Read files</button>
       <p data-pdf-status role="status">Choose one or more files and read them first.</p>
       <button class="button button-outline" type="button" data-prepare-import>Check files against products</button>
@@ -43,10 +48,15 @@ export function openPromotionReview(env) {
         <div data-components>${component()}</div><button class="button button-outline" type="button" data-add-component>Add product</button></fieldset>
       <label class="check-row"><input name="confirm_review" type="checkbox" required> I checked the source, dates, terms, product barcodes, quantities and paid/free status.</label>
       <p data-save-status role="status"></p>
-      <details><summary>Reviewed promotions in selected branch</summary><button type="button" class="button button-outline" data-refresh-promotions>Refresh list</button><p data-list-status role="status"></p><div data-promotion-list></div></details>`,
+      <details><summary>Reviewed promotions in selected branch</summary><button type="button" class="button button-outline" data-refresh-promotions>Refresh list</button><p data-list-status role="status"></p><div data-promotion-list></div></details></details>`,
     onReady: form => {
       const status = form.querySelector("[data-pdf-status]");
       const candidate = form.elements.candidate;
+      const details = form.querySelector("[data-import-details]");
+      const exceptionSubmit = form.querySelector('[type="submit"]');
+      if (exceptionSubmit) exceptionSubmit.hidden = true;
+      details.addEventListener("toggle", () => { if (exceptionSubmit) exceptionSubmit.hidden = !details.open; });
+      if (!companyImport && branches.length === 1) form.elements.branch.value = branches[0].id;
       const renderResults = company => {
         form.querySelector("[data-import-results]").innerHTML = prepared.map((item, index) =>
           `<div class="field"><span>${esc(`${company ? `${item.branchName} · ` : ""}${item.row.barcode} · ${item.row.description || "(description missing)"} · ${item.ready ? `Ready: ${item.components.map(part => `${part.barcode} × ${part.quantity} ${part.free ? "free" : "paid"}`).join(", ")}` : `Review: ${item.reasons.join(" ")}`}`)}</span>
@@ -118,13 +128,26 @@ export function openPromotionReview(env) {
         setCandidate();
         status.textContent = "Files changed. Read the selected files.";
       });
-      form.querySelector("[data-read-pdf]").addEventListener("click", async event => {
-        const button = event.currentTarget, files = [...form.elements.file.files], token = ++revision;
+      for (const input of [form.elements.batch_from, form.elements.batch_to]) {
+        input.addEventListener("change", () => {
+          revision++; prepared = [];
+          form.querySelector("[data-import-ready]").disabled = true;
+          form.querySelector("[data-import-results]").innerHTML = "";
+          form.querySelector("[data-import-status]").textContent = "Dates changed. Read and check the files again.";
+        });
+      }
+      const readFiles = async () => {
+        const button = form.querySelector("[data-read-pdf]"), files = [...form.elements.file.files], token = ++revision;
         candidates = []; selected = null; saved = new Set(); prepared = [];
         form.querySelector("[data-import-results]").innerHTML = "";
         form.querySelector("[data-import-ready]").disabled = true;
         candidate.innerHTML = '<option value="">Reading...</option>'; setCandidate();
         if (!files.length || files.some(file => !/\.(?:pdf|xlsx|xls|csv)$/i.test(file.name))) { status.textContent = "Choose PDF, Excel or CSV files."; return; }
+        const batchFrom = form.elements.batch_from.value, batchTo = form.elements.batch_to.value;
+        if ((batchFrom && !batchTo) || (!batchFrom && batchTo) || (batchFrom && batchFrom > batchTo)) {
+          status.textContent = "Enter both start and end dates, with the end date on or after the start date.";
+          return false;
+        }
         button.disabled = true;
         status.textContent = "Reading files on this device...";
         try {
@@ -152,9 +175,14 @@ export function openPromotionReview(env) {
               if (token !== revision) return;
             }
           }
+          if (batchFrom && batchTo) candidates = candidates.map(row => {
+            if ((row.validFrom && row.validFrom !== batchFrom) || (row.validTo && row.validTo !== batchTo)) return row;
+            return { ...row, validFrom: row.validFrom || batchFrom, validTo: row.validTo || batchTo };
+          });
           candidate.innerHTML = '<option value="">Choose a source row</option>' + candidates.map((row, index) =>
             `<option value="${index}">${esc(`${row.sourceName}, page ${row.sourcePage} · ${row.barcode} · ${row.description || "(description missing)"}`)}</option>`).join("");
           status.textContent = `${candidates.length} candidate rows found in ${files.length} file(s). ${warnings.join(" ")}${candidates.length ? "" : " No rows were recognized; review the files manually."}`;
+          return candidates.length > 0;
         } catch (error) {
           if (token === revision) {
             candidates = [];
@@ -163,10 +191,12 @@ export function openPromotionReview(env) {
             status.textContent = `Unable to read files; no rows are ready to import: ${error.message}`;
           }
         } finally { button.disabled = false; }
-      });
-      form.querySelector("[data-prepare-import]").addEventListener("click", async event => {
+        return false;
+      };
+      form.querySelector("[data-read-pdf]").addEventListener("click", readFiles);
+      const prepareFiles = async () => {
         const status = form.querySelector("[data-import-status]");
-        const button = event.currentTarget;
+        const button = form.querySelector("[data-prepare-import]");
         const branch = form.elements.branch.value, token = revision;
         const company = form.elements.scope?.value === "company";
         const targets = company ? branches : branches.filter(item => item.id === branch);
@@ -188,18 +218,22 @@ export function openPromotionReview(env) {
           renderResults(company);
           status.textContent = `${ready} ready to import; ${prepared.length - ready} need review${company ? ` across ${targets.length} branches` : ""}. Dates missing from the source remain blank and will be flagged during sales.`;
           form.querySelector("[data-import-ready]").disabled = ready === 0;
+          return true;
         } catch (error) {
           console.error("Promotion import check failed.", error);
           status.textContent = `Unable to check rows: ${error.message}`;
         } finally { button.disabled = false; }
-      });
-      form.querySelector("[data-import-ready]").addEventListener("click", async event => {
+        return false;
+      };
+      form.querySelector("[data-prepare-import]").addEventListener("click", prepareFiles);
+      const importReady = async () => {
         if (importing) return;
         const token = revision;
         const ready = prepared.filter(item => item.ready);
         if (!ready.length) return;
-        importing = true; event.currentTarget.disabled = true;
+        importing = true; form.querySelector("[data-import-ready]").disabled = true;
         form.elements.branch.disabled = true; form.elements.file.disabled = true;
+        form.elements.batch_from.disabled = true; form.elements.batch_to.disabled = true;
         if (form.elements.scope) form.elements.scope.disabled = true;
         form.querySelector("[data-read-pdf]").disabled = true;
         form.querySelector("[data-prepare-import]").disabled = true;
@@ -232,17 +266,53 @@ export function openPromotionReview(env) {
             }
           }
           form.querySelector("[data-import-status]").textContent = `Imported ${count} promotion(s). Check all rows again to see what still needs review.`;
+          return true;
         } catch (error) {
           console.error("Promotion batch import failed.", error);
           form.querySelector("[data-import-status]").textContent = `Imported ${count} promotion(s) before an error: ${error.message}. Check all rows again before retrying.`;
         } finally {
           importing = false;
           form.elements.branch.disabled = false; form.elements.file.disabled = false;
+          form.elements.batch_from.disabled = false; form.elements.batch_to.disabled = false;
           if (form.elements.scope) form.elements.scope.disabled = false;
           form.querySelector("[data-read-pdf]").disabled = false;
           form.querySelector("[data-prepare-import]").disabled = false;
           renderResults(form.elements.scope?.value === "company");
         }
+        return false;
+      };
+      form.querySelector("[data-import-ready]").addEventListener("click", importReady);
+      form.querySelector("[data-import-files]").addEventListener("click", async event => {
+        const button = event.currentTarget, simpleStatus = form.querySelector("[data-simple-status]");
+        if (button.disabled) return;
+        button.disabled = true;
+        try {
+          simpleStatus.textContent = "Reading files...";
+          if (!await readFiles()) { simpleStatus.textContent = status.textContent; return; }
+          simpleStatus.textContent = "Checking products and prices...";
+          if (!await prepareFiles()) {
+            details.open = true;
+            simpleStatus.textContent = form.querySelector("[data-import-status]").textContent;
+            return;
+          }
+          for (const item of prepared) {
+            if (!item.row.validFrom || !item.row.validTo) {
+              item.reasons.push("The promotion start and end dates are needed to determine when its price applies.");
+              item.ready = false;
+            }
+          }
+          renderResults(form.elements.scope?.value === "company");
+          const ready = prepared.filter(item => item.ready).length;
+          const issues = prepared.length - ready;
+          if (ready && !await importReady()) {
+            details.open = true;
+            simpleStatus.textContent = form.querySelector("[data-import-status]").textContent;
+            return;
+          }
+          const warnings = status.textContent;
+          simpleStatus.textContent = `${ready} promotion(s) imported. ${issues ? `${issues} row(s) need attention; see details below.` : "No rows need attention."} ${warnings}`;
+          if (issues) details.open = true;
+        } finally { button.disabled = false; }
       });
       form.addEventListener("click", event => {
         const review = event.target.closest("[data-review-row]");
