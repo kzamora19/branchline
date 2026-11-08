@@ -1541,7 +1541,7 @@
   function renderSettingsPage() {
     mountPage(pageHeading("Settings", "Imports, alerts and account settings available to your role."), "", "", () =>
       (managesInventory() ? panel("Imports", "Import tools remain restricted to your role and assigned branches. Review and confirm before saving.",
-        '<button class="button button-primary" type="button" data-open="import-center">Import Center</button>') : "") +
+        `<button class="button button-primary" type="button" data-open="import-center">Import Center</button>${!demoStore && ["manager","district_manager","admin"].includes(currentProfile.role) ? ' <button class="button button-outline" type="button" data-open="promotion-review">Review promotion PDF</button>' : ""}`) : "") +
       panel("Account and device", demoStore ? "Password changes and device notifications are available after signing in to a real account." : "Change your password or manage this device's notifications.", '<div class="filter-actions" id="settings-account-controls"></div>') +
       eventCalendarPanel() + climateReviewPanel() + storeClosedDatesPanel() + pushMessagesPanel() + dangerZonePanel());
     const slot = connectedContent.querySelector("#settings-account-controls");
@@ -3064,7 +3064,7 @@
         district: true,
         branch: true,
         period: true,
-        actions: `${isPs ? '<button class="button button-primary record-sale-floating" type="button" data-open="sale">+ Record sale</button>' : ""}${["ps","manager","district_manager","admin"].includes(currentProfile.role) ? '<button class="button button-outline" type="button" data-open="sales-return">&minus; Sales return</button>' : ""}`,
+        actions: `${isPs ? '<button class="button button-primary record-sale-floating" type="button" data-open="sale">+ Record sale</button>' : ""}${isPs && !demoStore ? '<button class="button button-outline" type="button" data-open="promotion-sale">Record promotion sale</button>' : ""}${["ps","manager","district_manager","admin"].includes(currentProfile.role) ? '<button class="button button-outline" type="button" data-open="sales-return">&minus; Sales return</button>' : ""}`,
       }),
       () => {
         const ids = scopeBranchIds();
@@ -3233,15 +3233,40 @@
     openModal({ title: `Transaction · ${sale.invoice_number}`, readOnly: true, wide: true,
       intro: isTestSale(sale, liveData.testPsIds) ? "TEST transaction — not counted in sales totals." : "",
       body: `<dl class="sale-detail-info">${detail("Customer", sale.customer_name)}${detail("Address", addressOf(sale))}${detail("Sale date", sale.sold_on)}${detail("Product Specialist", person)}${detail("Branch", branchName(sale.branch_id))}${detail("Payment", sale.payment_mode)}${detail("Delivery / Pick up", fulfillmentLabel(sale))}${detail("Recorded", new Date(sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</dl>
+        <div data-sale-promotions role="status">${demoStore ? "" : "Checking promotion details..."}</div>
         ${saleProductsHTML(sale.id, lines)}
         <div class="sale-detail-total"><span>Total quantity: ${lines.reduce((sum, line) => sum + Number(line.quantity), 0)}</span><strong>Transaction total: ${formatMoney(saleTotal(sale, "price"))}</strong></div>
         ${ui.salesBasis === "srp" ? `<p class="an-note">SRP comparison total (selling-price fallback): ${formatMoney(saleTotal(sale))}. Original transaction prices above are unchanged.</p>` : ""}
         ${fee == null ? "" : `<p>Delivery Guarranty: ${formatMoney(Number(fee))} · Not included in sales total.</p>`}
         <div class="sale-log-actions">${canEdit ? `<button class="button button-outline" type="button" data-edit-sale="${escapeHTML(sale.id)}">Edit</button>` : ""}${currentProfile.role === "admin" ? `<button class="button button-outline button-danger" type="button" data-delete-sale="${escapeHTML(sale.id)}">Delete</button>` : ""}</div>`,
-      onReady: form => form.addEventListener("click", event => {
-        if (canEdit && event.target.closest("[data-edit-sale]")) openSaleModal(sale);
-        else if (currentProfile.role === "admin" && event.target.closest("[data-delete-sale]")) openDeleteSaleModal(sale);
-      }) });
+      onReady: form => {
+        form.addEventListener("click", event => {
+          if (canEdit && event.target.closest("[data-edit-sale]")) openSaleModal(sale);
+          else if (currentProfile.role === "admin" && event.target.closest("[data-delete-sale]")) openDeleteSaleModal(sale);
+        });
+        if (demoStore) return;
+        const detailClient = client, profileId = currentProfile.id;
+        const actions = [...form.querySelectorAll("[data-edit-sale],[data-delete-sale]")];
+        actions.forEach(button => { button.disabled = true; });
+        detailClient.from("sale_promotion_groups").select("barcode,description,bundle_total").eq("sale_id", sale.id)
+          .then(result => {
+            if (!form.isConnected) return;
+            if (client !== detailClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen this transaction.");
+            if (result.error) throw result.error;
+            const target = form.querySelector("[data-sale-promotions]");
+            if (result.data.length) {
+              target.innerHTML = result.data.map(group => `<p><strong>Promotion ${escapeHTML(group.barcode)} · ${escapeHTML(group.description)}</strong> · Bundle price: ${formatMoney(Number(group.bundle_total))}</p>`).join("") +
+                "<p>Bundle item prices below are allocated for reporting. To correct this transaction, return the complete bundle; bundle sales cannot be edited or deleted.</p>";
+            } else {
+              target.textContent = "";
+              actions.forEach(button => { button.disabled = false; });
+            }
+          }).catch(error => {
+            if (!form.isConnected) return;
+            console.error("Unable to load transaction promotions.", error);
+            form.querySelector("[data-sale-promotions]").textContent = `Unable to verify promotion details: ${friendlyError(error)}. Editing is unavailable until this is resolved.`;
+          });
+      } });
   }
 
   function brandProgressChart(scope) {
@@ -3625,6 +3650,7 @@
               (operations.some(operation => operation !== "inventory") && currentProfile.role !== "admin")) {
             throw new Error("The active account no longer has permission for this import.");
           }
+
         },
         rpc: (name, params) => {
           if (currentProfile?.id !== profileId || client !== importClient || !managesInventory() ||
@@ -3647,6 +3673,49 @@
       console.error("Unable to open unified importer.", error);
       alert(friendlyError(error));
     }
+  }
+
+  async function openPromotionReviewModal() {
+    if (demoStore || !["manager", "district_manager", "admin"].includes(currentProfile?.role)) {
+      throw new Error("Promotion review requires a signed-in manager, district manager or administrator.");
+    }
+    const reviewClient = client, profileId = currentProfile.id;
+    const { openPromotionReview } = await import("./promotion-review-ui.mjs");
+    if (client !== reviewClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion review.");
+    openPromotionReview({
+      openModal, escapeHTML, branches: liveData.branches, confirm: message => window.confirm(message),
+      listPromotions: async branch => {
+        if (client !== reviewClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion review.");
+        const result = await fetchAllFrom(reviewClient, "reviewed_promotions", "id,barcode,description,source_name,source_page", [["reviewed_at", false], ["id", true]],
+          query => query.eq("branch_id", branch).is("revoked_at", null));
+        if (result.error) throw result.error;
+        if (client !== reviewClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion review.");
+        return result.data;
+      },
+      findProducts: async (branch, excerpt) => {
+        if (client !== reviewClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion review.");
+        const tokens = [...new Set((excerpt.toUpperCase().match(/\b(?=[A-Z0-9/-]*[A-Z])(?=[A-Z0-9/-]*\d)[A-Z0-9]+(?:[-/][A-Z0-9]+)*\b/g) || [])
+          .filter(token => token.length >= 4 && !/^(?:BUY|GET|\d+MOS)/.test(token)))];
+        if (!tokens.length) return [];
+        const result = await fetchAllFrom(reviewClient, "products", "barcode,brand,model_description", [["barcode", true]],
+          query => query.eq("branch_id", branch).eq("active", true));
+        if (result.error) throw result.error;
+        if (client !== reviewClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion review.");
+        return result.data.filter(product => {
+          const text = String(product.model_description || "").toUpperCase();
+          return tokens.some(token => text.split(/[^A-Z0-9/-]+/).includes(token));
+        }).slice(0, 20);
+      },
+      rpc: async (name, args) => {
+        if (client !== reviewClient || currentProfile?.id !== profileId ||
+          !["manager", "district_manager", "admin"].includes(currentProfile?.role)) {
+          throw new Error("The account changed. Reopen promotion review.");
+        }
+        const { data, error } = await reviewClient.rpc(name, args);
+        if (error) throw error;
+        return data;
+      },
+    });
   }
 
   function openInventoryImport(inline = false) {
@@ -4430,8 +4499,62 @@
   }
 
   // Records a new sale, or corrects an existing one when `sale` is given.
-  function openSaleModal(sale) {
-    const lines = sale ? linesForSale(sale.id) : [{}];
+  function openPromotionSaleLookup() {
+    if (demoStore || currentProfile?.role !== "ps") throw new Error("Promotion sales require a signed-in product specialist.");
+    const lookupClient = client, profileId = currentProfile.id, branchId = currentProfile.branch_id;
+    let matches = [];
+    openModal({
+      title: "Find a promotion", readOnly: true,
+      intro: "Enter the promotion barcode. A manager must review the included products before the offer can be sold.",
+      body: `<label class="field"><span>Promotion barcode</span><input name="promotion_barcode" autocomplete="off"></label>
+        <button class="button button-outline" type="button" data-find-promotion>Find promotion</button>
+        <p data-promotion-status role="status"></p><div data-promotion-results></div>`,
+      onReady: form => {
+        const status = form.querySelector("[data-promotion-status]"), result = form.querySelector("[data-promotion-results]");
+        form.querySelector("[data-find-promotion]").addEventListener("click", async () => {
+          const code = normBarcode(form.elements.promotion_barcode.value);
+          matches = []; result.innerHTML = "";
+          if (!code) { status.textContent = "Enter a promotion barcode."; return; }
+          status.textContent = "Finding reviewed promotions...";
+          try {
+            const response = await lookupClient.from("reviewed_promotions").select("*").eq("branch_id", branchId)
+              .eq("barcode", code).is("revoked_at", null).order("reviewed_at", { ascending: false }).limit(50);
+            if (response.error) throw response.error;
+            if (client !== lookupClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion search.");
+            matches = response.data;
+            result.innerHTML = matches.map((item, index) => `<div class="field"><strong>${escapeHTML(item.description)}</strong>
+              <span>${escapeHTML(`${item.valid_from || "Start date unknown"} to ${item.valid_to || "End date unknown"} · ${item.source_name}, page ${item.source_page}`)}</span>
+              <button type="button" class="button button-outline" data-use-promotion="${index}">Use this promotion</button></div>`).join("");
+            status.textContent = matches.length ? "Check the offer and its date before choosing." : "No unretired reviewed promotion matches this barcode in your branch.";
+          } catch (error) {
+            console.error("Promotion lookup failed.", error);
+            status.textContent = `Unable to find promotions: ${friendlyError(error)}`;
+          }
+        });
+        form.addEventListener("click", event => {
+          const button = event.target.closest("[data-use-promotion]");
+          if (!button) return;
+          if (client !== lookupClient || currentProfile?.id !== profileId) { status.textContent = "The account changed. Reopen promotion search."; return; }
+          const promotion = matches[Number(button.dataset.usePromotion)];
+          if (!promotion) { status.textContent = "Choose a reviewed promotion."; return; }
+          try { closeModal(); openSaleModal(null, promotion); }
+          catch (error) { console.error("Unable to open promotion sale.", error); alert(friendlyError(error)); }
+        });
+      },
+    });
+  }
+
+  function openSaleModal(sale, promotion = null) {
+    let lines = sale ? linesForSale(sale.id) : [{}];
+    if (promotion) {
+      const quantities = new Map();
+      for (const component of promotion.components) quantities.set(component.barcode, (quantities.get(component.barcode) || 0) + component.quantity);
+      lines = [...quantities].map(([barcode, quantity]) => {
+        const product = saleProducts().find(item => item.barcode === barcode);
+        if (!product) throw new Error(`Promotion product ${barcode} is unavailable in your branch catalog. Ask a manager to review it.`);
+        return { barcode, quantity, srp: product.srp, selling_price: 0 };
+      });
+    }
     const deliveryFee = liveData.deliveryGuaranties.find(item => item.sale_id === sale?.id)?.amount ?? null;
     const catalog = saleProducts();
     const resolve = text => {
@@ -4441,8 +4564,8 @@
         || null;
     };
     openModal({
-      title: sale ? `Edit sale · ${sale.invoice_number}` : "Record a sale",
-      intro: sale ? "Corrections are saved with the previous values kept in the edit history." : "",
+      title: sale ? `Edit sale · ${sale.invoice_number}` : promotion ? "Record a promotion sale" : "Record a sale",
+      intro: sale ? "Corrections are saved with the previous values kept in the edit history." : promotion ? "The bundle price is counted once. Included products are used for inventory and serial tracking; their prices are allocated for reporting." : "",
       submitLabel: sale ? "Save changes" : "Save sale",
       wide: true,
       body: `<div class="dlg-grid">
@@ -4464,10 +4587,19 @@
         <datalist id="sale-barangays"></datalist>
         <datalist id="sale-products"></datalist>
         <label class="check-row sale-unlisted-toggle"><input type="checkbox" name="show_unavailable"> Show unavailable products for manual late-sale serial entry</label>
+        ${promotion ? `<div class="field"><strong>${escapeHTML(promotion.description)} · ${escapeHTML(promotion.barcode)}</strong><span>${escapeHTML(`Source: ${promotion.source_name}, page ${promotion.source_page}`)}</span><span>${escapeHTML(promotion.source_excerpt)}</span></div>
+          ${fieldHTML("Bundle selling price (PHP)", "bundle_price", '<input name="bundle_price" type="number" min="0" step="0.01" required>')}
+          ${!promotion.valid_from || !promotion.valid_to || promotion.price_conflict ? '<label class="check-row"><input type="checkbox" name="confirm_promotion_warning" required> I checked the incomplete dates or conflicting prices against the source.</label>' : ""}` : ""}
         <div id="sale-rows">${lines.map(saleLineRow).join("")}</div>
         <div class="sale-footer"><span class="sale-footer-actions"><button class="button button-outline button-small" type="button" data-add-line>+ Add product line</button></span><strong>Sale total: <span id="sale-total">${formatMoney(lines.reduce((sum, line) => sum + Number(line.selling_price || 0) * Number(line.quantity || 0), 0))}</span></strong></div>
         ${sale ? '<label class="check-row"><input name="reconcile" type="checkbox"> Apply quantity/serial corrections to current inventory if this sale was included in a replacement snapshot. Prices and customer corrections do not require this.</label>' : ""}`,
       onReady: form => {
+        if (promotion) form.querySelectorAll(".sale-row").forEach(row => {
+          row.dataset.promotionComponent = "true";
+          for (const name of ["product", "srp", "price", "quantity"]) row.querySelector(`[name="${name}"]`).readOnly = true;
+          for (const name of ["srp", "price", "linetotal"]) row.querySelector(`[name="${name}"]`).closest("label").hidden = true;
+          row.querySelector("[data-remove-line]").hidden = true;
+        });
         const syncDelivery = () => {
           const delivery = form.elements.fulfillment.value === "delivery";
           form.querySelector(".delivery-fee-fields").hidden = !delivery;
@@ -4550,7 +4682,7 @@
         const stockState = (product, quantity) => manualModes.has(product.barcode)
           ? { blocked: false, warning: "" } : window.BranchlineDelivery.availability(
           inventoryStockFor(saleBranch, product.barcode), inventorySaleUnitsFor(saleBranch, product.barcode, sale?.id), quantity,
-          lines.filter(line => line.barcode === product.barcode).reduce((sum, line) => sum + Number(line.quantity || 0), 0));
+          sale ? lines.filter(line => line.barcode === product.barcode).reduce((sum, line) => sum + Number(line.quantity || 0), 0) : 0);
         const notifyAvailability = (row, force = false) => {
           const product = resolve(row.querySelector('[name="product"]').value);
           if (!product) { delete row.dataset.stockNotice; return; }
@@ -4673,7 +4805,7 @@
             row.querySelector('[name="linetotal"]').value = price !== null && total ? formatMoney(total) : "";
             grand += total;
           });
-          form.querySelector("#sale-total").textContent = formatMoney(grand);
+          form.querySelector("#sale-total").textContent = formatMoney(grand + (promotion ? (parseCurrency(form.elements.bundle_price.value) ?? 0) : 0));
           showSerialFields();
         };
         let linkSeq = 0;
@@ -4767,6 +4899,7 @@
             srp,
             selling_price: parseCurrency(row.querySelector('[name="price"]').value),
             quantity: Number(row.querySelector('[name="quantity"]').value),
+            ...(promotion ? { promotion_component: row.dataset.promotionComponent === "true" } : {}),
           };
         });
         if (rows.some(line => line.selling_price === null || line.selling_price < 0 || !Number.isInteger(line.quantity) || line.quantity < 1)) {
@@ -4780,25 +4913,36 @@
             if (selected.length !== row.quantity || new Set(selected.map(unit => unit.serial.toLowerCase())).size !== row.quantity) throw new Error("Enter one different serial number for each unit and confirm adding missing serials.");
             continue;
           }
-          const previousQuantity = lines.filter(line => line.barcode === row.barcode).reduce((sum, line) => sum + Number(line.quantity || 0), 0);
+          const previousQuantity = sale ? lines.filter(line => line.barcode === row.barcode).reduce((sum, line) => sum + Number(line.quantity || 0), 0) : 0;
           const state = window.BranchlineDelivery.availability(inventoryStockFor(sale?.branch_id || currentProfile.branch_id, row.barcode),
             inventorySaleUnitsFor(sale?.branch_id || currentProfile.branch_id, row.barcode, sale?.id), row.quantity, previousQuantity);
           if (state.blocked) throw new Error(`${row.barcode}: ${state.warning}`);
         }
-        mustRpc(await client.rpc("save_sale_with_delivery", {
+        const common = {
           p_fulfillment_method: method,
           p_dg_amount: fee,
           p_customer_name: uppercaseEntry(form.elements.customer.value),
           p_invoice_number: form.elements.invoice.value.trim(),
           p_sold_on: form.elements.date.value,
-          p_lines: rows,
-          p_sale_id: sale ? sale.id : null,
           p_payment_mode: form.elements.payment.value,
           p_city: uppercaseEntry(form.elements.city.value),
           p_barangay: uppercaseEntry(form.elements.barangay.value),
           p_serials: form.serialPayload(),
-          p_reconcile: Boolean(form.elements.reconcile?.checked),
-        }));
+        };
+        if (promotion) {
+          const bundleTotal = parseCurrency(form.elements.bundle_price.value);
+          if (bundleTotal === null || bundleTotal < 0) throw new Error("Enter a valid non-negative bundle selling price.");
+          mustRpc(await client.rpc("save_promotion_sale", {
+            ...common, p_promotion: promotion.id, p_bundle_total: bundleTotal,
+            p_acknowledge_warnings: Boolean(form.elements.confirm_promotion_warning?.checked),
+            p_regular_lines: rows.filter(row => !row.promotion_component).map(({ promotion_component, ...row }) => row),
+          }));
+        } else {
+          mustRpc(await client.rpc("save_sale_with_delivery", {
+            ...common, p_lines: rows, p_sale_id: sale ? sale.id : null,
+            p_reconcile: Boolean(form.elements.reconcile?.checked),
+          }));
+        }
         activePage = "sales";
         await refreshData();
       },
@@ -7247,6 +7391,12 @@
       try { exportTable(exportKey); } catch (error) { exportError(error); }
     }
     if (open === "sale") openSaleModal();
+    if (open === "promotion-sale") {
+      try { openPromotionSaleLookup(); } catch (error) { alert(friendlyError(error)); }
+    }
+    if (open === "promotion-review") openPromotionReviewModal().catch(error => {
+      console.error("Unable to open promotion review.", error); alert(friendlyError(error));
+    });
     if (open === "sales-return") {
       if (!["ps","manager","district_manager","admin"].includes(currentProfile.role)) {
         alert("This account cannot post sales returns.");

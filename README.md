@@ -1,5 +1,34 @@
 # Branchline
 
+### Promotion bundles (shell v146)
+
+Managers, District Managers and Admins can use **Settings → Review promotion
+PDF** to read selectable PDF text locally and review suggested rows. The PDF
+reader is loaded from a pinned CDN, so the first use requires a connection.
+Scanned/image-only pages are flagged; OCR is not provided. Check the original
+PDF, dates, source prices, and any duplicate barcode warnings. Suggested
+product matches are not automatic approvals: map actual branch-catalog
+barcodes, quantities and paid/free status, then approve each offer for its
+branch. A manager can retire an incorrect offer without changing past sales.
+Promotional prices do not overwrite catalog SRP.
+
+On Sales, a PS can choose **Record promotion sale**, find an approved offer by
+its promotion barcode, enter the bundle selling price, and select the serials
+for its actual inventory products. Incomplete dates or conflicting prices
+require explicit confirmation; known out-of-period offers are blocked.
+This first workflow records one bundle per promotion sale; other distinct
+products can be added as regular lines. Every component needs a catalog
+SRP under existing manual-sale rules, and paid components must have a positive
+combined SRP. The bundle total is allocated to paid units in proportion to SRP,
+with free units allocated zero; rounding preserves the total exactly.
+
+Selecting a bundle item in Sales return selects the whole bundle. Choose the
+actual serials for all included units; partial bundle returns are blocked.
+Bundle sales cannot currently be edited or deleted; return the complete
+bundle instead. Apply the four promotion migrations from
+`20261216000000_promotion_review.sql` through
+`20261219000000_promotion_return_details.sql` before deploying this shell.
+
 ### PS assistance comparison (shell v145)
 
 In the daily Walk-in Traffic comparison for Managers, District Managers, and

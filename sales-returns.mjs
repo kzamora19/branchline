@@ -1,3 +1,5 @@
+import { validateWholeBundleReturn } from "./import-engine/promotion-bundles.mjs";
+
 export function returnPayload(lines, selections) {
   const result = selections.map(selection => {
     const line = lines.find(item => item.id === selection.line_id);
@@ -19,6 +21,9 @@ export function returnPayload(lines, selections) {
     return item.serials.map(serial => `${line.barcode}\0${serial.trim().toLowerCase()}`);
   });
   if (new Set(serialKeys).size !== serialKeys.length) throw new Error("A serial cannot be returned on multiple product lines.");
+  for (const group of new Set(lines.map(line => line.promotion_group).filter(Boolean))) {
+    validateWholeBundleReturn(lines.filter(line => line.promotion_group === group), result);
+  }
   return result;
 }
 
@@ -80,11 +85,11 @@ export function openSalesReturn(env) {
             ["Barangay", sale.barangay || ""], ["Payment mode", sale.payment_mode || ""]];
           target.innerHTML = `<div class="dlg-grid">${info.map(([label,value]) => `<label class="field"><span>${esc(label)}</span><input readonly value="${esc(value)}"></label>`).join("")}</div>
             <div class="connected-table-wrap return-products"><table class="connected-table"><thead><tr><th></th><th>Barcode</th><th>Product</th><th>Purchased</th><th>Remaining</th><th>Unit price</th><th>Return qty</th><th>Serials to restore</th></tr></thead><tbody>${detail.lines.map(line =>
-              `<tr data-return-line="${esc(line.id)}"><td data-label="Return product"><input type="checkbox" data-return-select aria-label="Return ${esc(line.model_description)}" ${line.remaining <= 0 ? "disabled" : ""}></td>
-                <td data-label="Barcode">${esc(line.barcode)}</td><td data-label="Product">${esc(line.model_description)}</td><td data-label="Purchased">${line.quantity}</td><td data-label="Remaining">${line.remaining}</td><td data-label="Unit price">${esc(formatMoney(line.selling_price))}</td>
-                <td data-label="Return qty"><input type="number" data-return-quantity aria-label="Return quantity for ${esc(line.barcode)}" min="1" max="${line.remaining}" step="1" value="${line.remaining > 0 ? 1 : 0}" disabled></td>
+              `<tr data-return-line="${esc(line.id)}" ${line.promotion_group ? `data-return-group="${esc(line.promotion_group)}"` : ""}><td data-label="Return product"><input type="checkbox" data-return-select aria-label="Return ${esc(line.model_description)}" ${line.remaining <= 0 ? "disabled" : ""}></td>
+                <td data-label="Barcode">${esc(line.barcode)}</td><td data-label="Product">${esc(line.model_description)}${line.promotion_group ? `<br><small>Bundle: ${esc(line.promotion_barcode)} · ${esc(line.promotion_description)}${line.promotion_free ? " · Free" : ""}</small>` : ""}</td><td data-label="Purchased">${line.quantity}</td><td data-label="Remaining">${line.remaining}</td><td data-label="Unit price">${esc(formatMoney(line.selling_price))}${line.promotion_group ? " (allocated)" : ""}</td>
+                <td data-label="Return qty"><input type="number" data-return-quantity aria-label="Return quantity for ${esc(line.barcode)}" min="${line.promotion_group ? line.quantity : 1}" max="${line.remaining}" step="1" value="${line.remaining > 0 ? (line.promotion_group ? line.quantity : 1) : 0}" ${line.promotion_group ? "readonly" : ""} disabled></td>
                 <td data-label="Serials to restore"><div class="return-serials">${line.serials.length ? line.serials.map(serial => `<label class="check-row"><input type="checkbox" data-return-serial value="${esc(serial)}" disabled><span>${esc(serial)}</span></label>`).join("") : "No recorded serials; serial cells will stay blank."}</div></td></tr>`).join("")}</tbody></table></div>`;
-          status.textContent = "Select only the returned products and exact recorded serials. Returns posted here are excluded from remaining quantities. Review any older imported returns before posting; they are not automatically linked.";
+          status.textContent = "Select returned products and exact recorded serials. Bundles must be returned in full; selecting one bundle item selects its complete group. Review older imported returns before posting; they are not automatically linked.";
           submit.disabled = false;
         } catch (error) { if (token === revision) { clear(); fail(error); } }
       };
@@ -102,9 +107,15 @@ export function openSalesReturn(env) {
       form.addEventListener("change", event => {
         if (!event.target.matches("[data-return-select]")) return;
         const row = event.target.closest("[data-return-line]");
-        row.querySelectorAll("[data-return-quantity],[data-return-serial]").forEach(input => {
-          input.disabled = !event.target.checked;
-          if (!event.target.checked && input.type === "checkbox") input.checked = false;
+        const rows = row.dataset.returnGroup
+          ? [...form.querySelectorAll("[data-return-line]")].filter(item => item.dataset.returnGroup === row.dataset.returnGroup)
+          : [row];
+        rows.forEach(item => {
+          item.querySelector("[data-return-select]").checked = event.target.checked;
+          item.querySelectorAll("[data-return-quantity],[data-return-serial]").forEach(input => {
+            input.disabled = !event.target.checked;
+            if (!event.target.checked && input.type === "checkbox") input.checked = false;
+          });
         });
       });
     },
