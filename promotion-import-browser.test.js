@@ -39,7 +39,10 @@ test("promotion import previews all rows, imports only clear matches, and report
           escapeHTML: value => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;"),
           branches: [{ id: "branch", name: "Test" }],
           confirm: () => true,
-          listProducts: async () => ["12345", "12346", "12347"].map(barcode => ({ barcode, srp: 100 })),
+          listProducts: async () => {
+            await new Promise(resolve => setTimeout(resolve, 50));
+            return ["12345", "12346", "12347"].map(barcode => ({ barcode, srp: 100 }));
+          },
           listPromotions: async () => window.calls.map(call => ({ barcode: call.p_barcode })),
           findProducts: async () => [],
           rpc: async (name, args) => {

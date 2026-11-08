@@ -124,9 +124,10 @@ export function openPromotionReview(env) {
       });
       form.querySelector("[data-prepare-import]").addEventListener("click", async event => {
         const status = form.querySelector("[data-import-status]");
+        const button = event.currentTarget;
         const branch = form.elements.branch.value, token = revision;
         if (!branch || !candidates.length) { status.textContent = "Choose a branch and read a PDF first."; return; }
-        event.currentTarget.disabled = true;
+        button.disabled = true;
         form.querySelector("[data-import-ready]").disabled = true;
         status.textContent = "Checking branch products and existing promotions...";
         try {
@@ -143,7 +144,7 @@ export function openPromotionReview(env) {
         } catch (error) {
           console.error("Promotion import check failed.", error);
           status.textContent = `Unable to check rows: ${error.message}`;
-        } finally { event.currentTarget.disabled = false; }
+        } finally { button.disabled = false; }
       });
       form.querySelector("[data-import-ready]").addEventListener("click", async event => {
         if (importing) return;
