@@ -53,3 +53,32 @@ test("clear buy/get rows match one model and preserve paid and free quantities",
   assert.equal(preparePromotionImport([row], [product, { ...product, barcode: "56683" }], [])[0].ready, false);
   assert.equal(preparePromotionImport([row], [product], [{ barcode: "65433" }])[0].ready, false);
 });
+
+test("description models match real barcodes and disambiguate by named catalog brand", async () => {
+  const { preparePromotionImport } = await import("./import-engine/promotion-import.mjs");
+  const row = {
+    barcode: "65425", description: "BUY5 GET1 CFI-1010 CAMEL BUY5 GET1",
+    sourceName: "BUY5 GET1.pdf", sourceExcerpt: "65425 BUY5 GET1 CFI-1010 CAMEL BUY5 GET1 2779.00",
+    warnings: [], tagPrice: 2779,
+  };
+  const paid = { barcode: "29070", brand: "CAMEL", model_description: "CAMEL FLAT IRON CFI1010 NON STICK", srp: 560 };
+  const free = { barcode: "36109", brand: "FREE", model_description: "FREE CAMEL FLAT IRON CFI-1010", srp: 0 };
+  const result = preparePromotionImport([row], [paid, free], [])[0];
+  assert.equal(result.ready, true);
+  assert.deepEqual(result.components.map(item => [item.barcode, item.quantity, item.free]), [
+    ["00029070", 5, false], ["00029070", 1, true],
+  ]);
+  const plain = { ...row, barcode: "99999", description: "CAMEL FLAT IRON CFI1010",
+    sourceName: "ordinary.pdf", sourceExcerpt: "99999 CAMEL FLAT IRON CFI1010 100.00", tagPrice: 100 };
+  const ordinary = preparePromotionImport([plain], [paid, free], [])[0];
+  assert.equal(ordinary.ready, true);
+  assert.equal(ordinary.components[0].barcode, "00029070");
+  assert.equal(preparePromotionImport([{ ...plain, description: "FLAT IRON CFI1010" }], [paid, free], [])[0].ready, false);
+  assert.equal(preparePromotionImport([plain], [free, { ...paid, barcode: "30000" }, paid], [])[0].ready, false);
+  assert.equal(preparePromotionImport([plain], [free, { ...paid, model_description: "DIFFERENT XX123" }], [])[0].ready, false);
+  assert.equal(preparePromotionImport([{ ...plain, description: "CAMEL FLAT IRON CFI1010 XX123" }], [paid], [])[0].ready, false);
+  assert.equal(preparePromotionImport([{ ...plain, description: "CAMEL FLAT IRON CFI1010 WITH MUG" }], [paid], [])[0].ready, false);
+  assert.equal(preparePromotionImport([{ ...row, description: "BUY5 GET1 CFI1010 OTHER-123 CAMEL" }], [paid], [])[0].ready, false);
+  assert.equal(preparePromotionImport([{ ...plain, tagPrice: null }], [paid], [])[0].ready, false);
+  assert.equal(preparePromotionImport([plain], [{ ...paid, model_description: "CAMEL CFI1010A" }], [])[0].ready, false);
+});

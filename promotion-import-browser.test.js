@@ -149,7 +149,9 @@ test("company import checks every branch and replaces an existing offer only aft
         confirm: message => { window.confirmations.push(message); return true; },
         listProducts: async branch => branch === "b" ? [] : [
           { barcode: "12345", srp: 100 },
-          { barcode: "56682", model_description: "CAMEL E. KETTLE CK-2010S", srp: 710 },
+          { barcode: "56682", brand: "CAMEL", model_description: "CAMEL E. KETTLE CK-2010S", srp: 710 },
+          { barcode: "29070", brand: "CAMEL", model_description: "CAMEL FLAT IRON CFI1010 NON STICK", srp: 560 },
+          { barcode: "36109", brand: "FREE", model_description: "FREE CAMEL FLAT IRON CFI-1010", srp: 0 },
         ],
         listPromotions: async branch => branch === "c" ? [
           { id: "old", barcode: "12345" }, ...(window.oldBundle ? [{ id: "old-bundle", barcode: "65433" }] : []),
@@ -225,6 +227,26 @@ test("company import checks every branch and replaces an existing offer only aft
     assert.equal(replacement.name, "replace_priced_promotion");
     assert.equal(replacement.args.p_old, "old-bundle");
     assert.equal(replacement.args.p_tag_price, 3479);
+    await page.evaluate(() => {
+      window.XLSX.utils.sheet_to_json = () => [
+        ["Barcode", "Description", "TAG THIS"], ["65425", "BUY5 GET1 CFI-1010 CAMEL", "2779"],
+      ];
+    });
+    await page.locator('[name="file"]').setInputFiles({ name: "model.csv", mimeType: "text/csv", buffer: Buffer.from("csv") });
+    await page.locator("[data-read-pdf]").click();
+    await page.waitForFunction(() => /1 candidate rows/.test(document.querySelector("[data-pdf-status]").textContent));
+    await page.locator("[data-prepare-import]").click();
+    await page.waitForFunction(() => /2 ready to import; 1 need review across 3 branches/.test(document.querySelector("[data-import-status]").textContent));
+    assert.match(await page.locator("[data-import-results]").innerText(), /00029070 × 5 paid, 00029070 × 1 free/);
+    await page.locator("[data-import-ready]").click();
+    await page.waitForFunction(() => /Imported 2 promotion/.test(document.querySelector("[data-import-status]").textContent));
+    const modelCalls = (await page.evaluate(() => window.calls)).slice(-2);
+    assert.deepEqual(modelCalls.map(call => call.args.p_branch), ["a", "c"]);
+    assert.equal(modelCalls[0].args.p_barcode, "00065425");
+    assert.deepEqual(modelCalls[0].args.p_components, [
+      { id: "paid", barcode: "00029070", quantity: 5, free: false },
+      { id: "free", barcode: "00029070", quantity: 1, free: true },
+    ]);
     await page.close();
   } finally { await browser.close(); }
 });

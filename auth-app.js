@@ -3694,7 +3694,7 @@
       },
       listProducts: async branch => {
         if (client !== reviewClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion import.");
-        const result = await fetchAllFrom(reviewClient, "products", "barcode,srp,model_description", [["barcode", true]],
+        const result = await fetchAllFrom(reviewClient, "products", "barcode,srp,brand,model_description", [["barcode", true]],
           query => query.eq("branch_id", branch).eq("active", true));
         if (result.error) throw result.error;
         if (client !== reviewClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion import.");

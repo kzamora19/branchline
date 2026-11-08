@@ -1,6 +1,6 @@
 # Branchline
 
-### Promotion bundles (shell v150)
+### Promotion bundles (shell v151)
 
 Managers, District Managers and Admins can use **Settings → Import promotion
 memo** to read one or more selectable-text PDFs, Excel or CSV files locally and review suggested rows. Spreadsheet
@@ -9,7 +9,11 @@ are used for selling prices. Sheets with unrecognized or duplicate headings are 
 and recognized dates in sheet rows require review. Check all
 rows against branch products, then import clear matches together. Simple buy/get
 offers can be matched using one unambiguous product model, with the paid and free
-quantities kept separately. Duplicates, existing promotions, missing product prices,
+quantities kept separately. For simple offers with a different promotion barcode,
+the importer also matches an exact model from the description to an existing
+branch product, ignoring hyphens; a named catalog brand disambiguates regular
+products from matching free-item catalog entries. Multiple matching products or
+models remain flagged. Duplicates, existing promotions, missing product prices,
 complex or unclear bundles, missing tag prices and uncertain matches require individual review. The
 detected SRP and TAG THIS/NOW PRICE are suggestions and must be checked against
 the source; installment values are not substituted for the tag price. If a batch stops on
