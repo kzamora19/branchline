@@ -1,23 +1,29 @@
 import { inspectPromotionPdf, promotionPdfCandidates } from "./import-engine/promotion-pdf.mjs";
+import { preparePromotionImport } from "./import-engine/promotion-import.mjs";
 
 const PDF_READER = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.mjs";
 const PDF_WORKER = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.worker.mjs";
 
 export function openPromotionReview(env) {
-  const { openModal, escapeHTML: esc, branches, rpc, findProducts, listPromotions, confirm } = env;
-  let candidates = [], revision = 0, selected = null, saved = new Set();
+  const { openModal, escapeHTML: esc, branches, rpc, findProducts, listProducts, listPromotions, confirm } = env;
+  let candidates = [], revision = 0, selected = null, saved = new Set(), prepared = [], importing = false;
   const component = () => `<div data-promotion-component class="dlg-grid">
     <label class="field"><span>Actual product barcode</span><input data-product-code required autocomplete="off"></label>
     <label class="field"><span>Quantity</span><input data-product-quantity type="number" min="1" max="999999" step="1" value="1" required></label>
     <label class="field"><span>Paid or free</span><select data-product-free required><option value="false">Paid</option><option value="true">Free</option></select></label>
     <button class="button button-outline" type="button" data-remove-component>Remove product</button></div>`;
   openModal({
-    title: "Review promotional PDF", wide: true, submitLabel: "Approve promotion",
-    intro: "Files are read on this device. Review each suggested barcode and the PDF source; map every actual inventory product and quantity before approving. No standard product prices are changed.",
+    title: "Import promotional memo", wide: true, submitLabel: "Approve selected exception",
+    intro: "Read a PDF, review its rows, then import the clear matches together. Bundles and other uncertain rows need review before they can be sold. Standard product prices are not changed.",
     body: `<label class="field"><span>Branch</span><select name="branch" required><option value="">Choose branch</option>${branches.map(branch => `<option value="${esc(branch.id)}">${esc(branch.name)}</option>`).join("")}</select></label>
       <label class="field"><span>Promotion PDF</span><input name="file" type="file" accept=".pdf,application/pdf"></label>
       <button class="button button-outline" type="button" data-read-pdf>Read PDF</button>
       <p data-pdf-status role="status">Choose a PDF and read it first.</p>
+      <button class="button button-outline" type="button" data-prepare-import>Check all rows against branch products</button>
+      <p data-import-status role="status">Choose a branch and read a PDF to check its rows.</p>
+      <div data-import-results></div>
+      <button class="button button-outline" type="button" data-import-ready disabled>Import clear matches</button>
+      <p>For a row marked for review, choose it below and check the actual products before approval.</p>
       <label class="field"><span>Suggested offer row</span><select name="candidate"><option value="">Read a PDF first</option></select></label>
       <p data-candidate-warnings role="status"></p>
       <label class="field"><span>Promotion barcode</span><input name="barcode" maxlength="80" required></label>
@@ -73,6 +79,10 @@ export function openPromotionReview(env) {
       };
       candidate.addEventListener("change", setCandidate);
       form.elements.branch.addEventListener("change", () => {
+        revision++; prepared = [];
+        form.querySelector("[data-import-results]").innerHTML = "";
+        form.querySelector("[data-import-ready]").disabled = true;
+        form.querySelector("[data-import-status]").textContent = "Branch changed. Check all rows again.";
         listRevision++;
         form.querySelector("[data-promotion-list]").innerHTML = "";
         form.querySelector("[data-list-status]").textContent = "Refresh the list for this branch.";
@@ -82,14 +92,18 @@ export function openPromotionReview(env) {
         form.elements.confirm_review.checked = false;
       });
       form.elements.file.addEventListener("change", () => {
-        revision++; candidates = []; selected = null; saved = new Set();
+        revision++; candidates = []; selected = null; saved = new Set(); prepared = [];
+        form.querySelector("[data-import-results]").innerHTML = "";
+        form.querySelector("[data-import-ready]").disabled = true;
         candidate.innerHTML = '<option value="">Read the selected PDF</option>';
         setCandidate();
         status.textContent = "File changed. Read the selected PDF.";
       });
       form.querySelector("[data-read-pdf]").addEventListener("click", async event => {
         const button = event.currentTarget, file = form.elements.file.files[0], token = ++revision;
-        candidates = []; selected = null; saved = new Set();
+        candidates = []; selected = null; saved = new Set(); prepared = [];
+        form.querySelector("[data-import-results]").innerHTML = "";
+        form.querySelector("[data-import-ready]").disabled = true;
         candidate.innerHTML = '<option value="">Reading...</option>'; setCandidate();
         if (!file || !/\.pdf$/i.test(file.name)) { status.textContent = "Choose a PDF file."; return; }
         button.disabled = true;
@@ -108,7 +122,79 @@ export function openPromotionReview(env) {
           if (token === revision) { console.error("Promotion PDF reading failed.", error); status.textContent = `Unable to read PDF: ${error.message}`; }
         } finally { button.disabled = false; }
       });
+      form.querySelector("[data-prepare-import]").addEventListener("click", async event => {
+        const status = form.querySelector("[data-import-status]");
+        const branch = form.elements.branch.value, token = revision;
+        if (!branch || !candidates.length) { status.textContent = "Choose a branch and read a PDF first."; return; }
+        event.currentTarget.disabled = true;
+        form.querySelector("[data-import-ready]").disabled = true;
+        status.textContent = "Checking branch products and existing promotions...";
+        try {
+          const [products, existing] = await Promise.all([listProducts(branch), listPromotions(branch)]);
+          if (revision !== token || form.elements.branch.value !== branch) return;
+          prepared = preparePromotionImport(candidates, products, existing);
+          const ready = prepared.filter(item => item.ready).length;
+          form.querySelector("[data-import-results]").innerHTML = prepared.map((item, index) =>
+            `<div class="field"><span>${esc(`${item.row.barcode} · ${item.row.description || "(description missing)"} · ${item.ready ? "Ready: matched inventory barcode" : `Review: ${item.reasons.join(" ")}`}`)}</span>
+            <small>${esc(`Page ${item.row.sourcePage}: ${item.row.sourceExcerpt}`)}</small>
+            ${item.ready ? "" : `<button type="button" class="button button-outline button-small" data-review-row="${index}">Review this row</button>`}</div>`).join("");
+          status.textContent = `${ready} ready to import; ${prepared.length - ready} need review. Dates missing from the PDF remain blank and will be flagged during sales.`;
+          form.querySelector("[data-import-ready]").disabled = ready === 0;
+        } catch (error) {
+          console.error("Promotion import check failed.", error);
+          status.textContent = `Unable to check rows: ${error.message}`;
+        } finally { event.currentTarget.disabled = false; }
+      });
+      form.querySelector("[data-import-ready]").addEventListener("click", async event => {
+        if (importing) return;
+        const branch = form.elements.branch.value, token = revision;
+        const ready = prepared.filter(item => item.ready);
+        if (!ready.length || !confirm(`Import ${ready.length} matched single-product promotion(s) for this branch? Uncertain rows will not be imported.`)) return;
+        importing = true; event.currentTarget.disabled = true;
+        form.elements.branch.disabled = true; form.elements.file.disabled = true;
+        form.querySelector("[data-read-pdf]").disabled = true;
+        form.querySelector("[data-prepare-import]").disabled = true;
+        let count = 0;
+        try {
+          const [products, existing] = await Promise.all([listProducts(branch), listPromotions(branch)]);
+          if (revision !== token) throw new Error("The import changed. Check the remaining rows again.");
+          const checked = preparePromotionImport(candidates, products, existing);
+          if (ready.some(item => !checked[candidates.indexOf(item.row)].ready)) {
+            throw new Error("Products or promotions changed. Check all rows again.");
+          }
+          for (const item of ready) {
+            if (revision !== token) throw new Error("The import changed. Check the remaining rows again.");
+            await rpc("review_promotion", {
+              p_branch: branch, p_barcode: item.code, p_description: item.row.description,
+              p_valid_from: item.row.validFrom || null, p_valid_to: item.row.validTo || null,
+              p_price_conflict: false, p_source_name: item.row.sourceName,
+              p_source_page: item.row.sourcePage, p_source_excerpt: item.row.sourceExcerpt,
+              p_components: [{ id: "component-1", barcode: item.code, quantity: 1, free: false }],
+            });
+            item.ready = false;
+            item.reasons = ["Imported in this session."];
+            saved.add(`${branch}\0${candidates.indexOf(item.row)}`);
+            count++;
+          }
+          form.querySelector("[data-import-status]").textContent = `Imported ${count} promotion(s). Check all rows again to see what still needs review.`;
+        } catch (error) {
+          console.error("Promotion batch import failed.", error);
+          form.querySelector("[data-import-status]").textContent = `Imported ${count} promotion(s) before an error: ${error.message}. Check all rows again before retrying.`;
+        } finally {
+          importing = false; prepared = [];
+          form.elements.branch.disabled = false; form.elements.file.disabled = false;
+          form.querySelector("[data-read-pdf]").disabled = false;
+          form.querySelector("[data-prepare-import]").disabled = false;
+          form.querySelector("[data-import-results]").innerHTML = "";
+        }
+      });
       form.addEventListener("click", event => {
+        const review = event.target.closest("[data-review-row]");
+        if (review) {
+          candidate.value = review.dataset.reviewRow;
+          setCandidate();
+          candidate.scrollIntoView({ block: "start" });
+        }
         if (event.target.closest("[data-add-component]")) form.querySelector("[data-components]").insertAdjacentHTML("beforeend", component());
         const remove = event.target.closest("[data-remove-component]");
         if (remove) remove.closest("[data-promotion-component]").remove();
@@ -154,6 +240,7 @@ export function openPromotionReview(env) {
       });
     },
     onSubmit: async form => {
+      if (importing) throw new Error("Wait for the current import to finish.");
       if (!selected) throw new Error("Read the PDF and select the source row before approval.");
       const savedCandidate = `${form.elements.branch.value}\0${form.elements.candidate.value}`;
       if (saved.has(savedCandidate)) throw new Error("This source row was already approved for this branch in this session.");
@@ -175,6 +262,9 @@ export function openPromotionReview(env) {
         p_components: components,
       });
       if (revision === savedRevision) saved.add(savedCandidate);
+      prepared = [];
+      form.querySelector("[data-import-ready]").disabled = true;
+      form.querySelector("[data-import-status]").textContent = "Promotion approved. Check all rows again before importing.";
       form.elements.confirm_review.checked = false;
       form.querySelector("[data-save-status]").textContent = "Promotion approved for this branch. Check the current selection before approving another row.";
       return false;

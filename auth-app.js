@@ -1541,7 +1541,7 @@
   function renderSettingsPage() {
     mountPage(pageHeading("Settings", "Imports, alerts and account settings available to your role."), "", "", () =>
       (managesInventory() ? panel("Imports", "Import tools remain restricted to your role and assigned branches. Review and confirm before saving.",
-        `<button class="button button-primary" type="button" data-open="import-center">Import Center</button>${!demoStore && ["manager","district_manager","admin"].includes(currentProfile.role) ? ' <button class="button button-outline" type="button" data-open="promotion-review">Review promotion PDF</button>' : ""}`) : "") +
+        `<button class="button button-primary" type="button" data-open="import-center">Import Center</button>${!demoStore && ["manager","district_manager","admin"].includes(currentProfile.role) ? ' <button class="button button-outline" type="button" data-open="promotion-review">Import promotion memo</button>' : ""}`) : "") +
       panel("Account and device", demoStore ? "Password changes and device notifications are available after signing in to a real account." : "Change your password or manage this device's notifications.", '<div class="filter-actions" id="settings-account-controls"></div>') +
       eventCalendarPanel() + climateReviewPanel() + storeClosedDatesPanel() + pushMessagesPanel() + dangerZonePanel());
     const slot = connectedContent.querySelector("#settings-account-controls");
@@ -3690,6 +3690,14 @@
           query => query.eq("branch_id", branch).is("revoked_at", null));
         if (result.error) throw result.error;
         if (client !== reviewClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion review.");
+        return result.data;
+      },
+      listProducts: async branch => {
+        if (client !== reviewClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion import.");
+        const result = await fetchAllFrom(reviewClient, "products", "barcode,srp", [["barcode", true]],
+          query => query.eq("branch_id", branch).eq("active", true));
+        if (result.error) throw result.error;
+        if (client !== reviewClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion import.");
         return result.data;
       },
       findProducts: async (branch, excerpt) => {

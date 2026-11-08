@@ -1,15 +1,20 @@
 # Branchline
 
-### Promotion bundles (shell v146)
+### Promotion bundles (shell v147)
 
-Managers, District Managers and Admins can use **Settings → Review promotion
-PDF** to read selectable PDF text locally and review suggested rows. The PDF
+Managers, District Managers and Admins can use **Settings → Import promotion
+memo** to read selectable PDF text locally and review suggested rows. Check all
+rows against branch products, then import the clear single-product barcode
+matches together. Duplicates, existing promotions, missing product prices,
+bundles and uncertain matches require individual review. If a batch stops on
+an error, the screen reports how many rows were saved; check the rows again
+before retrying. The PDF
 reader is loaded from a pinned CDN, so the first use requires a connection.
 Scanned/image-only pages are flagged; OCR is not provided. Check the original
-PDF, dates, source prices, and any duplicate barcode warnings. Suggested
-product matches are not automatic approvals: map actual branch-catalog
-barcodes, quantities and paid/free status, then approve each offer for its
-branch. A manager can retire an incorrect offer without changing past sales.
+PDF, dates, source prices, and any duplicate barcode warnings. For flagged
+rows, map actual branch-catalog barcodes, quantities and paid/free status,
+then approve the offer for its branch. PDF extraction can miss rows: compare
+the list with the source. A manager can retire an incorrect offer without changing past sales.
 Promotional prices do not overwrite catalog SRP.
 
 On Sales, a PS can choose **Record promotion sale**, find an approved offer by
