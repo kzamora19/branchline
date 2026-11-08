@@ -32,6 +32,7 @@ test("promotion import previews all rows, imports only clear matches, and report
         if (url.hostname !== "branchline.test" || !fs.existsSync(file)) return route.fulfill({ status: 404 });
         return route.fulfill({ contentType: "text/javascript", body: fs.readFileSync(file) });
       });
+
       await page.goto("https://branchline.test/promotion-review-ui.mjs");
       await page.evaluate(async () => {
         const { openPromotionReview } = await import("https://branchline.test/promotion-review-ui.mjs");
@@ -65,7 +66,7 @@ test("promotion import previews all rows, imports only clear matches, and report
       await page.locator('[name="branch"]').selectOption("branch");
       await page.locator('[name="file"]').setInputFiles({ name: "ordinary.pdf", mimeType: "application/pdf", buffer: Buffer.from("pdf") });
       await page.locator("[data-read-pdf]").click();
-      await page.waitForFunction(() => /3 candidate rows found in 1 PDF/.test(document.querySelector("[data-pdf-status]").textContent));
+      await page.waitForFunction(() => /3 candidate rows found in 1 file/.test(document.querySelector("[data-pdf-status]").textContent));
       await page.locator("[data-prepare-import]").click();
       await page.waitForFunction(() => /2 ready to import; 1 need review/.test(document.querySelector("[data-import-status]").textContent));
       assert.match(await page.locator("[data-import-results]").innerText(), /Bundle or free-item terms/);
@@ -80,7 +81,7 @@ test("promotion import previews all rows, imports only clear matches, and report
         { name: "two.pdf", mimeType: "application/pdf", buffer: Buffer.from("two") },
       ]);
       await page.locator("[data-read-pdf]").click();
-      await page.waitForFunction(() => /6 candidate rows found in 2 PDF/.test(document.querySelector("[data-pdf-status]").textContent));
+      await page.waitForFunction(() => /6 candidate rows found in 2 file/.test(document.querySelector("[data-pdf-status]").textContent));
       await page.locator("[data-prepare-import]").click();
       await page.waitForFunction(() => /0 ready to import; 6 need review/.test(document.querySelector("[data-import-status]").textContent));
       assert.match(await page.locator("[data-import-results]").innerText(), /one\.pdf/);
@@ -96,7 +97,134 @@ test("promotion import previews all rows, imports only clear matches, and report
       assert.equal(manual.p_source_name, "one.pdf");
       assert.equal(manual.p_tag_price, 100);
       assert.equal(manual.p_components[0].barcode, "12347");
+      await page.evaluate(() => {
+        window.XLSX = {
+          read: () => ({ SheetNames: ["Offers"], Sheets: { Offers: {} } }),
+          utils: { sheet_to_json: () => [
+            ["Barcode", "Description", "SRP", "TAG THIS"],
+            ["12345", "Fan", "100", "80"],
+          ] },
+        };
+      });
+      await page.locator('[name="file"]').setInputFiles([
+        { name: "offer.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: Buffer.from("xlsx") },
+        { name: "offer.csv", mimeType: "text/csv", buffer: Buffer.from("csv") },
+      ]);
+      await page.locator("[data-read-pdf]").click();
+      await page.waitForFunction(() => /2 candidate rows found in 2 file/.test(document.querySelector("[data-pdf-status]").textContent));
+      await page.locator("[data-prepare-import]").click();
+      await page.waitForFunction(() => /0 ready to import; 2 need review/.test(document.querySelector("[data-import-status]").textContent));
+      assert.match(await page.locator("[data-import-results]").innerText(), /offer\.xlsx/);
+      assert.match(await page.locator("[data-import-results]").innerText(), /offer\.csv/);
+      assert.match(await page.locator("[data-import-results]").innerText(), /more than once/);
       await page.close();
     }
+  } finally { await browser.close(); }
+});
+
+test("company import checks every branch and replaces an existing offer only after confirmation", {
+  skip: !playwright || !process.env.BRANCHLINE_CHROME,
+}, async () => {
+  const browser = await playwright.chromium.launch({ executablePath: process.env.BRANCHLINE_CHROME });
+  try {
+    const page = await browser.newPage({ serviceWorkers: "block" });
+    await page.route("**/*", async route => {
+      const url = new URL(route.request().url());
+      const file = path.join(root, url.pathname.replace(/^\//, ""));
+      if (url.hostname !== "branchline.test" || !fs.existsSync(file)) return route.fulfill({ status: 404 });
+      return route.fulfill({ contentType: "text/javascript", body: fs.readFileSync(file) });
+    });
+    await page.goto("https://branchline.test/promotion-review-ui.mjs");
+    await page.evaluate(async () => {
+      window.XLSX = {
+        read: () => ({ SheetNames: ["Offers"], Sheets: { Offers: {} } }),
+        utils: { sheet_to_json: () => [["Barcode", "Description", "TAG THIS"], ["12345", "Fan", "90"]] },
+      };
+      const { openPromotionReview } = await import("https://branchline.test/promotion-review-ui.mjs");
+      window.calls = []; window.confirmations = [];
+      openPromotionReview({
+        escapeHTML: value => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;"),
+        branches: [{ id: "a", name: "Alpha" }, { id: "b", name: "Beta" }, { id: "c", name: "Gamma" }],
+        companyImport: true,
+        confirm: message => { window.confirmations.push(message); return true; },
+        listProducts: async branch => branch === "b" ? [] : [
+          { barcode: "12345", srp: 100 },
+          { barcode: "56682", model_description: "CAMEL E. KETTLE CK-2010S", srp: 710 },
+        ],
+        listPromotions: async branch => branch === "c" ? [
+          { id: "old", barcode: "12345" }, ...(window.oldBundle ? [{ id: "old-bundle", barcode: "65433" }] : []),
+        ] :
+          window.calls.filter(call => call.args.p_branch === branch).map(call => ({ barcode: call.args.p_barcode })),
+        findProducts: async () => [],
+        rpc: async (name, args) => { window.calls.push({ name, args }); },
+        openModal: options => {
+          document.body.innerHTML = `<form>${options.body}<button type="submit">Approve</button></form>`;
+          const form = document.querySelector("form");
+          form.addEventListener("submit", async event => {
+            event.preventDefault();
+            if (!form.checkValidity()) return;
+            try { await options.onSubmit(form); } catch (error) { window.submitError = error.message; }
+          });
+          options.onReady(form);
+        },
+      });
+    });
+    await page.locator('[name="file"]').setInputFiles({ name: "offer.csv", mimeType: "text/csv", buffer: Buffer.from("csv") });
+    await page.locator("[data-read-pdf]").click();
+    await page.waitForFunction(() => /1 candidate rows/.test(document.querySelector("[data-pdf-status]").textContent));
+    await page.locator("[data-prepare-import]").click();
+    await page.waitForFunction(() => /1 ready to import; 2 need review across 3 branches/.test(document.querySelector("[data-import-status]").textContent));
+    await page.locator("[data-import-ready]").click();
+    await page.waitForFunction(() => /Imported 1 promotion/.test(document.querySelector("[data-import-status]").textContent));
+    assert.deepEqual((await page.evaluate(() => window.calls)).map(call => call.args.p_branch), ["a"]);
+    assert.equal((await page.evaluate(() => window.confirmations)).length, 0);
+    assert.match(await page.locator("[data-import-results]").innerText(), /Beta.*inventory barcode/s);
+    assert.match(await page.locator("[data-import-results]").innerText(), /Gamma.*already uses this barcode/s);
+    await page.locator('[data-review-row="2"]').click();
+    assert.equal(await page.locator('[name="branch"]').inputValue(), "c");
+    await page.locator('[data-product-code]').fill("12345");
+    await page.locator('[name="price_conflict"]').selectOption("false");
+    await page.locator('[name="confirm_review"]').check();
+    await page.getByRole("button", { name: "Approve", exact: true }).click();
+    await page.waitForFunction(() => window.calls.length === 2 || window.submitError);
+    const calls = await page.evaluate(() => window.calls);
+    assert.equal(calls[1].name, "replace_priced_promotion");
+    assert.equal(calls[1].args.p_old, "old");
+    assert.equal(calls[1].args.p_branch, "c");
+    assert.equal((await page.evaluate(() => window.confirmations)).length, 1);
+    await page.evaluate(() => {
+      window.oldBundle = true;
+      window.XLSX.utils.sheet_to_json = () => [
+        ["Barcode", "Description", "TAG THIS"], ["65433", "BUY5 GET1 CK-2010S CAMEL", "3479"],
+      ];
+    });
+    await page.locator('[name="file"]').setInputFiles({ name: "bundle.csv", mimeType: "text/csv", buffer: Buffer.from("csv") });
+    await page.locator("[data-read-pdf]").click();
+    await page.waitForFunction(() => /1 candidate rows/.test(document.querySelector("[data-pdf-status]").textContent));
+    await page.locator("[data-prepare-import]").click();
+    await page.waitForFunction(() => /1 ready to import; 2 need review across 3 branches/.test(document.querySelector("[data-import-status]").textContent));
+    assert.match(await page.locator("[data-import-results]").innerText(), /00056682 × 5 paid, 00056682 × 1 free/);
+    await page.locator("[data-import-ready]").click();
+    await page.waitForFunction(() => /Imported 1 promotion/.test(document.querySelector("[data-import-status]").textContent));
+    const bundleCalls = (await page.evaluate(() => window.calls)).slice(2);
+    assert.deepEqual(bundleCalls.map(call => call.args.p_branch), ["a"]);
+    assert.equal(bundleCalls[0].args.p_tag_price, 3479);
+    assert.deepEqual(bundleCalls[0].args.p_components, [
+      { id: "paid", barcode: "00056682", quantity: 5, free: false },
+      { id: "free", barcode: "00056682", quantity: 1, free: true },
+    ]);
+    await page.locator('[data-review-row="2"]').click();
+    assert.equal(await page.locator('[name="branch"]').inputValue(), "c");
+    assert.equal(await page.locator('[name="tag_price"]').inputValue(), "3479");
+    assert.deepEqual(await page.locator("[data-product-quantity]").evaluateAll(inputs => inputs.map(input => input.value)), ["5", "1"]);
+    assert.deepEqual(await page.locator("[data-product-free]").evaluateAll(inputs => inputs.map(input => input.value)), ["false", "true"]);
+    await page.locator('[name="confirm_review"]').check();
+    await page.getByRole("button", { name: "Approve", exact: true }).click();
+    await page.waitForFunction(() => window.calls.length === 4 || window.submitError);
+    const replacement = (await page.evaluate(() => window.calls)).at(-1);
+    assert.equal(replacement.name, "replace_priced_promotion");
+    assert.equal(replacement.args.p_old, "old-bundle");
+    assert.equal(replacement.args.p_tag_price, 3479);
+    await page.close();
   } finally { await browser.close(); }
 });

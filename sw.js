@@ -1,6 +1,6 @@
 ﻿"use strict";
 
-const CACHE_NAME = "branchline-shell-v149";
+const CACHE_NAME = "branchline-shell-v150";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
@@ -15,6 +15,7 @@ const APP_SHELL_URLS = [
   "./import-engine/brand-reference.mjs",
   "./import-engine/promotion-pdf.mjs",
   "./import-engine/promotion-import.mjs",
+  "./import-engine/promotion-sheet.mjs",
   "./import-engine/promotion-bundles.mjs",
   "./import-engine/promotion-allocation.mjs",
   "./demo-data.js",

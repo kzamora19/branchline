@@ -8,6 +8,7 @@ test("batch import selects only unique ordinary products with usable SRP", async
     barcode, description: "Fan", sourceName: "ordinary.pdf", sourceExcerpt: excerpt,
     sourcePage: 1, warnings: [], memoSrp: 100, tagPrice: 90, ...extra,
   });
+
   const rows = [
     row("12345", "12345 Fan 100.00 90.00"),
     row("12346", "BUY1 GET1 12346 Fan 100.00 90.00"),
@@ -28,4 +29,27 @@ test("batch import selects only unique ordinary products with usable SRP", async
   assert.match(results[5].reasons.join(" "), /SRP/);
   assert.match(results[6].reasons.join(" "), /already/);
   assert.match(results[7].reasons.join(" "), /Bundle/);
+});
+
+test("clear buy/get rows match one model and preserve paid and free quantities", async () => {
+  const { preparePromotionImport } = await import("./import-engine/promotion-import.mjs");
+  const row = {
+    barcode: "65433", description: "BUY5 GET1 CK-2010S CAMEL", sourceName: "offers.pdf",
+    sourceExcerpt: "65433 BUY5 GET1 CK-2010S CAMEL BUY5 GET1 ₱3,479.00",
+    sourcePage: 1, warnings: [], memoSrp: null, tagPrice: 3479,
+  };
+  const product = { barcode: "56682", model_description: "CAMEL E. KETTLE CK-2010S 2.0 LITER", srp: 710 };
+  const result = preparePromotionImport([row], [product], [])[0];
+  assert.equal(result.ready, true);
+  assert.deepEqual(result.components, [
+    { id: "paid", barcode: "00056682", quantity: 5, free: false },
+    { id: "free", barcode: "00056682", quantity: 1, free: true },
+  ]);
+  for (const unsafe of [
+    { ...row, sourceExcerpt: `${row.sourceExcerpt} + FREE MUG` },
+    { ...row, sourceExcerpt: `${row.sourceExcerpt} BUY1 GET1` },
+    { ...row, sourceExcerpt: `${row.sourceExcerpt} OTHER-123` },
+  ]) assert.equal(preparePromotionImport([unsafe], [product], [])[0].ready, false);
+  assert.equal(preparePromotionImport([row], [product, { ...product, barcode: "56683" }], [])[0].ready, false);
+  assert.equal(preparePromotionImport([row], [product], [{ barcode: "65433" }])[0].ready, false);
 });

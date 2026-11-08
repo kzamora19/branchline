@@ -3683,7 +3683,7 @@
     const { openPromotionReview } = await import("./promotion-review-ui.mjs");
     if (client !== reviewClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion review.");
     openPromotionReview({
-      openModal, escapeHTML, branches: liveData.branches, confirm: message => window.confirm(message),
+      openModal, escapeHTML, branches: liveData.branches, companyImport: currentProfile.role === "admin", confirm: message => window.confirm(message),
       listPromotions: async branch => {
         if (client !== reviewClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion review.");
         const result = await fetchAllFrom(reviewClient, "reviewed_promotions", "id,barcode,description,source_name,source_page", [["reviewed_at", false], ["id", true]],
@@ -3694,7 +3694,7 @@
       },
       listProducts: async branch => {
         if (client !== reviewClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion import.");
-        const result = await fetchAllFrom(reviewClient, "products", "barcode,srp", [["barcode", true]],
+        const result = await fetchAllFrom(reviewClient, "products", "barcode,srp,model_description", [["barcode", true]],
           query => query.eq("branch_id", branch).eq("active", true));
         if (result.error) throw result.error;
         if (client !== reviewClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion import.");
@@ -4815,7 +4815,9 @@
             row.querySelector('[name="linetotal"]').value = price !== null && total ? formatMoney(total) : "";
             grand += total;
           });
-          form.querySelector("#sale-total").textContent = formatMoney(grand + (promotion ? (parseCurrency(form.elements.bundle_price.value) ?? 0) : 0));
+          const bundlePrice = promotion ? parseCurrency(form.elements.bundle_price.value) : 0;
+          form.querySelector("#sale-total").textContent = bundlePrice === null
+            ? "Enter bundle price" : formatMoney(grand + bundlePrice);
           showSerialFields();
         };
         let availablePromotions = [];
@@ -4868,7 +4870,9 @@
             component.querySelector("[data-remove-line]").hidden = true;
             enableCurrencyInput(component);
           }
-          message.textContent = "";
+          message.textContent = item.tag_price == null
+            ? "This older promotion has no saved selling price. Enter the memo price and ask a manager to verify its bundle products and quantities."
+            : "";
           recalc();
         };
         let linkSeq = 0;

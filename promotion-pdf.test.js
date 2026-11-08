@@ -105,5 +105,17 @@ test("all supplied promotional PDFs contain selectable text", { skip: !process.e
       assert.equal(duplicates.length, 2);
       assert.ok(duplicates.every(row => row.warnings.some(warning => /more than once/.test(warning))));
     }
+    if (name.includes("BUY5 GET1 & BUNDLE")) {
+      const { preparePromotionImport } = await import("./import-engine/promotion-import.mjs");
+      const candidate = candidates.find(row => row.barcode === "65433");
+      assert.equal(candidate.tagPrice, 3479);
+      const prepared = preparePromotionImport([candidate], [{
+        barcode: "00056682", model_description: "CAMEL E. KETTLE CK-2010S 2.0 LITER STAINLESS BODY", srp: 710,
+      }], [])[0];
+      assert.equal(prepared.ready, true);
+      assert.deepEqual(prepared.components.map(part => [part.barcode, part.quantity, part.free]), [
+        ["00056682", 5, false], ["00056682", 1, true],
+      ]);
+    }
   }
 });

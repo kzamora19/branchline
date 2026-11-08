@@ -77,7 +77,32 @@ test("promotion review is scoped to managers, validates real products and preser
     const prices = (await call("select memo_srp,tag_price from reviewed_promotions where id=$1", [pricedId]))[0];
     assert.equal(prices.memo_srp, "120.00");
     assert.equal(prices.tag_price, "99.50");
+    const importNew = (userBranch, code) => call(
+      "select import_new_priced_promotion($1,$2,'Bundle',null,null,false,'offer.pdf',1,'Source',$3::jsonb,120,90) id",
+      [userBranch, code, JSON.stringify(components)]);
+    await assert.rejects(importNew(branch, "65433"), /already uses/);
+    await actor(manager);
+    await assert.rejects(importNew(other, "65434"), /manager/);
+    const imported = (await importNew(branch, "65434"))[0].id;
+    assert.ok(imported);
+    await assert.rejects(importNew(branch, "65434"), /already uses/);
+    const replace = (old, target, parts, price) => call(
+      "select replace_priced_promotion($1,$2,'65433','Corrected bundle',null,null,false,'offer.pdf',1,'Corrected source',$3::jsonb,120,$4) id",
+      [old, target, JSON.stringify(parts), price]);
+    await assert.rejects(replace(pricedId, branch, [{ ...components[0], barcode: "999" }], 3479), /not active/);
+    assert.equal((await call("select revoked_at from reviewed_promotions where id=$1", [pricedId]))[0].revoked_at, null);
     await actor(ps);
     await assert.rejects(priced(90, 100), /manager/);
+    await assert.rejects(replace(pricedId, branch, components, 3479), /unavailable/);
+    await actor(manager);
+    await assert.rejects(replace(pricedId, other, components, 3479), /unavailable/);
+    const replacement = (await replace(pricedId, branch, components, 3479))[0].id;
+    const history = await call("select id,tag_price,revoked_by,components from reviewed_promotions where id in ($1,$2) order by tag_price", [pricedId, replacement]);
+    assert.equal(history.length, 2);
+    assert.equal(history[0].tag_price, "99.50");
+    assert.equal(history[0].revoked_by, manager);
+    assert.equal(history[1].tag_price, "3479.00");
+    assert.equal(history[1].revoked_by, null);
+    assert.equal(history[1].components[1].free, true);
   } finally { await db.close(); }
 });

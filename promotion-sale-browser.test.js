@@ -42,7 +42,7 @@ test("promotion sales show one price, actual products and stock protection on de
                 components:[{barcode:product.barcode,quantity:5,free:false},{barcode:product.barcode,quantity:1,free:true}]});
               return product.barcode;
             },
-            openRegular: () => {
+            openRegular: (missingPrice = false) => {
               const product = saleProducts().find(item => item.srp != null);
               const other = saleProducts().find(item => item.srp != null && item.barcode !== product?.barcode);
               liveData.inventoryStock = [{branch_id:currentProfile.branch_id,barcode:product.barcode,quantity:10,serialized:false},
@@ -51,7 +51,7 @@ test("promotion sales show one price, actual products and stock protection on de
               window.promotionOtherProduct = productLabel(other);
               fetchAllFrom = async () => ({error:null,data:[{id:"expired",barcode:"00065433",description:"Older offer",
                 valid_from:"2020-01-01",valid_to:"2020-12-31",components:[]},{id:"fixture",barcode:"00065433",description:"Buy five get one",
-                tag_price:99.50,memo_srp:120,source_name:"fixture.pdf",source_page:1,source_excerpt:"BUY5 GET1",
+                tag_price:missingPrice ? null : 99.50,memo_srp:120,source_name:"fixture.pdf",source_page:1,source_excerpt:"BUY5 GET1",
                 valid_from:"2026-01-01",valid_to:"2026-12-31",price_conflict:false,
                 components:[{barcode:product.barcode,quantity:5,free:false},{barcode:product.barcode,quantity:1,free:true}]}]});
               openSaleModal();
@@ -76,6 +76,7 @@ test("promotion sales show one price, actual products and stock protection on de
       assert.equal(await dialog.locator('[name="quantity"]').evaluate(node => node.readOnly), true);
       assert.equal(await dialog.locator('[name="bundle_price"]').inputValue(), "");
       assert.equal(await dialog.locator('[name="bundle_price"]').evaluate(node => node.validity.valueMissing), true);
+      assert.equal(await dialog.locator("#sale-total").textContent(), "Enter bundle price");
       assert.equal(await dialog.locator('[name="bundle_price"]').getAttribute("placeholder"), "Enter bundle selling price (PHP)");
       await dialog.locator('[name="bundle_price"]').fill("999");
       assert.match(await dialog.locator("#sale-total").textContent(), /999/);
@@ -150,6 +151,15 @@ test("promotion sales show one price, actual products and stock protection on de
       assert.equal(inlineCalls[0].args.p_bundle_total, 99.5);
       assert.equal(inlineCalls[0].args.p_regular_lines.length, 1);
       assert.equal(inlineCalls[0].args.p_regular_lines[0].selling_price, 50);
+      await page.evaluate(() => window.promotionSaleTest.openRegular(true));
+      dialog = page.getByRole("dialog", { name: "Record a sale", exact: true });
+      await dialog.locator('[name="product"]').fill("65433");
+      await dialog.locator('[name="product"]').dispatchEvent("change");
+      await dialog.locator("[data-promotion-header]").waitFor();
+      assert.equal(await dialog.locator("#sale-total").textContent(), "Enter bundle price");
+      assert.match(await dialog.locator("[data-sale-promotion-status]").textContent(), /no saved selling price/i);
+      await dialog.locator('[name="bundle_price"]').fill("3479");
+      assert.match(await dialog.locator("#sale-total").textContent(), /3,479/);
       assert.deepEqual(errors, []);
       await page.close();
     }

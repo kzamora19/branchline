@@ -1,12 +1,16 @@
 # Branchline
 
-### Promotion bundles (shell v149)
+### Promotion bundles (shell v150)
 
 Managers, District Managers and Admins can use **Settings → Import promotion
-memo** to read one or more selectable-text PDFs locally and review suggested rows. Check all
-rows against branch products, then import the clear single-product barcode
-matches together. Duplicates, existing promotions, missing product prices,
-bundles, missing tag prices and uncertain matches require individual review. The
+memo** to read one or more selectable-text PDFs, Excel or CSV files locally and review suggested rows. Spreadsheet
+files need recognizable barcode and description headers; only named tag/now-price columns
+are used for selling prices. Sheets with unrecognized or duplicate headings are rejected,
+and recognized dates in sheet rows require review. Check all
+rows against branch products, then import clear matches together. Simple buy/get
+offers can be matched using one unambiguous product model, with the paid and free
+quantities kept separately. Duplicates, existing promotions, missing product prices,
+complex or unclear bundles, missing tag prices and uncertain matches require individual review. The
 detected SRP and TAG THIS/NOW PRICE are suggestions and must be checked against
 the source; installment values are not substituted for the tag price. If a batch stops on
 an error, the screen reports how many rows were saved; check the rows again
@@ -15,15 +19,25 @@ reader is loaded from a pinned CDN, so the first use requires a connection.
 Scanned/image-only pages are flagged; OCR is not provided. Check the original
 PDF, dates, source prices, and any duplicate barcode warnings. For flagged
 rows, map actual branch-catalog barcodes, quantities and paid/free status,
-then approve the offer for its branch. PDF extraction can miss rows: compare
-the list with the source. A manager can retire an incorrect offer without changing past sales.
+then save the offer for its branch. Administrators can check and import clear
+offers across all existing company branches in one batch; each branch is checked
+against its own catalog and exceptions remain visible. Managers and District
+Managers import only into branches they manage. An existing offer is never
+automatically overwritten: review the correction and confirm replacement to
+retire the previous version and save the new one atomically. When an existing
+offer is the only issue and its components match clearly, the correction form
+prefills the suggested price and paid/free components for verification. Past sales retain
+their original details. PDF extraction can miss rows: compare the list with the
+source. A manager can also retire an incorrect offer without changing past sales.
 Promotional prices do not overwrite catalog SRP.
 
 On Sales, a PS can use **+ Record sale** and search for an approved offer by
 its promotion barcode. The bundle expands into its actual products with their
 individual standard SRPs and fills the selling price from the reviewed tag
 price. Older approved promotions have no saved tag price and require it to be
-entered manually, or can be retired and reimported with a reviewed price.
+entered manually, or can be retired and reimported with a reviewed price. Until
+a price is entered, the sale total says **Enter bundle price** instead of showing zero.
+An older offer's products and paid/free quantities should also be verified before sale.
 The PS selects the serials
 for its actual inventory products. Incomplete dates or conflicting prices
 require explicit confirmation; known out-of-period offers are blocked.
@@ -33,7 +47,8 @@ SRP under existing manual-sale rules, and paid components must have a positive
 combined SRP. The bundle total is allocated to paid units in proportion to SRP,
 with free units allocated zero; rounding preserves the total exactly.
 The promotion-price migration `20261220000000_promotion_memo_prices.sql`
-must be applied before importing priced promotion memos.
+and replacement migration `20261221000000_promotion_replace.sql` must be applied
+before importing priced promotion memos with this version.
 
 Selecting a bundle item in Sales return selects the whole bundle. Choose the
 actual serials for all included units; partial bundle returns are blocked.
