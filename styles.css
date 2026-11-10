@@ -387,8 +387,6 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .sale-inventory-serials .field { max-width: 480px; }
 .inventory-reminder { padding: 16px; margin-bottom: 16px; border: 1px solid #e5ac38; border-radius: 12px; background: #fff8e7; }
 .inventory-reminder p { margin: 8px 0; }
-.table-category-filters { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
-.table-category-filters .field { width: 180px; max-width: 100%; }
 .daily-table-action { display: flex; justify-content: center; margin-top: 12px; }
 .table-search { flex: 1 1 160px; min-width: 0; }
 .table-tools .button { white-space: nowrap; flex: 0 0 auto; }
@@ -476,6 +474,10 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .ps-break .connected-table { min-width: 0; }
 .ps-lines { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
 .ps-sum { max-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+#ps-detail :is(.ps-sum, .ps-lines) .connected-table { border-collapse: separate; border-spacing: 0; }
+#ps-detail :is(.ps-sum, .ps-lines) thead th { position: sticky; top: 0; z-index: 1; background: #f8f9fb; }
+.purchase-history-table tbody tr { height: 37px; }
+.purchase-history-table td { padding-block: 0; line-height: 16px; white-space: nowrap; }
 .sort-btn { all: unset; cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
 .sort-btn:hover, .sort-btn:focus-visible { color: var(--ink); text-decoration: underline; }
 .customer-filter-indicator { color: var(--blue); }
