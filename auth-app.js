@@ -53,7 +53,7 @@
   let activePage = "overview";
   let loadSequence = 0;
   let resultsView = null;
-  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", rankBranch: "", brandBranch: "", bpMix: "", bpYear: "", dsMonth: "", dsYear: "", dsBranch: "", pages: {}, sort: {}, colf: {}, columnFilters: {} };
+  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", rankBranch: "", brandBranch: "", bpMix: "", bpYear: "", dsMonth: "", dsYear: "", dsBranch: "", pages: {}, sort: {}, columnFilters: {} };
   const productSelection = new Set();
   const universalPages = new Set(["overview", "sales", "analytics", "targets"]);
   const savedFilterKeys = ["district", "branch", "period", "month", "date", "anRange", "anBasis", "logFrom", "logTo", "rankBrand", "rankCategory", "rankSub", "anDim", "salesBasis", "dsMonth", "dsYear", "yrYear",
@@ -1211,7 +1211,8 @@
     const doc = new DOMParser().parseFromString(`<table><tbody>${items.map(rowHtml).join("")}</tbody></table>`, "text/html");
     return [...doc.querySelectorAll("tbody > tr")].map(row => new Map(columns.map(col => {
       const cell = row.children[col];
-      return [col, (forDisplay ? cell?.textContent : cell?.dataset.sort ?? cell?.textContent) ?? ""];
+      const value = forDisplay ? cell?.dataset.filterValue : cell?.dataset.sort;
+      return [col, value ?? cell?.textContent ?? ""];
     })));
   }
 
@@ -1237,7 +1238,7 @@
       `data-sort-table="${escapeHTML(key)}" data-sort-col="${col}"`);
   }
 
-  function tableBlock(key, headers, items, rowHtml, emptyText, pageSize = PAGE_SIZE, sortValue, displayValue) {
+  function tableBlock(key, headers, items, rowHtml, emptyText, pageSize = PAGE_SIZE, sortValue, displayValue, { fixedRows = false } = {}) {
     columnTables.set(key, { headers, items, rowHtml, displayValue });
     items = filterTableItems(items, ui.columnFilters[key] ?? {}, rowHtml, displayValue);
     const sort = ui.sort[key];
@@ -1247,9 +1248,9 @@
     const page = Math.min(Math.max(1, ui.pages[key] || 1), pages);
     ui.pages[key] = page;
     const slice = items.slice((page - 1) * pageSize, page * pageSize);
-    const body = slice.length
-      ? slice.map(rowHtml).join("")
-      : `<tr><td colspan="${headers.length}"><div class="empty-state">${escapeHTML(emptyText)}</div></td></tr>`;
+    const body = slice.length ? slice.map(rowHtml).join("") :
+      `<tr><td colspan="${headers.length}">${fixedRows ? escapeHTML(emptyText) : `<div class="empty-state">${escapeHTML(emptyText)}</div>`}</td></tr>`;
+    const padding = fixedRows ? `<tr aria-hidden="true"><td colspan="${headers.length}"></td></tr>`.repeat(pageSize - Math.max(1, slice.length)) : "";
     const from = slice.length ? (page - 1) * pageSize + 1 : 0;
     const to = slice.length ? from + slice.length - 1 : 0;
     const head = headers.map((header, col) => {
@@ -1257,7 +1258,7 @@
       if (!isDataHeader(header)) return "<th></th>";
       return tableHeading(key, header, col);
     }).join("");
-    return `<div class="connected-table-wrap" data-table-key="${key}"><table class="connected-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+    return `<div class="connected-table-wrap" data-table-key="${key}"><table class="connected-table"><thead><tr>${head}</tr></thead><tbody>${body}${padding}</tbody></table></div>
       <div class="connected-pager"><span>${from}–${to} of ${items.length}</span>
         <div><button class="button button-outline" type="button" data-pager="${key}" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>Previous</button><span>Page ${page} of ${pages}</span><button class="button button-outline" type="button" data-pager="${key}" data-page="${page + 1}" ${page >= pages ? "disabled" : ""}>Next</button></div></div>`;
   }
@@ -1279,28 +1280,6 @@
   function manualExport(key, title, headers, items, rowHtml) {
     tableStore[key] = { headers, items, rowHtml, title };
     return exportButton(`data-export-table="${escapeHTML(key)}"`, `Download ${title}`);
-  }
-
-  // Only categorical filters are shown; numeric columns remain sortable.
-  function columnFilterTable(key, head, rows, rowHtml, cols) {
-    const state = ui.colf[key] || (ui.colf[key] = {});
-    const kept = rows.filter(row => cols.every((col, index) => {
-      const wanted = state[index];
-      if (!wanted) return true;
-      const value = String(col.get(row) ?? "");
-      return value === wanted;
-    }));
-    const controls = cols.map((col, index) => {
-      const wanted = state[index] || "";
-      const values = [...new Set(rows.map(row => String(col.get(row) ?? "")))];
-      return `<label class="field"><span>${escapeHTML(head[index])}</span><select data-colfilter="${key}|${index}" aria-label="Filter ${escapeHTML(head[index])}"><option value="">All</option>${values.map(value =>
-        `<option value="${escapeHTML(value)}" ${value === wanted ? "selected" : ""}>${escapeHTML(value)}</option>`).join("")}</select></label>`;
-    }).join("");
-    return {
-      kept,
-      active: cols.some((_, index) => Boolean(state[index])),
-      html: `<div class="table-category-filters" role="group" aria-label="Table filters">${controls}</div>${sortableTable(key, head, kept, rowHtml, kept.length ? "" : `<tr><td colspan="${head.length}"><div class="empty-state">No rows match these filters.</div></td></tr>`)}`,
-    };
   }
 
   function panel(title, detail, content, action = "", sourceKey = "") {
@@ -2467,12 +2446,9 @@
     const order = ["Sales", "Transactions", "Average sale", "Walk-ins", "Conversion"];
     rows.sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
     const head = ["Metric", "Period", "Current", "Prior", "Change"];
-    const rowHtml = ([metric, p, current, prior, change]) => `<tr><td><strong>${escapeHTML(metric)}</strong></td><td>${escapeHTML(p.name)}<br><small class="an-muted">${escapeHTML(p.note)}</small></td><td>${current}</td><td>${prior}</td><td>${change}</td></tr>`;
-    const filtered = columnFilterTable("traffic-compare", head, rows, rowHtml, [
-      { get: row => row[0] },
-      { get: row => row[1].name },
-    ]);
-    const compare = panel("Transactions, walk-ins and conversion: day, week, month, year", "Walk-in change is per counted day so days without a count never distort it. Conversion only uses counted days. Filter by metric or period above the table; click a heading to sort.", filtered.html, `${filtered.active ? '<button class="button button-outline button-small" type="button" data-colfilter-clear="traffic-compare">Clear filters</button>' : ""}${manualExport("traffic-compare", "Traffic comparison", head, filtered.kept, rowHtml)}`);
+    const rowHtml = ([metric, p, current, prior, change]) => `<tr><td><strong>${escapeHTML(metric)}</strong></td><td data-filter-value="${escapeHTML(p.name)}">${escapeHTML(p.name)}<br><small class="an-muted">${escapeHTML(p.note)}</small></td><td>${current}</td><td>${prior}</td><td>${change}</td></tr>`;
+    const download = manualExport("traffic-compare", "Traffic comparison", head, rows, rowHtml);
+    const compare = panel("Transactions, walk-ins and conversion: day, week, month, year", "Walk-in change is per counted day so days without a count never distort it. Conversion only uses counted days. Use the column headers to sort or filter.", sortableTable("traffic-compare", head, rows, rowHtml), download);
 
     const years = new Set([Number(month.slice(0, 4))]);
     ctx.sales.forEach(sale => years.add(Number(sale.date.slice(0, 4))));
@@ -3253,17 +3229,7 @@
       body: `<p>${group.quantity} invoice(s) · DG fees only</p><div data-delivery-table>${renderTable()}</div>
         <p><strong>Total amount: ${formatMoney(group.amount)}</strong></p>`, onReady: form => {
         bindSaleDetailRows(form);
-        const host = form.querySelector("[data-delivery-table]");
-        const render = () => { host.innerHTML = renderTable(); };
-        host.addEventListener("click", event => {
-          const heading = event.target.closest("[data-sort-table]");
-          if (heading) openTableColumn(heading, render, host);
-          const pager = event.target.closest("[data-pager]:not(:disabled)");
-          if (pager) {
-            ui.pages[pager.dataset.pager] = Number(pager.dataset.page);
-            render();
-          }
-        });
+        bindModalTable(form.querySelector("[data-delivery-table]"), renderTable);
       } });
   }
 
@@ -5374,7 +5340,25 @@
       selection => { setColumnFilter(filters, col, selection); update(); });
   }
 
-  function openCustomerHistory(key) {
+  function bindModalTable(host, renderTable) {
+    const render = () => { host.innerHTML = renderTable(); };
+    host.addEventListener("click", event => {
+      const heading = event.target.closest("[data-sort-table]");
+      if (heading) openTableColumn(heading, render, host);
+      const pager = event.target.closest("[data-pager]:not(:disabled)");
+      if (!pager) return;
+      const key = pager.dataset.pager;
+      const page = Number(pager.dataset.page);
+      const direction = page > ui.pages[key] ? 1 : 0;
+      ui.pages[key] = page;
+      render();
+      const buttons = [...host.querySelectorAll("[data-pager]")];
+      const nextFocus = buttons[direction]?.disabled ? buttons[1 - direction] : buttons[direction];
+      nextFocus?.focus({ preventScroll: true });
+    });
+  }
+
+  function openCustomerHistory(key, resume = false) {
     if (activePage !== "customers" || !rolePages[currentProfile?.role]?.includes("customers")) return;
     const customer = customerRows().find(row => row.key === key);
     if (!customer) return;
@@ -5383,15 +5367,26 @@
       .sort((a, b) => String(b.sale.sold_on).localeCompare(String(a.sale.sold_on)) ||
         String(b.sale.created_at || "").localeCompare(String(a.sale.created_at || "")) || natural(b.sale.invoice_number, a.sale.invoice_number));
     const total = purchases.reduce((sum, purchase) => sum + purchase.amount, 0);
+    const tableKey = "purchase-history";
+    if (!resume) {
+      ui.pages[tableKey] = 1;
+      delete ui.sort[tableKey];
+      delete ui.columnFilters[tableKey];
+    }
+    const renderTable = () => tableBlock(tableKey, ["Date", "Invoice", "Payment", "Total"], purchases,
+      ({ sale, amount }) => `<tr class="sale-summary-row" data-sale-details="${escapeHTML(sale.id)}" tabindex="0" aria-label="View invoice ${escapeHTML(sale.invoice_number)}">
+        <td>${escapeHTML(sale.sold_on)}</td><td><strong>${escapeHTML(sale.invoice_number)}</strong></td>
+        <td>${escapeHTML(sale.payment_mode || "—")}</td><td>${formatMoney(amount)}</td></tr>`,
+      "No transactions match these filters.", PAGE_SIZE, undefined, undefined, { fixedRows: true });
     openModal({ title: `Purchase History · ${name}`, intro: [barangay, city, branch].filter(value => value !== "—").join(" · "),
       readOnly: true, wide: true,
       body: `<div class="sale-detail-total"><span>${purchases.length} recorded transaction${purchases.length === 1 ? "" : "s"}</span>
         <strong>Overall total: ${formatMoney(total)}</strong></div>
-        <div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Date</th><th>Invoice</th><th>Payment</th><th>Total</th></tr></thead>
-        <tbody>${purchases.map(({ sale, amount }) => `<tr class="sale-summary-row" data-sale-details="${escapeHTML(sale.id)}" tabindex="0" aria-label="View invoice ${escapeHTML(sale.invoice_number)}">
-          <td>${escapeHTML(sale.sold_on)}</td><td><strong>${escapeHTML(sale.invoice_number)}</strong></td>
-          <td>${escapeHTML(sale.payment_mode || "—")}</td><td>${formatMoney(amount)}</td></tr>`).join("")}</tbody></table></div>`,
-      onReady: form => bindSaleDetailRows(form, () => openCustomerHistory(key)),
+        <div class="purchase-history-table">${renderTable()}</div>`,
+      onReady: form => {
+        bindSaleDetailRows(form, () => openCustomerHistory(key, true));
+        bindModalTable(form.querySelector(".purchase-history-table"), renderTable);
+      },
     });
   }
 
@@ -7433,13 +7428,10 @@
     const render = () => {
       const list = rows();
       const total = list.reduce((sum, { line }) => sum + window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), 0);
-      const brands = uniqueSorted(all.map(({ line }) => (line.brand || "").trim()));
-      const categories = uniqueSorted(all.map(({ line }) => line.category));
-      const subs = uniqueSorted(all.filter(({ line }) => !state.category || line.category === state.category).map(({ line }) => line.sub_category));
       const lineRows = list.slice().sort((a, b) => String(b.sale.sold_on).localeCompare(String(a.sale.sold_on)))
         .map(({ sale, line }) => `<tr class="sale-summary-row" data-sale-details="${escapeHTML(sale.id)}" tabindex="0" aria-label="View invoice ${escapeHTML(sale.invoice_number)}"><td>${escapeHTML(sale.sold_on)}</td><td><strong>${escapeHTML(sale.invoice_number)}</strong></td><td>${escapeHTML(line.brand)}</td><td>${escapeHTML(line.category || "—")}</td><td>${escapeHTML(line.sub_category || "—")}</td><td>${escapeHTML(line.model_description)}</td><td>${escapeHTML(line.quantity)}</td><td>${formatMoney(window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis))}</td></tr>`).join("");
       root.querySelector("#ps-detail").innerHTML = `<p class="dlg-intro">${escapeHTML(intro)}</p><p class="an-note">${escapeHTML(salesBasisNote())}</p>
-        <div class="rank-filters">${showBrand ? rankFilterSelect("brand", "Brand", brands, state.brand) : ""}${rankFilterSelect("category", "Category", categories, state.category)}${rankFilterSelect("sub", "Sub-category", subs, state.sub)}
+        <div class="rank-filters">
         <label class="field"><span>Group by</span><select data-group>${groupOptions.map(([value, label]) => `<option value="${value}" ${state.group === value ? "selected" : ""}>${escapeHTML(label)}</option>`).join("")}</select></label></div>
         <p class="ps-total"><span>${list.length} line${list.length === 1 ? "" : "s"}</span> <strong>${formatMoney(total)}</strong></p>
         <div class="connected-table-wrap ps-sum">${breakdown(list)}</div>
@@ -7449,15 +7441,8 @@
       if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
     });
     root.addEventListener("input", event => {
-      if (event.target.closest("[data-group]")) {
-        state.group = event.target.value;
-        render();
-        return;
-      }
-      const key = event.target.closest("[data-filter]")?.dataset.filter;
-      if (!key) return;
-      state[key] = event.target.value;
-      if (key === "category") state.sub = "";
+      if (!event.target.matches("[data-group]")) return;
+      state.group = event.target.value;
       render();
     });
     root.querySelector("#ps-detail-export").addEventListener("click", () => {
@@ -8101,28 +8086,6 @@
       }
       return;
     }
-    const box = event.target.closest?.("[data-colfilter]");
-    if (!box || !resultsView) return;
-    const fieldScope = box.closest("[data-pie-table-content]") ? modalRoot : connectedContent;
-    const [key, col] = box.dataset.colfilter.split("|");
-    (ui.colf[key] ||= {})[Number(col)] = box.value;
-    const caret = box.selectionStart;
-    const isText = box.tagName === "INPUT";
-    refreshResults();
-    if (isText) {
-      const field = fieldScope.querySelector(`[data-colfilter="${key}|${col}"]`);
-      if (field) {
-        field.focus();
-        field.setSelectionRange(caret, caret);
-      }
-    }
-  });
-
-  connectedContent.addEventListener("click", event => {
-    const clear = event.target.closest?.("[data-colfilter-clear]");
-    if (!clear || !resultsView) return;
-    ui.colf[clear.dataset.colfilterClear] = {};
-    refreshResults();
   });
 
   connectedContent.addEventListener("input", event => {
