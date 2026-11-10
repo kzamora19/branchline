@@ -53,7 +53,7 @@
   let activePage = "overview";
   let loadSequence = 0;
   let resultsView = null;
-  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", rankBranch: "", brandBranch: "", bpMix: "", bpYear: "", dsMonth: "", dsYear: "", dsBranch: "", pages: {}, sort: {}, colf: {}, customerFilters: {} };
+  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", rankBranch: "", brandBranch: "", bpMix: "", bpYear: "", dsMonth: "", dsYear: "", dsBranch: "", pages: {}, sort: {}, colf: {}, columnFilters: {} };
   const productSelection = new Set();
   const universalPages = new Set(["overview", "sales", "analytics", "targets"]);
   const savedFilterKeys = ["district", "branch", "period", "month", "date", "anRange", "anBasis", "logFrom", "logTo", "rankBrand", "rankCategory", "rankSub", "anDim", "salesBasis", "dsMonth", "dsYear", "yrYear",
@@ -209,7 +209,7 @@
     ui.invAge = "90";
     ui.pages = {};
     ui.sort = {};
-    ui.customerFilters = {};
+    ui.columnFilters = {};
     productSelection.clear();
   }
 
@@ -1181,18 +1181,14 @@
   }
 
   const tableStore = {};
+  const columnTables = new Map();
   const SELECT_HEADER = "__select__";
   const isDataHeader = header => header !== "" && header !== SELECT_HEADER;
 
   // Sorts rows by the text of one column (numbers, money and percentages compare numerically; a data-sort attribute overrides the text).
   function sortedItems(items, rowHtml, sort, sortValue) {
-    const cells = sortValue ? items.map(item => sortValue(item, sort.col)) : (() => {
-      const doc = new DOMParser().parseFromString(`<table><tbody>${items.map(rowHtml).join("")}</tbody></table>`, "text/html");
-      return [...doc.querySelectorAll("tbody > tr")].map(tr => {
-        const cell = tr.children[sort.col];
-        return cell?.dataset.sort ?? cell?.textContent ?? "";
-      });
-    })();
+    const cells = sortValue ? items.map(item => sortValue(item, sort.col)) :
+      tableCells(items, rowHtml, [sort.col]).map(row => row.get(sort.col));
     const keys = cells.map(value => {
       const text = String(value ?? "").trim();
       const number = /\d/.test(text) ? Number(text.replace(/[₱,%#+\s]/g, "")) : NaN;
@@ -1211,7 +1207,39 @@
       .map(entry => entry.item);
   }
 
-  function tableBlock(key, headers, items, rowHtml, emptyText, pageSize = PAGE_SIZE, sortValue, headerAction) {
+  function tableCells(items, rowHtml, columns, forDisplay = false) {
+    const doc = new DOMParser().parseFromString(`<table><tbody>${items.map(rowHtml).join("")}</tbody></table>`, "text/html");
+    return [...doc.querySelectorAll("tbody > tr")].map(row => new Map(columns.map(col => {
+      const cell = row.children[col];
+      return [col, (forDisplay ? cell?.textContent : cell?.dataset.sort ?? cell?.textContent) ?? ""];
+    })));
+  }
+
+  const filterValue = value => String(value ?? "").trim();
+  function filterTableItems(items, filters, rowHtml, valueAt) {
+    const columns = Object.keys(filters).map(Number);
+    if (!columns.length || !items.length) return items;
+    const cells = valueAt ? null : tableCells(items, rowHtml, columns, true);
+    return items.filter((item, index) => columns.every(col =>
+      filters[col].has(filterValue(valueAt ? valueAt(item, col) : cells[index]?.get(col)))));
+  }
+
+  function columnHeading(label, active, filtered, attributes) {
+    const ariaSort = active === "asc" ? "ascending" : active === "desc" ? "descending" : "none";
+    return `<th aria-sort="${ariaSort}"><button class="sort-btn" type="button" ${attributes} aria-haspopup="dialog"
+      aria-label="Sort and filter ${escapeHTML(label)}${filtered ? " (filtered)" : ""}">${escapeHTML(label)}
+      <span class="sort-arrow" aria-hidden="true">${active === "asc" ? "▲" : active === "desc" ? "▼" : "▾"}</span>${filtered ? ' <span class="customer-filter-indicator" aria-hidden="true">•</span>' : ""}</button></th>`;
+  }
+
+  function tableHeading(key, header, col) {
+    const sort = ui.sort[key];
+    return columnHeading(header, sort?.col === col ? sort.dir : "", Boolean(ui.columnFilters[key]?.[col]),
+      `data-sort-table="${escapeHTML(key)}" data-sort-col="${col}"`);
+  }
+
+  function tableBlock(key, headers, items, rowHtml, emptyText, pageSize = PAGE_SIZE, sortValue, displayValue) {
+    columnTables.set(key, { headers, items, rowHtml, displayValue });
+    items = filterTableItems(items, ui.columnFilters[key] ?? {}, rowHtml, displayValue);
     const sort = ui.sort[key];
     if (sort && isDataHeader(headers[sort.col] ?? "")) items = sortedItems(items, rowHtml, sort, sortValue);
     tableStore[key] = { headers, items, rowHtml };
@@ -1227,9 +1255,7 @@
     const head = headers.map((header, col) => {
       if (header === SELECT_HEADER) return `<th class="select-cell"><input type="checkbox" data-product-select-all ${productsFiltered.length && productSelection.size === productsFiltered.length ? "checked" : ""} aria-label="Select all products"></th>`;
       if (!isDataHeader(header)) return "<th></th>";
-      const active = sort?.col === col ? sort.dir : "";
-      const control = headerAction?.(header, col, active) ?? `<button class="sort-btn" type="button" data-sort-table="${key}" data-sort-col="${col}">${escapeHTML(header)}<span class="sort-arrow">${active === "asc" ? "▲" : active === "desc" ? "▼" : ""}</span></button>`;
-      return `<th aria-sort="${active === "asc" ? "ascending" : active === "desc" ? "descending" : "none"}">${control}</th>`;
+      return tableHeading(key, header, col);
     }).join("");
     return `<div class="connected-table-wrap" data-table-key="${key}"><table class="connected-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
       <div class="connected-pager"><span>${from}–${to} of ${items.length}</span>
@@ -1238,13 +1264,15 @@
 
   // Like tableBlock, but without paging or auto-export: for small tables that have their own Export button or total row.
   function sortableTable(key, headers, items, rowHtml, footerHtml = "") {
+    columnTables.set(key, { headers, items, rowHtml });
+    const filtered = filterTableItems(items, ui.columnFilters[key] ?? {}, rowHtml);
+    if (tableStore[key]?.items === items) tableStore[key].items = filtered;
     const sort = ui.sort[key];
-    const shown = sort ? sortedItems(items, rowHtml, sort) : items;
-    const head = headers.map((header, col) => {
-      const active = sort?.col === col ? sort.dir : "";
-      return `<th aria-sort="${active === "asc" ? "ascending" : active === "desc" ? "descending" : "none"}"><button class="sort-btn" type="button" data-sort-table="${key}" data-sort-col="${col}">${escapeHTML(header)}<span class="sort-arrow">${active === "asc" ? "▲" : active === "desc" ? "▼" : ""}</span></button></th>`;
-    }).join("");
-    return `<div class="connected-table-wrap"><table class="connected-table"><thead><tr>${head}</tr></thead><tbody>${shown.map(rowHtml).join("")}${footerHtml}</tbody></table></div>`;
+    const shown = sort ? sortedItems(filtered, rowHtml, sort) : filtered;
+    const head = headers.map((header, col) => isDataHeader(header) ? tableHeading(key, header, col) : "<th></th>").join("");
+    const empty = !shown.length && items.length
+      ? `<tr><td colspan="${headers.length}">No rows match these filters.</td></tr>` : "";
+    return `<div class="connected-table-wrap"><table class="connected-table"><thead><tr>${head}</tr></thead><tbody>${shown.map(rowHtml).join("")}${empty || footerHtml}</tbody></table></div>`;
   }
 
   // Exports a table that is not built with tableBlock; returns the Export button for the panel header.
@@ -2677,15 +2705,30 @@
         ${brand ? '<button type="button" class="button button-outline" data-moh-back>Back to brands</button>' : ""}
         <label class="field"><span>${brand ? "Search products" : "Search brands"}</span><input type="search" data-moh-search></label>
         <div class="table-export-tools">${exportButton("data-moh-export", `Export ${brand ? "products" : "brands"}`)}</div>
-        <div class="connected-table-wrap inventory-moh-drill"><table class="connected-table"><thead><tr>${headers.map((value,col)=>`<th aria-sort="none"><button class="sort-btn" type="button" data-moh-sort="${col}">${escapeHTML(value)}<span class="sort-arrow" aria-hidden="true">&#8597;</span></button></th>`).join("")}</tr></thead><tbody data-moh-rows>${rows.map(rowHtml).join("")}</tbody></table></div>
+        <div class="connected-table-wrap inventory-moh-drill"><table class="connected-table"><thead><tr>${headers.map((label, col) => columnHeading(label, "", false, `data-moh-sort="${col}"`)).join("")}</tr></thead><tbody data-moh-rows>${rows.map(rowHtml).join("")}</tbody></table></div>
         <p data-moh-empty${rows.length ? " hidden" : ""}>No data in this scope.</p>`,
       onReady: form => {
         let visible = rows, search = "", sort = null;
+        const filters = {};
+        const display = (row, col) => {
+          const value = values(row)[col];
+          return typeof value === "number" && col >= 3 && col <= 6 ? formatMoney(value) :
+            col === 7 && typeof value === "number" ? value.toFixed(2) : value;
+        };
         const renderRows = () => {
           visible = rows.filter(row => values(row).slice(0,2).some(value=>String(value || "").toLowerCase().includes(search)));
+          visible = filterTableItems(visible, filters, rowHtml, display);
           if (sort) visible = sortedItems(visible, rowHtml, sort, (row,col) => values(row)[col]);
           form.querySelector("[data-moh-rows]").innerHTML = visible.map(rowHtml).join("");
           form.querySelector("[data-moh-empty]").hidden = visible.length > 0;
+          form.querySelectorAll("[data-moh-sort]").forEach(button => {
+            const col = Number(button.dataset.mohSort);
+            const active = sort?.col === col ? sort.dir : "";
+            button.closest("th").setAttribute("aria-sort", active === "asc" ? "ascending" : active === "desc" ? "descending" : "none");
+            button.querySelector(".sort-arrow").textContent = active === "asc" ? "▲" : active === "desc" ? "▼" : "▾";
+            button.classList.toggle("customer-filter-indicator", Boolean(filters[col]));
+            button.setAttribute("aria-label", "Sort and filter " + headers[col] + (filters[col] ? " (filtered)" : ""));
+          });
         };
         form.querySelector("[data-moh-search]").addEventListener("input", event => {
           search = event.target.value.trim().toLowerCase();
@@ -2695,13 +2738,9 @@
           const heading = event.target.closest("[data-moh-sort]");
           if (heading) {
             const col = Number(heading.dataset.mohSort);
-            sort = { col, dir: sort?.col === col && sort.dir === "asc" ? "desc" : "asc" };
-            form.querySelectorAll("[data-moh-sort]").forEach(button => {
-              const active = Number(button.dataset.mohSort) === col;
-              button.closest("th").setAttribute("aria-sort", active ? sort.dir === "asc" ? "ascending" : "descending" : "none");
-              button.querySelector(".sort-arrow").textContent = active ? sort.dir === "asc" ? "\u25b2" : "\u25bc" : "\u2195";
-            });
-            renderRows();
+            openColumnMenu(heading, headers[col], rows.map(row => display(row, col)), filters[col],
+              dir => { sort = { col, dir }; renderRows(); },
+              selection => { setColumnFilter(filters, col, selection); renderRows(); });
             return;
           }
           const selected = event.target.closest("[data-moh-brand]");
@@ -3208,10 +3247,24 @@
     if (!["manager", "district_manager", "admin"].includes(currentProfile.role)) return;
     const group = deliveryGroups.find(item => item.key === key);
     if (!group) throw new Error("Delivery Guarranty summary changed. Refresh the sales view.");
+    const renderTable = () => tableBlock("delivery-customers", ["Customer", "Address", "Invoice", "Date", "Amount"],
+      group.sales, sale => `<tr class="sale-summary-row" data-sale-details="${escapeHTML(sale.id)}" tabindex="0"><td>${escapeHTML(sale.customer_name)}</td><td>${escapeHTML(addressOf(sale) || "Not recorded")}</td><td>${escapeHTML(sale.invoice_number)}</td><td>${escapeHTML(sale.sold_on)}</td><td>${formatMoney(sale.dg_amount)}</td></tr>`, "No matching fees.");
     openModal({ title: `DELIVERY GUARRANTY · ${group.name}`, readOnly: true, wide: true,
-      body: `<p>${group.quantity} invoice(s) · DG fees only</p>${tableBlock("delivery-customers", ["Customer", "Address", "Invoice", "Date", "Amount"],
-        group.sales, sale => `<tr class="sale-summary-row" data-sale-details="${escapeHTML(sale.id)}" tabindex="0"><td>${escapeHTML(sale.customer_name)}</td><td>${escapeHTML(addressOf(sale) || "Not recorded")}</td><td>${escapeHTML(sale.invoice_number)}</td><td>${escapeHTML(sale.sold_on)}</td><td>${formatMoney(sale.dg_amount)}</td></tr>`, "No matching fees.")}
-        <p><strong>Total amount: ${formatMoney(group.amount)}</strong></p>`, onReady: bindSaleDetailRows });
+      body: `<p>${group.quantity} invoice(s) · DG fees only</p><div data-delivery-table>${renderTable()}</div>
+        <p><strong>Total amount: ${formatMoney(group.amount)}</strong></p>`, onReady: form => {
+        bindSaleDetailRows(form);
+        const host = form.querySelector("[data-delivery-table]");
+        const render = () => { host.innerHTML = renderTable(); };
+        host.addEventListener("click", event => {
+          const heading = event.target.closest("[data-sort-table]");
+          if (heading) openTableColumn(heading, render, host);
+          const pager = event.target.closest("[data-pager]:not(:disabled)");
+          if (pager) {
+            ui.pages[pager.dataset.pager] = Number(pager.dataset.page);
+            render();
+          }
+        });
+      } });
   }
 
   function saleSummaryRowHTML(row) {
@@ -5213,18 +5266,112 @@
       "",
       filterBar({ district: true, branch: true, search: "Customer, barangay, city or branch" }),
       () => {
-        const rows = customerRows().filter(row => matches(searchQuery(), ...row.values) &&
-          customerColumns.every((_, col) => !ui.customerFilters[col] || ui.customerFilters[col].has(row.values[col])));
-        return panel("Customers", `${rows.length} matching records. Choose a customer to view their purchase history. Download includes all filtered pages.`, tableBlock(
-          "customers", customerColumns, rows,
-          row => `<tr class="sale-summary-row" data-customer-history="${escapeHTML(row.key)}" tabindex="0" aria-label="View purchase history for ${escapeHTML(row.values[0])}">${row.values.map(value => `<td>${escapeHTML(value)}</td>`).join("")}</tr>`,
-          "No customers match your search.", PAGE_SIZE, (row, col) => row.values[col],
-          (header, col, sort) => `<button class="sort-btn" type="button" data-customer-column="${col}" aria-haspopup="dialog"
-            aria-label="Sort and filter ${escapeHTML(header)}${ui.customerFilters[col] ? " (filtered)" : ""}">${escapeHTML(header)}
-            <span aria-hidden="true">${sort === "asc" ? "▲" : sort === "desc" ? "▼" : "▾"}</span>${ui.customerFilters[col] ? ' <span class="customer-filter-indicator" aria-hidden="true">•</span>' : ""}</button>`,
-        ));
+        const rows = customerRows().filter(row => matches(searchQuery(), ...row.values));
+        const rowHtml = row => `<tr class="sale-summary-row" data-customer-history="${escapeHTML(row.key)}" tabindex="0" aria-label="View purchase history for ${escapeHTML(row.values[0])}">${row.values.map(value => `<td>${escapeHTML(value)}</td>`).join("")}</tr>`;
+        const value = (row, col) => row.values[col];
+        const table = tableBlock("customers", customerColumns, rows, rowHtml, "No customers match your search.", PAGE_SIZE, value, value);
+        return panel("Customers", `${tableStore.customers.items.length} matching records. Choose a customer to view their purchase history. Download includes all filtered pages.`, table);
       },
     );
+  }
+
+  let columnMenu;
+  function closeColumnMenu() {
+    columnMenu?.remove();
+    columnMenu = null;
+  }
+
+  function openColumnMenu(trigger, label, values, selectedValues, onSort, onFilter) {
+    closeColumnMenu();
+    const choices = [...new Set(values.map(filterValue))].sort(natural);
+    const selected = new Set(selectedValues ?? choices);
+    const menu = columnMenu = document.createElement("div");
+    menu.className = "dlg customer-column-menu";
+    menu.setAttribute("popover", "auto");
+    menu.setAttribute("role", "dialog");
+    menu.setAttribute("aria-label", "Sort and filter " + label);
+    menu.innerHTML = `<div class="customer-sort-options"><button type="button" data-column-sort="asc">Sort ascending</button>
+      <button type="button" data-column-sort="desc">Sort descending</button></div>
+      <label class="field"><span>Search values</span><input type="search" autocomplete="off"></label>
+      <label class="check-row"><input type="checkbox" data-column-all> Select all</label>
+      <div class="customer-filter-values"></div>
+      <div class="dlg-actions"><button class="button button-primary button-small" type="button" data-column-apply>Apply</button>
+      <button class="button button-outline button-small" type="button" data-column-cancel>Cancel</button></div>`;
+    document.body.append(menu);
+    menu.addEventListener("toggle", event => { if (event.newState === "closed" && columnMenu === menu) closeColumnMenu(); });
+    const search = menu.querySelector("input[type=search]");
+    const list = menu.querySelector(".customer-filter-values");
+    const all = menu.querySelector("[data-column-all]");
+    const choiceLabel = value => value || "(Blanks)";
+    const shown = () => choices.filter(value => choiceLabel(value).toLowerCase().includes(search.value.trim().toLowerCase()));
+    const syncAll = visible => {
+      const count = visible.filter(value => selected.has(value)).length;
+      all.disabled = !visible.length;
+      all.checked = Boolean(visible.length) && count === visible.length;
+      all.indeterminate = count > 0 && count < visible.length;
+    };
+    let visible = [];
+    const render = () => {
+      visible = shown();
+      list.innerHTML = visible.map((value, index) => `<label class="check-row"><input type="checkbox" data-column-value="${index}"
+        ${selected.has(value) ? "checked" : ""}> <span>${escapeHTML(choiceLabel(value))}</span></label>`).join("") || "<p>No matching values.</p>";
+      syncAll(visible);
+    };
+    const finish = action => { closeColumnMenu(); trigger.focus({ preventScroll: true }); action?.(); };
+    search.addEventListener("input", render);
+    all.addEventListener("change", () => {
+      for (const value of visible) {
+        if (all.checked) selected.add(value);
+        else selected.delete(value);
+      }
+      render();
+    });
+    list.addEventListener("change", event => {
+      const value = visible[Number(event.target.dataset.columnValue)];
+      if (value === undefined) return;
+      if (event.target.checked) selected.add(value);
+      else selected.delete(value);
+      syncAll(visible);
+    });
+    menu.querySelectorAll("[data-column-sort]").forEach(button => button.addEventListener("click", () => finish(() => onSort(button.dataset.columnSort))));
+    menu.querySelector("[data-column-apply]").addEventListener("click", () => finish(() => onFilter(choices.every(value => selected.has(value)) ? null : selected)));
+    menu.querySelector("[data-column-cancel]").addEventListener("click", () => finish());
+    render();
+    menu.showPopover();
+    const position = trigger.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(position.left, innerWidth - menu.offsetWidth - 8)) + "px";
+    menu.style.top = Math.max(8, Math.min(position.bottom + 4, innerHeight - menu.offsetHeight - 8)) + "px";
+    search.focus({ preventScroll: true });
+  }
+
+  function setColumnFilter(filters, col, selection) {
+    if (selection) filters[col] = selection;
+    else delete filters[col];
+  }
+
+  window.BranchlineTableUI?.setColumnMenu?.(openColumnMenu);
+
+  function openTableColumn(trigger, rerender = refreshResults, scope = connectedContent) {
+    const { sortTable: key, sortCol } = trigger.dataset;
+    const table = columnTables.get(key);
+    const col = Number(sortCol);
+    if (!table || !isDataHeader(table.headers[col])) return;
+    const filters = ui.columnFilters[key] ??= {};
+    const values = table.displayValue ? table.items.map(item => table.displayValue(item, col)) :
+      tableCells(table.items, table.rowHtml, [col], true).map(row => row.get(col));
+    const update = () => {
+      const scroll = trigger.closest(".connected-table-wrap")?.scrollLeft ?? 0;
+      ui.pages[key] = 1;
+      rerender();
+      const header = scope.querySelector(`[data-sort-table="${CSS.escape(key)}"][data-sort-col="${col}"]`);
+      if (header) {
+        header.closest(".connected-table-wrap").scrollLeft = scroll;
+        header.focus({ preventScroll: true });
+      }
+    };
+    openColumnMenu(trigger, table.headers[col], values, filters[col],
+      dir => { ui.sort[key] = { col, dir }; update(); },
+      selection => { setColumnFilter(filters, col, selection); update(); });
   }
 
   function openCustomerHistory(key) {
@@ -5245,90 +5392,6 @@
           <td>${escapeHTML(sale.sold_on)}</td><td><strong>${escapeHTML(sale.invoice_number)}</strong></td>
           <td>${escapeHTML(sale.payment_mode || "—")}</td><td>${formatMoney(amount)}</td></tr>`).join("")}</tbody></table></div>`,
       onReady: form => bindSaleDetailRows(form, () => openCustomerHistory(key)),
-    });
-  }
-
-  function openCustomerFilter(trigger) {
-    const col = Number(trigger.dataset.customerColumn);
-    if (activePage !== "customers" || !rolePages[currentProfile.role].includes("customers") || !customerColumns[col]) return;
-    const values = [...new Set(customerRows().map(row => row.values[col]))].sort(natural);
-    const selected = new Set(ui.customerFilters[col] ?? values);
-    const position = trigger.getBoundingClientRect();
-    openModal({ title: customerColumns[col], readOnly: true,
-      body: `<div class="customer-sort-options"><button type="button" data-customer-sort="asc">Sort A to Z</button>
-        <button type="button" data-customer-sort="desc">Sort Z to A</button></div>
-        <label class="field"><span>Search values</span><input type="search" data-find-customer-value autocomplete="off"></label>
-        <label class="check-row"><input type="checkbox" data-customer-select-all> Select all</label>
-        <div class="customer-filter-values" data-customer-values></div>`,
-      onReady: form => {
-        const dialog = form.closest(".dlg");
-        dialog.parentElement.classList.add("customer-menu-backdrop");
-        dialog.classList.add("customer-column-menu");
-        const actions = form.querySelector(".dlg-actions");
-        const cancel = actions.querySelector("[data-modal-close]");
-        cancel.textContent = "Cancel";
-        cancel.removeAttribute("data-modal-close");
-        cancel.addEventListener("click", () => { closeModal(); trigger.focus({ preventScroll: true }); });
-        actions.insertAdjacentHTML("afterbegin", '<button class="button button-primary button-small" type="button" data-customer-apply>Apply</button>');
-        const search = form.querySelector("[data-find-customer-value]");
-        const list = form.querySelector("[data-customer-values]");
-        const all = form.querySelector("[data-customer-select-all]");
-        const visible = () => values.filter(value => value.toLowerCase().includes(search.value.trim().toLowerCase()));
-        const syncAll = (shown = visible()) => {
-          const count = shown.filter(value => selected.has(value)).length;
-          all.disabled = !shown.length;
-          all.checked = shown.length > 0 && count === shown.length;
-          all.indeterminate = count > 0 && count < shown.length;
-        };
-        const render = () => {
-          const shown = visible();
-          const visibleValues = new Set(shown);
-          list.innerHTML = values.map((value, index) => visibleValues.has(value)
-            ? `<label class="check-row"><input type="checkbox" data-customer-value="${index}" ${selected.has(value) ? "checked" : ""}> <span>${escapeHTML(value)}</span></label>` : "").join("") ||
-            "<p>No matching values.</p>";
-          syncAll(shown);
-        };
-        const finish = () => {
-          const scroll = trigger.closest(".connected-table-wrap")?.scrollLeft ?? 0;
-          ui.pages.customers = 1;
-          closeModal();
-          refreshResults();
-          const header = connectedContent.querySelector(`[data-customer-column="${col}"]`);
-          if (header) {
-            header.closest(".connected-table-wrap").scrollLeft = scroll;
-            header.focus({ preventScroll: true });
-          }
-        };
-        search.addEventListener("input", render);
-        list.addEventListener("change", event => {
-          const box = event.target.closest("[data-customer-value]");
-          if (!box) return;
-          const value = values[Number(box.dataset.customerValue)];
-          if (box.checked) selected.add(value);
-          else selected.delete(value);
-          syncAll();
-        });
-        all.addEventListener("change", () => {
-          for (const value of visible()) {
-            if (all.checked) selected.add(value);
-            else selected.delete(value);
-          }
-          render();
-        });
-        form.querySelectorAll("[data-customer-sort]").forEach(button => button.addEventListener("click", () => {
-          ui.sort.customers = { col, dir: button.dataset.customerSort };
-          finish();
-        }));
-        form.querySelector("[data-customer-apply]").addEventListener("click", () => {
-          if (selected.size === values.length) delete ui.customerFilters[col];
-          else ui.customerFilters[col] = selected;
-          finish();
-        });
-        render();
-        dialog.style.left = Math.max(8, Math.min(position.left, innerWidth - dialog.offsetWidth - 8)) + "px";
-        dialog.style.top = Math.max(8, Math.min(position.bottom + 4, innerHeight - dialog.offsetHeight - 8)) + "px";
-        requestAnimationFrame(() => { if (form.isConnected) search.focus(); });
-      },
     });
   }
 
@@ -5968,6 +6031,7 @@
   let inventorySerialReturn = null;
 
   function closeModal() {
+    closeColumnMenu();
     const popup = pieTablePopup;
     pieTablePopup = null;
     modalRoot?.remove();
@@ -6067,7 +6131,7 @@
   }
 
   document.addEventListener("keydown", event => {
-    if (event.key === "Escape" && modalRoot && !workspaceWrites) closeModal();
+    if (event.key === "Escape" && !columnMenu && modalRoot && !workspaceWrites) closeModal();
   });
 
   async function refreshData() {
@@ -7337,8 +7401,6 @@
 
   function openBreakdownModal({ title, intro, all, state, fileBase, sheet, showBrand }) {
     state.group = "all";
-    state.sortKey = "amount";
-    state.sortDir = "desc";
     closeModal();
     modalRoot = document.createElement("div");
     modalRoot.className = "dlg-backdrop";
@@ -7349,7 +7411,6 @@
       <div class="dlg-actions">${exportButton('id="ps-detail-export"', `Download ${title}`)}<button class="button button-primary" type="button" data-modal-close>Close</button></div></div></div>`;
     document.body.appendChild(root);
     const rows = () => all.filter(({ line }) => lineMatches(line, state));
-    const sortHead = (key, label) => `<th aria-sort="${state.sortKey === key ? (state.sortDir === "asc" ? "ascending" : "descending") : "none"}"><button class="sort-btn" type="button" data-sort="${key}">${label}<span class="sort-arrow">${state.sortKey === key ? (state.sortDir === "asc" ? "▲" : "▼") : ""}</span></button></th>`;
     const breakdown = list => {
       const keys = { brand: showBrand && ["all", "brand"].includes(state.group), category: ["all", "category"].includes(state.group), sub: ["all", "sub"].includes(state.group) };
       const totals = new Map();
@@ -7363,14 +7424,10 @@
       });
       const entries = [...totals.values()];
       const sum = entries.reduce((total, entry) => total + entry.amount, 0);
-      const dir = state.sortDir === "asc" ? 1 : -1;
-      entries.sort((a, b) => {
-        const diff = typeof a[state.sortKey] === "number" ? a[state.sortKey] - b[state.sortKey] : natural(a[state.sortKey], b[state.sortKey]);
-        return diff * dir || b.amount - a.amount;
-      });
+      entries.sort((a, b) => b.amount - a.amount);
       const columns = [keys.brand && ["brand", "Brand"], keys.category && ["category", "Category"], keys.sub && ["sub", "Sub-category"]].filter(Boolean);
       const body = entries.map(entry => `<tr>${columns.map(([key]) => `<td>${key === "brand" ? `<strong>${escapeHTML(entry[key])}</strong>` : escapeHTML(entry[key])}</td>`).join("")}<td>${entry.qty}</td><td>${formatMoney(entry.amount)}</td><td>${percent(entry.amount, sum, 2)}</td></tr>`).join("");
-      return `<table class="connected-table"><thead><tr>${columns.map(([key, label]) => sortHead(key, label)).join("")}${sortHead("qty", "Qty")}${sortHead("amount", "Sales")}<th>Share</th></tr></thead><tbody>${body || `<tr><td colspan="${columns.length + 3}">No sales.</td></tr>`}</tbody></table>`;
+      return `<table class="connected-table"><thead><tr>${columns.map(([, label]) => `<th>${escapeHTML(label)}</th>`).join("")}<th>Qty</th><th>Sales</th><th>Share</th></tr></thead><tbody>${body || `<tr><td colspan="${columns.length + 3}">No sales.</td></tr>`}</tbody></table>`;
     };
     const groupOptions = [["all", showBrand ? "Brand, category and sub-category" : "Category and sub-category"], ...(showBrand ? [["brand", "Brand only"]] : []), ["category", "Category only"], ["sub", "Sub-category only"]];
     const render = () => {
@@ -7391,23 +7448,9 @@
     root.addEventListener("pointerdown", event => {
       if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
     });
-    root.addEventListener("click", event => {
-      const key = event.target.closest("[data-sort]")?.dataset.sort;
-      if (!key) return;
-      if (state.sortKey === key) state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
-      else {
-        state.sortKey = key;
-        state.sortDir = ["brand", "category", "sub"].includes(key) ? "asc" : "desc";
-      }
-      render();
-    });
     root.addEventListener("input", event => {
       if (event.target.closest("[data-group]")) {
         state.group = event.target.value;
-        if (!["brand", "category", "sub"].includes(state.sortKey) || (state.group !== "all" && state.group !== state.sortKey)) {
-          state.sortKey = "amount";
-          state.sortDir = "desc";
-        }
         render();
         return;
       }
@@ -8163,11 +8206,6 @@
   });
 
   connectedContent.addEventListener("click", event => {
-    const customerFilter = event.target.closest("[data-customer-column]");
-    if (customerFilter) {
-      openCustomerFilter(customerFilter);
-      return;
-    }
     const customer = event.target.closest("[data-customer-history]");
     if (customer) {
       openCustomerHistory(customer.dataset.customerHistory);
@@ -8180,15 +8218,7 @@
     const pagerButton = event.target.closest("[data-pager]");
     const sortButton = event.target.closest("[data-sort-table]");
     if (sortButton) {
-      const { sortTable: tableKey, sortCol } = sortButton.dataset;
-      const scrollLeft = sortButton.closest(".connected-table-wrap")?.scrollLeft || 0;
-      const current = ui.sort[tableKey];
-      const col = Number(sortCol);
-      ui.sort[tableKey] = current?.col === col ? { col, dir: current.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" };
-      ui.pages[tableKey] = 1;
-      refreshResults();
-      const table = connectedContent.querySelector(`[data-sort-table="${tableKey}"]`)?.closest(".connected-table-wrap");
-      if (table) table.scrollLeft = scrollLeft;
+      openTableColumn(sortButton, refreshResults, sortButton.closest(".dlg-backdrop") ?? connectedContent);
       return;
     }
     if (event.target.closest("[data-delete-products]") && currentProfile.role === "admin" && productSelection.size) {
@@ -8308,8 +8338,11 @@
     client = liveClient = window.supabase.createClient(config.url, config.publishableKey, { auth: { storage: authStorage } });
     applyRememberedLogin();
     configWarning.hidden = true;
+    const signInButton = loginForm.querySelector("button[type=submit]");
+    signInButton.disabled = true;
+    setAuthMessage("Checking for a saved sign-in…");
     client.auth.onAuthStateChange((event, session) => {
-      if (demoStore) return;
+      if (demoStore || event === "INITIAL_SESSION") return;
       if (event === "PASSWORD_RECOVERY" && session) {
         passwordRecoveryPending = true;
         const sequence = loadSequence;
@@ -8320,26 +8353,27 @@
         }, 0);
       } else if (event === "SIGNED_OUT") {
         clearWorkspace();
-      } else if (session && session.user.id !== currentSession?.user?.id) {
+      } else if (signingInRemembered === null && session && session.user.id !== currentSession?.user?.id) {
         const sequence = loadSequence;
         window.setTimeout(() => { if (!demoStore && sequence === loadSequence) loadLiveWorkspace(session); }, 0);
       }
     });
     const restoreSequence = loadSequence;
-    client.auth.getSession().then(({ data, error }) => {
+    client.auth.getSession().then(async ({ data, error }) => {
       if (demoStore || restoreSequence !== loadSequence) return;
       if (error) {
         console.error("Unable to restore the Branchline session.", error);
         setAuthMessage("Unable to restore your sign-in. Try signing in again.", true);
         return;
       }
-      if (data.session) loadLiveWorkspace(data.session);
+      if (data.session) await loadLiveWorkspace(data.session);
       else if (recoveryLinkFailed) setAuthMessage("This reset link is invalid or expired. Use Forgot password? to request a new link.", true);
+      else setAuthMessage("");
     }).catch(error => {
       if (demoStore || restoreSequence !== loadSequence) return;
       console.error("Unable to check the Branchline session.", error);
       setAuthMessage("Unable to connect to Supabase. Check your connection and try again.", true);
-    });
+    }).finally(() => { signInButton.disabled = false; });
   } else {
     document.querySelector("#login-form").querySelectorAll("input,button").forEach(control => { control.disabled = true; });
     configWarning.hidden = false;
