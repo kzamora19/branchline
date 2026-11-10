@@ -244,12 +244,15 @@
   // "Remember me": the session lives in localStorage (kept across restarts) or, when unticked, sessionStorage (ends with the tab or app).
   const REMEMBER_KEY = "branchline-remember";
   const LAST_LOGIN_KEY = "branchline-last-login";
+  let signingInRemembered = null;
   const rememberMe = () => localStorage.getItem(REMEMBER_KEY) !== "0";
   const authStorage = {
     getItem: key => sessionStorage.getItem(key) ?? localStorage.getItem(key),
     setItem: (key, value) => {
-      const keep = rememberMe() ? localStorage : sessionStorage;
-      const drop = rememberMe() ? sessionStorage : localStorage;
+      const durable = signingInRemembered ?? (sessionStorage.getItem(key) === null &&
+        (localStorage.getItem(key) !== null || rememberMe()));
+      const keep = durable ? localStorage : sessionStorage;
+      const drop = durable ? sessionStorage : localStorage;
       keep.setItem(key, value);
       drop.removeItem(key);
     },
@@ -1225,7 +1228,8 @@
       if (header === SELECT_HEADER) return `<th class="select-cell"><input type="checkbox" data-product-select-all ${productsFiltered.length && productSelection.size === productsFiltered.length ? "checked" : ""} aria-label="Select all products"></th>`;
       if (!isDataHeader(header)) return "<th></th>";
       const active = sort?.col === col ? sort.dir : "";
-      return `<th aria-sort="${active === "asc" ? "ascending" : active === "desc" ? "descending" : "none"}"><button class="sort-btn" type="button" data-sort-table="${key}" data-sort-col="${col}">${escapeHTML(header)}<span class="sort-arrow">${active === "asc" ? "▲" : active === "desc" ? "▼" : ""}</span></button>${headerAction?.(header, col) ?? ""}</th>`;
+      const control = headerAction?.(header, col, active) ?? `<button class="sort-btn" type="button" data-sort-table="${key}" data-sort-col="${col}">${escapeHTML(header)}<span class="sort-arrow">${active === "asc" ? "▲" : active === "desc" ? "▼" : ""}</span></button>`;
+      return `<th aria-sort="${active === "asc" ? "ascending" : active === "desc" ? "descending" : "none"}">${control}</th>`;
     }).join("");
     return `<div class="connected-table-wrap" data-table-key="${key}"><table class="connected-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
       <div class="connected-pager"><span>${from}–${to} of ${items.length}</span>
@@ -3233,7 +3237,7 @@
     }).join("") : '<tr><td colspan="4">No product details recorded.</td></tr>'}</tbody></table></div>`;
   }
 
-  function openSaleDetails(saleId) {
+  function openSaleDetails(saleId, returnToHistory) {
     const ids = scopeBranchIds();
     const sale = [...visibleSales(), ...liveData.testSales.filter(item => currentProfile.role !== "ps" || item.ps_id === currentProfile.id)]
       .find(item => item.id === saleId && ids.has(item.branch_id));
@@ -3246,7 +3250,7 @@
     const person = liveData.profiles.find(profile => profile.id === sale.ps_id)?.full_name || titleCase(sale.ps_name || "") || "Staff member";
     openModal({ title: `Transaction · ${sale.invoice_number}`, readOnly: true, wide: true,
       intro: isTestSale(sale, liveData.testPsIds) ? "TEST transaction — not counted in sales totals." : "",
-      body: `<dl class="sale-detail-info">${detail("Customer", sale.customer_name)}${detail("Address", addressOf(sale))}${detail("Sale date", sale.sold_on)}${detail("Product Specialist", person)}${detail("Branch", branchName(sale.branch_id))}${detail("Payment", sale.payment_mode)}${detail("Delivery / Pick up", fulfillmentLabel(sale))}${detail("Recorded", new Date(sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</dl>
+      body: `${returnToHistory ? '<button class="button button-outline button-small" type="button" data-return-customer>← Back to Purchase History</button>' : ""}<dl class="sale-detail-info">${detail("Customer", sale.customer_name)}${detail("Address", addressOf(sale))}${detail("Sale date", sale.sold_on)}${detail("Product Specialist", person)}${detail("Branch", branchName(sale.branch_id))}${detail("Payment", sale.payment_mode)}${detail("Delivery / Pick up", fulfillmentLabel(sale))}${detail("Recorded", new Date(sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</dl>
         <div data-sale-promotions role="status">${demoStore ? "" : "Checking promotion details..."}</div>
         ${saleProductsHTML(sale.id, lines)}
         <div class="sale-detail-total"><span>Total quantity: ${lines.reduce((sum, line) => sum + Number(line.quantity), 0)}</span><strong>Transaction total: ${formatMoney(saleTotal(sale, "price"))}</strong></div>
@@ -3254,6 +3258,7 @@
         ${fee == null ? "" : `<p>Delivery Guarranty: ${formatMoney(Number(fee))} · Not included in sales total.</p>`}
         <div class="sale-log-actions">${canEdit ? `<button class="button button-outline" type="button" data-edit-sale="${escapeHTML(sale.id)}">Edit</button>` : ""}${currentProfile.role === "admin" ? `<button class="button button-outline button-danger" type="button" data-delete-sale="${escapeHTML(sale.id)}">Delete</button>` : ""}</div>`,
       onReady: form => {
+        if (returnToHistory) form.querySelector("[data-return-customer]").addEventListener("click", returnToHistory);
         form.addEventListener("click", event => {
           if (canEdit && event.target.closest("[data-edit-sale]")) openSaleModal(sale);
           else if (currentProfile.role === "admin" && event.target.closest("[data-delete-sale]")) openDeleteSaleModal(sale);
@@ -3283,12 +3288,12 @@
       } });
   }
 
-  function bindSaleDetailRows(root) {
+  function bindSaleDetailRows(root, returnToHistory) {
     const open = event => {
       const row = event.target.closest("[data-sale-details]");
       if (!row || (event.type === "keydown" && !["Enter", " "].includes(event.key))) return;
       event.preventDefault();
-      try { openSaleDetails(row.dataset.saleDetails); }
+      try { openSaleDetails(row.dataset.saleDetails, returnToHistory); }
       catch (error) { alert(error.message); }
     };
     root.addEventListener("click", open);
@@ -5182,23 +5187,24 @@
     );
   }
 
-  const customerColumns = ["Customer", "Barangay", "City", "Branch", "Invoices", "Last sale"];
+  const customerColumns = ["Customer", "Barangay", "City", "Branch"];
 
   function customerRows() {
     const ids = scopeBranchIds();
     const customers = new Map();
     for (const sale of visibleSales()) {
-      if (!ids.has(sale.branch_id) || !sale.customer_name?.trim() || /^RET-/i.test(sale.invoice_number || "")) continue;
+      if (!ids.has(sale.branch_id) || !sale.customer_name?.trim()) continue;
       const identity = [sale.customer_name, sale.barangay, sale.city].map(value =>
         String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase());
       const key = JSON.stringify([sale.branch_id, ...identity]);
-      const row = customers.get(key) ?? [sale.customer_name.trim(), sale.barangay || "—", sale.city || "—",
-        branchName(sale.branch_id), 0, sale.sold_on];
-      row[4]++;
-      if (sale.sold_on > row[5]) row[5] = sale.sold_on;
+      const row = customers.get(key) ?? { key, values: [sale.customer_name.trim(), sale.barangay || "—",
+        sale.city || "—", branchName(sale.branch_id)], sales: [], hasPurchase: false };
+      row.sales.push(sale);
+      row.hasPurchase ||= !/^RET-/i.test(sale.invoice_number || "");
       customers.set(key, row);
     }
-    return [...customers.values()].sort((a, b) => natural(a[0], b[0]) || natural(a[3], b[3]));
+    return [...customers.values()].filter(row => row.hasPurchase)
+      .sort((a, b) => natural(a.values[0], b.values[0]) || natural(a.values[3], b.values[3]));
   }
 
   function renderCustomersPage() {
@@ -5207,38 +5213,91 @@
       "",
       filterBar({ district: true, branch: true, search: "Customer, barangay, city or branch" }),
       () => {
-        const rows = customerRows().filter(row => matches(searchQuery(), ...row) &&
-          customerColumns.every((_, col) => !ui.customerFilters[col] || ui.customerFilters[col].has(String(row[col]))));
-        return panel("Customers", `${rows.length} matching records. Download includes all filtered pages.`, tableBlock(
+        const rows = customerRows().filter(row => matches(searchQuery(), ...row.values) &&
+          customerColumns.every((_, col) => !ui.customerFilters[col] || ui.customerFilters[col].has(row.values[col])));
+        return panel("Customers", `${rows.length} matching records. Choose a customer to view their purchase history. Download includes all filtered pages.`, tableBlock(
           "customers", customerColumns, rows,
-          row => `<tr>${row.map(value => `<td>${escapeHTML(value)}</td>`).join("")}</tr>`,
-          "No customers match your search.", PAGE_SIZE, (row, col) => row[col],
-          (header, col) => `<button class="button button-outline button-small" type="button" data-customer-filter="${col}"
-            aria-label="Filter ${escapeHTML(header)}" aria-haspopup="dialog">${ui.customerFilters[col] ? "Filtered ▾" : "Filter ▾"}</button>`,
+          row => `<tr class="sale-summary-row" data-customer-history="${escapeHTML(row.key)}" tabindex="0" aria-label="View purchase history for ${escapeHTML(row.values[0])}">${row.values.map(value => `<td>${escapeHTML(value)}</td>`).join("")}</tr>`,
+          "No customers match your search.", PAGE_SIZE, (row, col) => row.values[col],
+          (header, col, sort) => `<button class="sort-btn" type="button" data-customer-column="${col}" aria-haspopup="dialog"
+            aria-label="Sort and filter ${escapeHTML(header)}${ui.customerFilters[col] ? " (filtered)" : ""}">${escapeHTML(header)}
+            <span aria-hidden="true">${sort === "asc" ? "▲" : sort === "desc" ? "▼" : "▾"}</span>${ui.customerFilters[col] ? ' <span class="customer-filter-indicator" aria-hidden="true">•</span>' : ""}</button>`,
         ));
       },
     );
   }
 
-  function openCustomerFilter(col) {
+  function openCustomerHistory(key) {
+    if (activePage !== "customers" || !rolePages[currentProfile?.role]?.includes("customers")) return;
+    const customer = customerRows().find(row => row.key === key);
+    if (!customer) return;
+    const [name, barangay, city, branch] = customer.values;
+    const purchases = customer.sales.map(sale => ({ sale, amount: saleTotal(sale, "price") }))
+      .sort((a, b) => String(b.sale.sold_on).localeCompare(String(a.sale.sold_on)) ||
+        String(b.sale.created_at || "").localeCompare(String(a.sale.created_at || "")) || natural(b.sale.invoice_number, a.sale.invoice_number));
+    const total = purchases.reduce((sum, purchase) => sum + purchase.amount, 0);
+    openModal({ title: `Purchase History · ${name}`, intro: [barangay, city, branch].filter(value => value !== "—").join(" · "),
+      readOnly: true, wide: true,
+      body: `<div class="sale-detail-total"><span>${purchases.length} recorded transaction${purchases.length === 1 ? "" : "s"}</span>
+        <strong>Overall total: ${formatMoney(total)}</strong></div>
+        <div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Date</th><th>Invoice</th><th>Payment</th><th>Total</th></tr></thead>
+        <tbody>${purchases.map(({ sale, amount }) => `<tr class="sale-summary-row" data-sale-details="${escapeHTML(sale.id)}" tabindex="0" aria-label="View invoice ${escapeHTML(sale.invoice_number)}">
+          <td>${escapeHTML(sale.sold_on)}</td><td><strong>${escapeHTML(sale.invoice_number)}</strong></td>
+          <td>${escapeHTML(sale.payment_mode || "—")}</td><td>${formatMoney(amount)}</td></tr>`).join("")}</tbody></table></div>`,
+      onReady: form => bindSaleDetailRows(form, () => openCustomerHistory(key)),
+    });
+  }
+
+  function openCustomerFilter(trigger) {
+    const col = Number(trigger.dataset.customerColumn);
     if (activePage !== "customers" || !rolePages[currentProfile.role].includes("customers") || !customerColumns[col]) return;
-    const values = [...new Set(customerRows().map(row => String(row[col])))].sort(natural);
+    const values = [...new Set(customerRows().map(row => row.values[col]))].sort(natural);
     const selected = new Set(ui.customerFilters[col] ?? values);
-    openModal({ title: `Filter ${customerColumns[col]}`, readOnly: true,
-      body: `<label class="field"><span>Find values</span><input type="search" data-find-customer-value autocomplete="off"></label>
-        <div class="filter-actions"><button class="button button-outline" type="button" data-customer-choose="all">Select all</button>
-        <button class="button button-outline" type="button" data-customer-choose="none">Deselect all</button></div>
-        <div class="customer-filter-values" data-customer-values style="max-height:45vh;overflow:auto"></div>
-        <button class="button button-primary" type="button" data-customer-apply>Apply filter</button>`,
+    const position = trigger.getBoundingClientRect();
+    openModal({ title: customerColumns[col], readOnly: true,
+      body: `<div class="customer-sort-options"><button type="button" data-customer-sort="asc">Sort A to Z</button>
+        <button type="button" data-customer-sort="desc">Sort Z to A</button></div>
+        <label class="field"><span>Search values</span><input type="search" data-find-customer-value autocomplete="off"></label>
+        <label class="check-row"><input type="checkbox" data-customer-select-all> Select all</label>
+        <div class="customer-filter-values" data-customer-values></div>`,
       onReady: form => {
+        const dialog = form.closest(".dlg");
+        dialog.parentElement.classList.add("customer-menu-backdrop");
+        dialog.classList.add("customer-column-menu");
+        const actions = form.querySelector(".dlg-actions");
+        const cancel = actions.querySelector("[data-modal-close]");
+        cancel.textContent = "Cancel";
+        cancel.removeAttribute("data-modal-close");
+        cancel.addEventListener("click", () => { closeModal(); trigger.focus({ preventScroll: true }); });
+        actions.insertAdjacentHTML("afterbegin", '<button class="button button-primary button-small" type="button" data-customer-apply>Apply</button>');
         const search = form.querySelector("[data-find-customer-value]");
         const list = form.querySelector("[data-customer-values]");
+        const all = form.querySelector("[data-customer-select-all]");
         const visible = () => values.filter(value => value.toLowerCase().includes(search.value.trim().toLowerCase()));
+        const syncAll = (shown = visible()) => {
+          const count = shown.filter(value => selected.has(value)).length;
+          all.disabled = !shown.length;
+          all.checked = shown.length > 0 && count === shown.length;
+          all.indeterminate = count > 0 && count < shown.length;
+        };
         const render = () => {
-          const shown = new Set(visible());
-          list.innerHTML = values.map((value, index) => shown.has(value)
+          const shown = visible();
+          const visibleValues = new Set(shown);
+          list.innerHTML = values.map((value, index) => visibleValues.has(value)
             ? `<label class="check-row"><input type="checkbox" data-customer-value="${index}" ${selected.has(value) ? "checked" : ""}> <span>${escapeHTML(value)}</span></label>` : "").join("") ||
             "<p>No matching values.</p>";
+          syncAll(shown);
+        };
+        const finish = () => {
+          const scroll = trigger.closest(".connected-table-wrap")?.scrollLeft ?? 0;
+          ui.pages.customers = 1;
+          closeModal();
+          refreshResults();
+          const header = connectedContent.querySelector(`[data-customer-column="${col}"]`);
+          if (header) {
+            header.closest(".connected-table-wrap").scrollLeft = scroll;
+            header.focus({ preventScroll: true });
+          }
         };
         search.addEventListener("input", render);
         list.addEventListener("change", event => {
@@ -5247,23 +5306,28 @@
           const value = values[Number(box.dataset.customerValue)];
           if (box.checked) selected.add(value);
           else selected.delete(value);
+          syncAll();
         });
-        form.querySelectorAll("[data-customer-choose]").forEach(button => button.addEventListener("click", () => {
+        all.addEventListener("change", () => {
           for (const value of visible()) {
-            if (button.dataset.customerChoose === "all") selected.add(value);
+            if (all.checked) selected.add(value);
             else selected.delete(value);
           }
           render();
+        });
+        form.querySelectorAll("[data-customer-sort]").forEach(button => button.addEventListener("click", () => {
+          ui.sort.customers = { col, dir: button.dataset.customerSort };
+          finish();
         }));
         form.querySelector("[data-customer-apply]").addEventListener("click", () => {
           if (selected.size === values.length) delete ui.customerFilters[col];
           else ui.customerFilters[col] = selected;
-          ui.pages.customers = 1;
-          closeModal();
-          refreshResults();
-          connectedContent.querySelector(`[data-customer-filter="${col}"]`)?.focus();
+          finish();
         });
         render();
+        dialog.style.left = Math.max(8, Math.min(position.left, innerWidth - dialog.offsetWidth - 8)) + "px";
+        dialog.style.top = Math.max(8, Math.min(position.bottom + 4, innerHeight - dialog.offsetHeight - 8)) + "px";
+        requestAnimationFrame(() => { if (form.isConnected) search.focus(); });
       },
     });
   }
@@ -8099,9 +8163,14 @@
   });
 
   connectedContent.addEventListener("click", event => {
-    const customerFilter = event.target.closest("[data-customer-filter]");
+    const customerFilter = event.target.closest("[data-customer-column]");
     if (customerFilter) {
-      openCustomerFilter(Number(customerFilter.dataset.customerFilter));
+      openCustomerFilter(customerFilter);
+      return;
+    }
+    const customer = event.target.closest("[data-customer-history]");
+    if (customer) {
+      openCustomerHistory(customer.dataset.customerHistory);
       return;
     }
     const detailRow = event.target.closest("[data-ps-detail]");
@@ -8153,7 +8222,7 @@
       dailySalesDay.dispatchEvent(new MouseEvent("click",{ bubbles: true }));
       return;
     }
-    const saleRow = event.target.closest("[data-sale-details], [data-delivery-person], [data-brand-sale], [data-daily-sales-table-date]");
+    const saleRow = event.target.closest("[data-sale-details], [data-delivery-person], [data-brand-sale], [data-daily-sales-table-date], [data-customer-history]");
     if (saleRow && ["Enter", " "].includes(event.key)) {
       event.preventDefault();
       saleRow.click();
@@ -8183,13 +8252,14 @@
     submit.disabled = true;
     setAuthMessage("Signing in…");
     const remember = document.querySelector("#remember-me")?.checked !== false;
-    localStorage.setItem(REMEMBER_KEY, remember ? "1" : "0");
+    signingInRemembered = remember;
     try {
       const { data, error } = await client.auth.signInWithPassword({
         email: loginEmail(loginForm.elements.email.value) || loginForm.elements.email.value.trim(),
         password: loginForm.elements.password.value,
       });
       if (error) throw error;
+      localStorage.setItem(REMEMBER_KEY, remember ? "1" : "0");
       if (remember) localStorage.setItem(LAST_LOGIN_KEY, loginForm.elements.email.value.trim());
       else localStorage.removeItem(LAST_LOGIN_KEY);
       await loadLiveWorkspace(data.session);
@@ -8197,13 +8267,14 @@
       console.error("Branchline sign-in failed.", error);
       setAuthMessage(error.message || "Unable to sign in. Check your email and password.", true);
     } finally {
+      signingInRemembered = null;
       submit.disabled = false;
     }
   });
 
   document.querySelector("#sign-out").addEventListener("click", async () => {
     if (demoStore) return exitDemo();
-    const { error } = await client.auth.signOut();
+    const { error } = await client.auth.signOut({ scope: "local" });
     if (error) {
       console.error("Branchline sign-out failed.", error);
       connectedContent.insertAdjacentHTML("afterbegin", `<p class="connected-error">${escapeHTML(error.message)}</p>`);
