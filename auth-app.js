@@ -5460,7 +5460,7 @@
           people,
           row => {
             const p = row.profile;
-            const buttons = `<select class="staff-actions" data-person-action="${escapeHTML(p.id)}" aria-label="Actions for ${escapeHTML(p.full_name)}"><option value="">Actions</option><option value="edit">Update</option>${p.role === "admin" ? "" : `<option value="transfer">Transfer</option><option value="toggle">${p.active ? "Disable" : "Restore"}</option><option value="delete">Delete</option>`}</select>`;
+            const buttons = `<select class="staff-actions" data-person-action="${escapeHTML(p.id)}" aria-label="Actions for ${escapeHTML(p.full_name)}"><option value="">Actions</option><option value="edit">Update</option>${p.role === "admin" ? "" : `<option value="transfer">Transfer</option>${p.active && !demoStore ? '<option value="invite">Reissue pending invitation</option>' : ""}<option value="toggle">${p.active ? "Disable" : "Restore"}</option><option value="delete">Delete</option>`}</select>`;
             return `<tr><td><strong>${escapeHTML(p.full_name)}</strong></td><td>${escapeHTML(row.role)}</td><td>${escapeHTML(row.brand)}</td><td class="salesperson-code">${escapeHTML(p.salesperson_code || "—")}</td><td>${escapeHTML(row.district)}</td><td>${escapeHTML(row.branch)}</td><td>${p.active ? "Active" : "Disabled"}</td><td class="manage-cell">${buttons}</td></tr>`;
           },
           "No staff profiles match these filters.",
@@ -6663,6 +6663,7 @@
           : `The invite email could not be sent (${data.email_status}). Share the details below yourself.`;
         return `<p><strong>${escapeHTML(body.full_name)}</strong> was created.</p>
           <p>Login ID: <strong>${escapeHTML(body.login)}</strong><br>Temporary password: <code class="temp-password">${escapeHTML(data.temporary_password)}</code></p>
+          ${invitationLink(data.invitation_url)}
           <p class="dlg-intro">${escapeHTML(mailNote)} Copy the password now; it will not be shown again.</p>`;
       },
     });
@@ -6767,19 +6768,24 @@
               if (!body.brand) throw new Error("Missing brand.");
             }
             const data = await invokeAdminFunction(body);
-            results.push({ name: body.full_name, login: loginId, password: data.temporary_password, error: "" });
+            results.push({ name: body.full_name, login: loginId, password: data.temporary_password, invitation: data.invitation_url, error: "" });
           } catch (error) {
             results.push({ name: entry.name || `Row ${entry.line}`, login: entry.login, password: "", error: error.message });
           }
         }
         await refreshData();
         const made = results.filter(item => !item.error);
-        const csv = ["Name,Login ID,Temporary password", ...made.map(item => [item.name, item.login, item.password].map(value => `"${String(value).replace(/"/g, '""')}"`).join(","))].join("\r\n");
+        const csv = ["Name,Login ID,Temporary password,Invitation link", ...made.map(item => [item.name, item.login, item.password, item.invitation ?? ""].map(value => `"${String(value).replace(/"/g, '""')}"`).join(","))].join("\r\n");
         const link = made.length ? `<p><a class="button button-outline button-small" download="new-users.csv" href="data:text/csv;charset=utf-8,${encodeURIComponent(csv)}">Download list (CSV)</a></p>` : "";
         return `<p><strong>${made.length}</strong> of ${results.length} user(s) created. ${demoStore ? "Demo accounts only. The displayed credentials are placeholders; no real logins or emails were created." : "Copy or download the passwords now; they will not be shown again."}</p>${link}
-          <div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Name</th><th>Login ID</th><th>Temporary password</th><th>Result</th></tr></thead><tbody>${results.map(item => `<tr><td>${escapeHTML(item.name)}</td><td>${escapeHTML(item.login)}</td><td>${item.error ? "—" : `<code class="temp-password">${escapeHTML(item.password)}</code>`}</td><td>${item.error ? `<span class="an-down">${escapeHTML(item.error)}</span>` : "Created"}</td></tr>`).join("")}</tbody></table></div>`;
+          <div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Name</th><th>Login ID</th><th>Temporary password</th><th>Result</th></tr></thead><tbody>${results.map(item => `<tr><td>${escapeHTML(item.name)}</td><td>${escapeHTML(item.login)}</td><td>${item.error ? "—" : `<code class="temp-password">${escapeHTML(item.password)}</code>`}</td><td>${item.error ? `<span class="an-down">${escapeHTML(item.error)}</span>` : invitationLink(item.invitation) || "Created"}</td></tr>`).join("")}</tbody></table></div>`;
       },
     });
+  }
+
+  function invitationLink(url) {
+    return /^https:\/\/kzamora19\.github\.io\/branchline\/accept-invitation\.html#token=[a-f0-9]{64}$/.test(url ?? "")
+      ? `<p>Share this invitation link with the recipient. They must accept within 48 hours.<br><input type="url" readonly aria-label="Invitation link" value="${escapeHTML(url)}"></p>` : "";
   }
 
   // Keep identical to loginEmail() in the admin-create-user Edge Function.
@@ -6812,6 +6818,19 @@
   }
 
   function openPersonAction(kind, person) {
+    if (kind === "invite") {
+      openModal({
+        title: `Reissue invitation · ${person.full_name}`,
+        intro: "This replaces the pending invitation link. The user keeps their existing temporary password.",
+        body: "",
+        submitLabel: "Reissue invitation",
+        onSubmit: async () => {
+          const data = await invokeAdminFunction({ action: "resend_invitation", user_id: person.id });
+          return `<p>${data.email_status === "sent" ? "The new invitation was emailed." : "Share the new link with the user."}</p>${invitationLink(data.invitation_url)}`;
+        },
+      });
+      return;
+    }
     const role = person.role;
     if (kind === "delete") {
       openModal({
@@ -8325,7 +8344,9 @@
       await loadLiveWorkspace(data.session);
     } catch (error) {
       console.error("Branchline sign-in failed.", error);
-      setAuthMessage(error.message || "Unable to sign in. Check your email and password.", true);
+      setAuthMessage(error.code === "user_banned"
+        ? "This account cannot sign in yet. If you have a pending invitation, accept it first. Otherwise, contact your administrator."
+        : error.message || "Unable to sign in. Check your email and password.", true);
     } finally {
       signingInRemembered = null;
       submit.disabled = false;
