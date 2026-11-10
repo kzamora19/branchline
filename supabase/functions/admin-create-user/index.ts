@@ -29,8 +29,17 @@ function esc(value: string) {
   return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
-// Sends the invite through Resend when RESEND_API_KEY is set as a function secret.
-async function sendInvite(o: { to: string; name: string; loginId: string; password: string }) {
+function newInvitation() {
+  const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, "0")).join("");
+  return { token, url: "https://kzamora19.github.io/branchline/accept-invitation.html#token=" + token };
+}
+
+async function hashInvitation(token: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function sendInvite(o: { to: string; name: string; loginId: string; invitationUrl: string; password?: string }) {
   const gmailUser = Deno.env.get("GMAIL_USER");
   const gmailPass = (Deno.env.get("GMAIL_APP_PASSWORD") ?? "").replace(/\s+/g, "");
   const key = Deno.env.get("RESEND_API_KEY");
@@ -39,9 +48,11 @@ async function sendInvite(o: { to: string; name: string; loginId: string; passwo
   const workspaceUrl = "https://kzamora19.github.io/first-megasaver-ptg/workspace/";
   const text = `Hi ${o.name},
 
-Open Branchline Workspace and choose Sales Tracker.
+Accept your invitation within 48 hours: ${o.invitationUrl}
+
+After accepting, open Branchline Workspace and choose Sales Tracker.
 Login ID: ${o.loginId}
-Temporary password: ${o.password}
+${o.password ? "Temporary password: " + o.password : "Use your original temporary password or ask your administrator for a new one."}
 
 Get Branchline Workspace: ${workspaceUrl}
 
@@ -49,11 +60,13 @@ After signing in, change your password using the Change password button.`;
   const html = `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:480px;margin:auto;color:#1c2733">
     <h2 style="color:#2f5be7">branchline.</h2>
     <p>Hi ${esc(o.name)},</p>
-    <p>Open Branchline Workspace, choose Sales Tracker, and use these details to sign in:</p>
+    <p><a href="${esc(o.invitationUrl)}">Accept your invitation</a> within 48 hours.</p>
+    <p>After accepting, open Branchline Workspace and choose Sales Tracker.</p>
     <table style="background:#f3f6fd;border-radius:8px;padding:12px 16px;width:100%">
       <tr><td>Login ID</td><td><strong>${esc(o.loginId)}</strong></td></tr>
-      <tr><td>Temporary password</td><td><strong>${esc(o.password)}</strong></td></tr>
+      ${o.password ? `<tr><td>Temporary password</td><td><strong>${esc(o.password)}</strong></td></tr>` : ""}
     </table>
+    ${o.password ? "" : "<p>Use your original temporary password or ask your administrator for a new one.</p>"}
     <p><a href="${esc(workspaceUrl)}" style="display:inline-block;background:#2f5be7;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Get Branchline Workspace</a></p>
     <p style="font-size:13px;color:#5d6b7a">After signing in, change your password using the Change password button. Passwords are case-sensitive. If you did not expect this email, ignore it.</p>
   </div>`;
@@ -118,6 +131,25 @@ Deno.serve(async (request) => {
     }
 
     const input = await request.json();
+
+    if (input.action === "resend_invitation") {
+      const targetId = String(input.user_id ?? "");
+      const { data: target, error: targetError } = await admin.from("profiles")
+        .select("id, full_name, login_id, email, active")
+        .eq("id", targetId).eq("dealer_id", callerProfile.dealer_id).maybeSingle();
+      if (targetError) return reply(400, { error: "Unable to look up the invited account." });
+      if (!target?.active) return reply(400, { error: "Choose an enabled account in your company." });
+      const invitation = newInvitation();
+      const { data: pending, error: inviteError } = await admin.from("sales_account_invitations")
+        .update({ token_hash: await hashInvitation(invitation.token), expires_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString() })
+        .eq("user_id", target.id).is("accepted_at", null).select("user_id").maybeSingle();
+      if (inviteError) return reply(400, { error: "Unable to issue a new invitation." });
+      if (!pending) return reply(400, { error: "This account does not have a pending invitation." });
+      const emailStatus = target.email ? await sendInvite({
+        to: target.email, name: target.full_name, loginId: target.login_id, invitationUrl: invitation.url,
+      }) : "not_configured";
+      return reply(200, { invitation_url: invitation.url, email_status: emailStatus });
+    }
 
     if (input.action === "reset_password") {
       const targetId = String(input.user_id ?? "");
@@ -274,6 +306,12 @@ Deno.serve(async (request) => {
       return reply(400, { error: message });
     };
 
+    const invitation = newInvitation();
+    const { error: invitationError } = await admin.rpc("stage_sales_account_invitation", {
+      invited_user: userId, invitation_hash: await hashInvitation(invitation.token),
+    });
+    if (invitationError) return await rollback("Unable to prepare the account invitation.");
+
     const { error: profileError } = await admin.from("profiles").insert({
       id: userId,
       dealer_id: callerProfile.dealer_id,
@@ -321,10 +359,11 @@ Deno.serve(async (request) => {
         name: fullName,
         loginId: loginId.includes("@") ? email : email.replace("@login.branchline.app", ""),
         password,
+        invitationUrl: invitation.url,
       });
     }
 
-    return reply(200, { user_id: userId, email, login_id: loginId, temporary_password: password, email_status: emailStatus });
+    return reply(200, { user_id: userId, email, login_id: loginId, temporary_password: password, invitation_url: invitation.url, email_status: emailStatus });
   } catch (error) {
     return reply(500, { error: error instanceof Error ? error.message : "Unexpected error." });
   }
