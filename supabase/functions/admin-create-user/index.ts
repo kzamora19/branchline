@@ -30,26 +30,31 @@ function esc(value: string) {
 }
 
 // Sends the invite through Resend when RESEND_API_KEY is set as a function secret.
-async function sendInvite(o: { to: string; name: string; loginId: string; password: string; appUrl: string }) {
+async function sendInvite(o: { to: string; name: string; loginId: string; password: string }) {
   const gmailUser = Deno.env.get("GMAIL_USER");
   const gmailPass = (Deno.env.get("GMAIL_APP_PASSWORD") ?? "").replace(/\s+/g, "");
   const key = Deno.env.get("RESEND_API_KEY");
   if (!(gmailUser && gmailPass) && !key) return "not_configured";
   const from = Deno.env.get("INVITE_FROM") ?? "Branchline <onboarding@resend.dev>";
-  const base = (Deno.env.get("APP_URL") || o.appUrl).replace(/[?#].*$/, "").replace(/[^/]*\.[a-z]+$/i, "");
-  const root = /^https?:\/\//.test(base) ? (base.endsWith("/") ? base : base + "/") : "";
-  const link = root;
-  const installLink = root ? root + "install.html" : "";
+  const workspaceUrl = "https://kzamora19.github.io/first-megasaver-ptg/workspace/";
+  const text = `Hi ${o.name},
+
+Open Branchline Workspace and choose Sales Tracker.
+Login ID: ${o.loginId}
+Temporary password: ${o.password}
+
+Get Branchline Workspace: ${workspaceUrl}
+
+After signing in, change your password using the Change password button.`;
   const html = `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:480px;margin:auto;color:#1c2733">
     <h2 style="color:#2f5be7">branchline.</h2>
     <p>Hi ${esc(o.name)},</p>
-    <p>You have been added to the Branchline sales workspace. Use these details to sign in:</p>
+    <p>Open Branchline Workspace, choose Sales Tracker, and use these details to sign in:</p>
     <table style="background:#f3f6fd;border-radius:8px;padding:12px 16px;width:100%">
       <tr><td>Login ID</td><td><strong>${esc(o.loginId)}</strong></td></tr>
       <tr><td>Temporary password</td><td><strong>${esc(o.password)}</strong></td></tr>
     </table>
-    ${link ? `<p><a href="${esc(link)}" style="display:inline-block;background:#2f5be7;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Open Branchline</a></p>` : ""}
-    ${installLink ? `<p style="font-size:14px"><strong>Install it as an app</strong> on your phone or computer (Windows, Ubuntu, Android, iPhone):<br><a href="${esc(installLink)}" style="color:#2f5be7">${esc(installLink)}</a></p>` : ""}
+    <p><a href="${esc(workspaceUrl)}" style="display:inline-block;background:#2f5be7;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Get Branchline Workspace</a></p>
     <p style="font-size:13px;color:#5d6b7a">After signing in, change your password using the Change password button. Passwords are case-sensitive. If you did not expect this email, ignore it.</p>
   </div>`;
   if (gmailUser && gmailPass) {
@@ -61,7 +66,7 @@ async function sendInvite(o: { to: string; name: string; loginId: string; passwo
         from: `Branchline <${gmailUser}>`,
         to: o.to,
         subject: "You have been invited to Branchline",
-        content: `Hi ${o.name}, you have been added to Branchline. Login ID: ${o.loginId}  Temporary password: ${o.password}  ${root}`,
+        content: text,
         html,
       });
       await client.close();
@@ -74,7 +79,7 @@ async function sendInvite(o: { to: string; name: string; loginId: string; passwo
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: o.to, subject: "You have been invited to Branchline", html }),
+      body: JSON.stringify({ from, to: o.to, subject: "You have been invited to Branchline", text, html }),
     });
     return res.ok ? "sent" : `failed: ${(await res.text()).slice(0, 160)}`;
   } catch (error) {
@@ -316,7 +321,6 @@ Deno.serve(async (request) => {
         name: fullName,
         loginId: loginId.includes("@") ? email : email.replace("@login.branchline.app", ""),
         password,
-        appUrl: String(input.app_url ?? ""),
       });
     }
 
