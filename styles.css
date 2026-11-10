@@ -473,6 +473,18 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .ps-sum { max-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
 .sort-btn { all: unset; cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
 .sort-btn:hover, .sort-btn:focus-visible { color: var(--ink); text-decoration: underline; }
+.customer-filter-indicator { color: var(--blue); }
+.customer-menu-backdrop { background: transparent; }
+.customer-menu-backdrop .customer-column-menu {
+  position: fixed; width: min(285px, calc(100vw - 16px)); max-height: calc(100vh - 16px);
+  border: 1px solid var(--line); box-shadow: 0 8px 24px #14243836;
+}
+.customer-column-menu .dlg-body { display: grid; gap: 8px; }
+.customer-sort-options { display: grid; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.customer-sort-options button { background: transparent; border: 0; border-radius: 4px; padding: 7px; text-align: left; font: inherit; cursor: pointer; }
+.customer-sort-options button:hover, .customer-sort-options button:focus-visible { background: #edf2ff; }
+.customer-filter-values { max-height: min(180px, 25vh); overflow: auto; border: 1px solid var(--line); border-radius: 4px; padding: 6px; }
+.customer-filter-values .check-row { margin: 0; padding: 3px 0; }
 .sort-arrow { font-size: 9px; }
 .pl-meta { display: block; color: var(--muted); font-size: 11px; }
 .select-cell { width: 34px; text-align: center; }
