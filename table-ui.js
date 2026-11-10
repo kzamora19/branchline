@@ -3,6 +3,8 @@
 
   const icon = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg>';
   const sorts = new WeakMap();
+  const filters = new WeakMap();
+  let openColumnMenu;
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
   const sectionPages = new Set(["sales", "analytics", "settings", "targets", "users"]);
   const sectionStates = new Map();
@@ -94,27 +96,46 @@
     return result * (direction === "desc" ? -1 : 1);
   }
 
-  function sortTable(table, col) {
+  const fixedRow = row => row.matches(".total-row, [data-sort-fixed]") ||
+    [...row.cells].some(cell => cell.colSpan > 1) ||
+    /^(grand total|subtotal|total|year to date|full year)$/i.test(row.cells[0]?.textContent.trim() || "");
+  const cellValue = (row, col) => row.cells[col]?.textContent.trim() ?? "";
+
+  function sortTable(table, col, direction) {
     const previous = sorts.get(table);
-    const dir = previous?.col === col && previous.dir === "asc" ? "desc" : "asc";
+    const dir = direction ?? (previous?.col === col && previous.dir === "asc" ? "desc" : "asc");
     sorts.set(table, { col, dir });
     for (const body of table.tBodies) {
       const rows = [...body.rows];
-      const fixed = row => row.matches(".total-row, [data-sort-fixed]") ||
-        [...row.cells].some(cell => cell.colSpan > 1) ||
-        /^(grand total|subtotal|total|year to date|full year)$/i.test(row.cells[0]?.textContent.trim() || "");
-      const sorted = rows.filter(row => !fixed(row)).map((row, index) => ({ row, index }))
+      const sorted = rows.filter(row => !fixedRow(row)).map((row, index) => ({ row, index }))
         .sort((a, b) => compare(a.row.cells[col]?.dataset.sort ?? a.row.cells[col]?.textContent,
           b.row.cells[col]?.dataset.sort ?? b.row.cells[col]?.textContent, dir) || a.index - b.index)
         .map(entry => entry.row);
       let next = 0;
-      body.append(...rows.map(row => fixed(row) ? row : sorted[next++]));
+      body.append(...rows.map(row => fixedRow(row) ? row : sorted[next++]));
     }
     table.querySelectorAll("thead [data-local-sort]").forEach(button => {
       const active = Number(button.dataset.localSort) === col;
       button.closest("th").setAttribute("aria-sort", active ? dir === "asc" ? "ascending" : "descending" : "none");
-      button.querySelector(".sort-arrow").textContent = active ? dir === "asc" ? "\u25b2" : "\u25bc" : "\u2195";
+      button.querySelector(".sort-arrow").textContent = active ? dir === "asc" ? "\u25b2" : "\u25bc" : "▾";
     });
+  }
+
+  function columnMenu(table, col, button, label) {
+    if (!openColumnMenu) return sortTable(table, col);
+    const rows = [...table.tBodies].flatMap(body => [...body.rows]).filter(row => !fixedRow(row));
+    const selected = filters.get(table) ?? new Map();
+    filters.set(table, selected);
+    openColumnMenu(button, label, rows.map(row => cellValue(row, col)), selected.get(col),
+      direction => sortTable(table, col, direction), selection => {
+        if (selection) selected.set(col, selection);
+        else selected.delete(col);
+        for (const row of rows) {
+          row.classList.toggle("column-filter-hidden", [...selected].some(([index, values]) => !values.has(cellValue(row, index))));
+        }
+        button.classList.toggle("customer-filter-indicator", Boolean(selection));
+        button.setAttribute("aria-label", "Sort and filter " + label + (selection ? " (filtered)" : ""));
+      });
   }
 
   function enhance(root = document) {
@@ -128,14 +149,16 @@
         const button = document.createElement("button");
         button.type = "button";
         button.className = "sort-btn";
+        button.setAttribute("aria-haspopup", "dialog");
+        button.setAttribute("aria-label", "Sort and filter " + label);
         button.dataset.localSort = String(col);
         button.append(document.createTextNode(label));
         const arrow = document.createElement("span");
         arrow.className = "sort-arrow";
         arrow.setAttribute("aria-hidden", "true");
-        arrow.textContent = "\u2195";
+        arrow.textContent = "▾";
         button.append(arrow);
-        button.addEventListener("click", () => sortTable(table, col));
+        button.addEventListener("click", () => columnMenu(table, col, button, label));
         cell.replaceChildren(button);
         cell.setAttribute("aria-sort", "none");
       });
@@ -166,7 +189,7 @@
     });
   }
 
-  window.BranchlineTableUI = { enhance, compare, enhanceSections };
+  window.BranchlineTableUI = { enhance, compare, enhanceSections, setColumnMenu: handler => { openColumnMenu = handler; } };
   const observer = new MutationObserver(() => enhance());
   observer.observe(document.body, { childList: true, subtree: true });
   enhance();

@@ -162,17 +162,22 @@ select:disabled { color: var(--muted); background: #f3f5f8; cursor: not-allowed;
 :root { scroll-behavior: smooth; }
 [hidden] { display: none !important; }
 .auth-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 15% 20%, #eef2ff 0, transparent 33%), var(--canvas); }
-.auth-card { width: min(100%, 440px); padding: 34px; border: 1px solid var(--line); border-radius: 14px; background: #fff; box-shadow: var(--shadow); }
-.auth-brand { padding: 0; margin-bottom: 40px; }
+.auth-card { width: min(100%, 420px); padding: 28px; border: 1px solid var(--line); border-radius: 14px; background: #fff; box-shadow: var(--shadow); }
+.auth-brand { padding: 0; margin-bottom: 26px; }
 .auth-card h1 { margin: 0; font: 700 27px/1.25 "Manrope", "Segoe UI", sans-serif; letter-spacing: -.7px; }
 .auth-intro,.auth-help { color: var(--muted); font-size: 12px; line-height: 1.6; }
-.auth-card form { display: grid; gap: 15px; margin-top: 24px; }
+.auth-card form { display: grid; gap: 12px; margin-top: 18px; }
 .auth-card .field { display: grid; gap: 7px; color: #526071; font-size: 11px; font-weight: 600; }
 .auth-card input,.connected-content input,.connected-content select { width: 100%; min-height: 40px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); }
 .auth-card input:focus,.connected-content input:focus,.connected-content select:focus { outline: 2px solid #355ee82a; border-color: var(--blue); }
 .auth-submit { width: 100%; min-height: 42px; font-size: 12px; }
 .auth-submit:disabled,.connected-form-actions button:disabled { opacity: .65; cursor: wait; }
 .auth-message { min-height: 16px; margin: 0; color: var(--muted); font-size: 11px; }
+.auth-message:empty { display: none; }
+.auth-options { display: grid; gap: 4px; margin-top: -5px; }
+.auth-options .check-row { margin: 0; min-height: 23px; }
+.auth-options input[type="checkbox"] { width: 16px; height: 16px; min-height: 0; padding: 0; margin: 0; accent-color: var(--blue); }
+#forgot-password { justify-self: center; border: 0; background: transparent; cursor: pointer; }
 .auth-message.error,.connected-form-message.error { color: var(--red); }
 .auth-help { margin: 17px 0; font-size: 10px; }
 .auth-config-warning { margin: 16px 0; padding: 11px; border-radius: 7px; background: var(--amber-soft); color: #80540f; font-size: 11px; line-height: 1.5; }
@@ -474,12 +479,12 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .sort-btn { all: unset; cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
 .sort-btn:hover, .sort-btn:focus-visible { color: var(--ink); text-decoration: underline; }
 .customer-filter-indicator { color: var(--blue); }
-.customer-menu-backdrop { background: transparent; }
-.customer-menu-backdrop .customer-column-menu {
+.customer-column-menu {
   position: fixed; width: min(285px, calc(100vw - 16px)); max-height: calc(100vh - 16px);
-  border: 1px solid var(--line); box-shadow: 0 8px 24px #14243836;
+  inset: auto; margin: 0; padding: 12px; color: var(--ink); border: 1px solid var(--line); box-shadow: 0 8px 24px #14243836;
 }
-.customer-column-menu .dlg-body { display: grid; gap: 8px; }
+.column-filter-hidden { display: none; }
+.customer-column-menu:popover-open { display: grid; gap: 8px; }
 .customer-sort-options { display: grid; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
 .customer-sort-options button { background: transparent; border: 0; border-radius: 4px; padding: 7px; text-align: left; font: inherit; cursor: pointer; }
 .customer-sort-options button:hover, .customer-sort-options button:focus-visible { background: #edf2ff; }
