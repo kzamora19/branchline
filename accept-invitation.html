@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Accept your Sales Tracker invitation</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="auth-screen">
+    <section class="auth-card" aria-labelledby="invite-title">
+      <span class="eyebrow">Branchline · Sales Tracker</span>
+      <h1 id="invite-title">Accept your invitation</h1>
+      <p class="auth-intro" id="invite-intro">Confirm below to activate your Sales Tracker sign-in. The link expires after 48 hours and can be used once.</p>
+      <p class="auth-message" id="invite-status" role="status"></p>
+      <button class="button button-primary auth-submit" id="accept-invite" type="button" disabled>Accept invitation</button>
+      <p id="invite-next" hidden><a href="https://kzamora19.github.io/first-megasaver-ptg/workspace/">Open or install Branchline Workspace</a></p>
+    </section>
+  </main>
+  <script src="./supabase-config.js"></script>
+  <script src="./accept-invitation.js"></script>
+</body>
+</html>
