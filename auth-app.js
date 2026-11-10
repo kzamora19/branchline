@@ -26,15 +26,16 @@
     analytics: "Analytics",
     targets: "Targets",
     products: "Products",
+    customers: "Customer Master",
     users: "People & access",
     inventory: "Inventory",
     settings: "Settings",
   };
   const rolePages = {
     ps: ["overview", "sales", "analytics", "inventory", "settings"],
-    manager: ["overview", "sales", "analytics", "targets", "products", "inventory", "settings"],
-    district_manager: ["overview", "sales", "analytics", "targets", "products", "inventory", "settings"],
-    admin: ["overview", "sales", "analytics", "targets", "products", "users", "inventory", "settings"],
+    manager: ["overview", "sales", "analytics", "targets", "products", "customers", "inventory", "settings"],
+    district_manager: ["overview", "sales", "analytics", "targets", "products", "customers", "inventory", "settings"],
+    admin: ["overview", "sales", "analytics", "targets", "products", "customers", "users", "inventory", "settings"],
     inventory_controller: ["inventory", "settings"],
     stock_custodian: ["inventory", "settings"],
   };
@@ -52,7 +53,7 @@
   let activePage = "overview";
   let loadSequence = 0;
   let resultsView = null;
-  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", rankBranch: "", brandBranch: "", bpMix: "", bpYear: "", dsMonth: "", dsYear: "", dsBranch: "", pages: {}, sort: {}, colf: {} };
+  const ui = { period: "month", month: "", district: "", branch: "", date: "", search: "", rankBrand: "", rankCategory: "", rankSub: "",   anDim: "brand", anBasis: "all", brandSort: "sales", logBranch: "", logFrom: "", logTo: "", rankBranch: "", brandBranch: "", bpMix: "", bpYear: "", dsMonth: "", dsYear: "", dsBranch: "", pages: {}, sort: {}, colf: {}, customerFilters: {} };
   const productSelection = new Set();
   const universalPages = new Set(["overview", "sales", "analytics", "targets"]);
   const savedFilterKeys = ["district", "branch", "period", "month", "date", "anRange", "anBasis", "logFrom", "logTo", "rankBrand", "rankCategory", "rankSub", "anDim", "salesBasis", "dsMonth", "dsYear", "yrYear",
@@ -208,6 +209,7 @@
     ui.invAge = "90";
     ui.pages = {};
     ui.sort = {};
+    ui.customerFilters = {};
     productSelection.clear();
   }
 
@@ -958,7 +960,7 @@
         "brands",
         ["Brand", "%"],
         brands.filter(row => row.actual > 0),
-        row => `<tr><td><strong>${escapeHTML(row.brand)}</strong></td><td>${percent(row.actual, sum, 2)}</td></tr>`,
+        row => `<tr class="rank-row" data-brand-detail="${escapeHTML(row.brand)}" tabindex="0"><td><strong>${escapeHTML(row.brand)}</strong></td><td>${percent(row.actual, sum, 2)}</td></tr>`,
         emptyText,
       );
     }
@@ -1206,7 +1208,7 @@
       .map(entry => entry.item);
   }
 
-  function tableBlock(key, headers, items, rowHtml, emptyText, pageSize = PAGE_SIZE, sortValue) {
+  function tableBlock(key, headers, items, rowHtml, emptyText, pageSize = PAGE_SIZE, sortValue, headerAction) {
     const sort = ui.sort[key];
     if (sort && isDataHeader(headers[sort.col] ?? "")) items = sortedItems(items, rowHtml, sort, sortValue);
     tableStore[key] = { headers, items, rowHtml };
@@ -1223,7 +1225,7 @@
       if (header === SELECT_HEADER) return `<th class="select-cell"><input type="checkbox" data-product-select-all ${productsFiltered.length && productSelection.size === productsFiltered.length ? "checked" : ""} aria-label="Select all products"></th>`;
       if (!isDataHeader(header)) return "<th></th>";
       const active = sort?.col === col ? sort.dir : "";
-      return `<th aria-sort="${active === "asc" ? "ascending" : active === "desc" ? "descending" : "none"}"><button class="sort-btn" type="button" data-sort-table="${key}" data-sort-col="${col}">${escapeHTML(header)}<span class="sort-arrow">${active === "asc" ? "▲" : active === "desc" ? "▼" : ""}</span></button></th>`;
+      return `<th aria-sort="${active === "asc" ? "ascending" : active === "desc" ? "descending" : "none"}"><button class="sort-btn" type="button" data-sort-table="${key}" data-sort-col="${col}">${escapeHTML(header)}<span class="sort-arrow">${active === "asc" ? "▲" : active === "desc" ? "▼" : ""}</span></button>${headerAction?.(header, col) ?? ""}</th>`;
     }).join("");
     return `<div class="connected-table-wrap" data-table-key="${key}"><table class="connected-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
       <div class="connected-pager"><span>${from}–${to} of ${items.length}</span>
@@ -1497,7 +1499,7 @@
       parking.hidden = true;
       connectedShell.append(parking);
     }
-    for (const id of ["change-password", "push-toggle"]) {
+    for (const id of ["change-password", "push-toggle", "push-permission", "push-status"]) {
       const control = document.getElementById(id);
       if (control) parking.append(control);
     }
@@ -1515,6 +1517,7 @@
     else if (activePage === "analytics") renderAnalyticsPage();
     else if (activePage === "targets") renderTargetsPage();
     else if (activePage === "products") renderProductsPage();
+    else if (activePage === "customers" && pages.includes("customers")) renderCustomersPage();
     else if (activePage === "users") renderPeoplePage();
     else if (activePage === "inventory") renderInventoryPage();
     else if (activePage === "settings") renderSettingsPage();
@@ -1545,7 +1548,7 @@
       panel("Account and device", demoStore ? "Password changes and device notifications are available after signing in to a real account." : "Change your password or manage this device's notifications.", '<div class="filter-actions" id="settings-account-controls"></div>') +
       eventCalendarPanel() + climateReviewPanel() + storeClosedDatesPanel() + pushMessagesPanel() + dangerZonePanel());
     const slot = connectedContent.querySelector("#settings-account-controls");
-    for (const id of ["change-password", "push-toggle"]) {
+    for (const id of ["change-password", "push-toggle", "push-permission", "push-status"]) {
       const control = document.getElementById(id);
       if (control) slot.append(control);
     }
@@ -2121,8 +2124,8 @@
     </svg></div><p class="an-note">Daily actuals, not cumulative or forecast. On desktop, click a day to open its sales log, then choose a transaction for details. Hover a day, focus it with the keyboard, or long press on mobile for date, weekday, number of sales, total, ${isPs ? "clients assisted" : "walk-ins"} and conversion rate. Conversion uses transactions from branches with recorded traffic only; no count or zero traffic shows n/a. Scroll sideways to see all days. Future days are not recorded.</p>`;
   }
 
-  function openDailySalesLog(date) {
-    if (!window.matchMedia("(min-width: 901px)").matches || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date > localISODate()) return;
+  function openDailySalesLog(date, fromTable = false) {
+    if ((!fromTable && !window.matchMedia("(min-width: 901px)").matches) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date > localISODate()) return;
     const ids = panelIds("dsBranch", scopeBranchIds());
     const rows = visibleSales().filter(sale => sale.sold_on === date && ids.has(sale.branch_id) && !isTestSale(sale, liveData.testPsIds))
       .sort((a,b) => natural(a.invoice_number,b.invoice_number) || String(a.id).localeCompare(String(b.id)))
@@ -2510,7 +2513,11 @@
   }
 
   function analyticsDataTable(key, title, detail, headers, rows, cellClass = () => "", controls = "", beforeTable = "", formatCell = value => value) {
-    const rowHtml = row => `<tr>${row.map((value, index) => `<td class="${escapeHTML(cellClass(row, index))}">${escapeHTML(formatCell(value, index) ?? "Unknown")}</td>`).join("")}</tr>`;
+    const rowHtml = row => {
+      const brand = key === "an-all-brand" && row[0] !== "Unknown (daily summary)"
+        ? ` class="rank-row" data-brand-detail="${escapeHTML(row[0])}" data-brand-range="all" tabindex="0"` : "";
+      return `<tr${brand}>${row.map((value, index) => `<td class="${escapeHTML(cellClass(row, index))}">${escapeHTML(formatCell(value, index) ?? "Unknown")}</td>`).join("")}</tr>`;
+    };
     const table = tableBlock(key, headers, rows, rowHtml, "No data in this scope.", PAGE_SIZE,
       (row, index) => row[index]);
     return panel(title, detail, beforeTable + (key === "an-inventory-products"
@@ -2706,6 +2713,11 @@
       } });
   }
 
+  function dailyAverageCard(total, from, to) {
+    const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+    return `<article class="connected-metric"><span>Daily average sales</span><strong>${formatMoney(total / days)}</strong><small>Sales ÷ ${days} calendar day${days === 1 ? "" : "s"} through ${escapeHTML(to)}</small></article>`;
+  }
+
   function allTimeAnalyticsPanels(ids, facts, isPs, today) {
     const A = window.BranchlineAnalytics;
     const allFacts = withHistoryFacts(facts, ids, isPs);
@@ -2723,6 +2735,7 @@
       transactions: transactionFacts });
     const cards = `<div class="connected-metrics">
       <article class="connected-metric"><span>All-time sales</span><strong>${formatMoney(totals.sales)}</strong><small>${escapeHTML(`${from} to ${to}`)}</small></article>
+      ${dailyAverageCard(allFacts.filter(row => row.date <= today).reduce((sum, row) => sum + row.amount, 0), from <= today ? from : today, today)}
       <article class="connected-metric"><span>Transactions</span><strong>${totals.transactions}</strong><small>Average ${totals.transactions ? formatMoney(totals.sales / totals.transactions) : "n/a"}</small></article>
       <article class="connected-metric"><span>Recorded product units sold</span><strong>${totals.units}</strong><small>Daily summary imports do not provide unit quantities</small></article>
       <article class="connected-metric"><span>${isPs ? "Clients assisted" : "Walk-in traffic"}</span><strong>${walk.coveredDays ? walk.visitors : "No data"}</strong><small>${walk.coveredDays} counted days</small></article>
@@ -2865,6 +2878,7 @@
           <article class="connected-metric"><span>${isPs ? "Clients assisted" : "Walk-in traffic"}</span><strong>${walk.coveredDays ? walk.visitors : "No data"}</strong><small>${escapeHTML(walkSource)}</small><button class="button button-outline button-small wk-daily-btn" type="button" data-open="walkin-daily">View daily</button></article>
           <article class="connected-metric"><span>Conversion rate</span><strong>${walk.conversion === null ? "n/a" : `${(walk.conversion * 100).toFixed(1)}%`}</strong><small>${walk.conversion === null ? "Needs recorded walk-in counts" : `${walk.transactions} sale${walk.transactions === 1 ? "" : "s"} ÷ ${walk.visitors} on counted days`}</small></article>
           ${inventoryMohCard(ids, facts, today)}
+          ${dailyAverageCard(actual, monthStart, through)}
         </div>`;
 
         const sum = (from, to) => A.sumDaily(daily, from, to);
@@ -2904,7 +2918,7 @@
             row => {
               const meta = metaOf.get(row.key) || {};
               const link = dim === "ps" && meta.psId ? ` class="rank-row" data-ps-detail="${escapeHTML(meta.psId)}" tabindex="0"`
-                : dim === "brand" ? ` class="rank-row" data-brand-detail="${escapeHTML(row.key)}" tabindex="0"` : "";
+                : dim === "brand" ? ` class="rank-row" data-brand-detail="${escapeHTML(row.key)}" data-brand-from="${trendP.from}" data-brand-through="${trendP.to}" tabindex="0"` : "";
               const lead = withProduct ? `<td>${escapeHTML(meta.brand || "—")}</td><td>${escapeHTML(meta.category || "—")}</td><td>${escapeHTML(meta.subCategory || "—")}</td>` : "";
               return `<tr${link}>${lead}<td>${escapeHTML(row.key)}</td><td>${formatMoney(row.current)}</td><td>${formatMoney(row.previous)}</td><td>${growthCell(row.growth)}</td><td>${row.share === null ? "n/a" : (row.share * 100).toFixed(1) + "%"}</td></tr>`;
             },
@@ -3144,7 +3158,7 @@
           `<option value="${value}" ${value === dsYear ? "selected" : ""}>${value}</option>`).join("")}</select></label>`;
         const dailyContent = dailyTable
           ? tableBlock("dailysum", ["Date", "Day", "No. of sales", "Total sales"], dayRows,
-            row => `<tr><td>${escapeHTML(row.date)}</td><td>${escapeHTML(new Date(`${row.date}T00:00:00`).toLocaleDateString("en-PH", { weekday: "long" }))}</td><td>${row.count}</td><td>${formatMoney(row.total)}</td></tr>`,
+            row => `<tr class="sale-summary-row" data-daily-sales-table-date="${escapeHTML(row.date)}" tabindex="0"><td>${escapeHTML(row.date)}</td><td>${escapeHTML(new Date(`${row.date}T00:00:00`).toLocaleDateString("en-PH", { weekday: "long" }))}</td><td>${row.count}</td><td>${formatMoney(row.total)}</td></tr>`,
             "No days to show for this month yet.", 31)
           : `${dailySalesChart(dayRows, dsPrefix, todayISO, isPs)}<div class="daily-table-action"><button class="button button-outline button-small" type="button" data-pie-table="dailysum" aria-label="View daily sales summary table">View table</button></div>`;
         const dailyBranchNote = dailyIds !== ids ? `${branchName([...dailyIds][0])} · ` : "";
@@ -3192,8 +3206,8 @@
     if (!group) throw new Error("Delivery Guarranty summary changed. Refresh the sales view.");
     openModal({ title: `DELIVERY GUARRANTY · ${group.name}`, readOnly: true, wide: true,
       body: `<p>${group.quantity} invoice(s) · DG fees only</p>${tableBlock("delivery-customers", ["Customer", "Address", "Invoice", "Date", "Amount"],
-        group.sales, sale => `<tr><td>${escapeHTML(sale.customer_name)}</td><td>${escapeHTML(addressOf(sale) || "Not recorded")}</td><td>${escapeHTML(sale.invoice_number)}</td><td>${escapeHTML(sale.sold_on)}</td><td>${formatMoney(sale.dg_amount)}</td></tr>`, "No matching fees.")}
-        <p><strong>Total amount: ${formatMoney(group.amount)}</strong></p>` });
+        group.sales, sale => `<tr class="sale-summary-row" data-sale-details="${escapeHTML(sale.id)}" tabindex="0"><td>${escapeHTML(sale.customer_name)}</td><td>${escapeHTML(addressOf(sale) || "Not recorded")}</td><td>${escapeHTML(sale.invoice_number)}</td><td>${escapeHTML(sale.sold_on)}</td><td>${formatMoney(sale.dg_amount)}</td></tr>`, "No matching fees.")}
+        <p><strong>Total amount: ${formatMoney(group.amount)}</strong></p>`, onReady: bindSaleDetailRows });
   }
 
   function saleSummaryRowHTML(row) {
@@ -3269,6 +3283,18 @@
       } });
   }
 
+  function bindSaleDetailRows(root) {
+    const open = event => {
+      const row = event.target.closest("[data-sale-details]");
+      if (!row || (event.type === "keydown" && !["Enter", " "].includes(event.key))) return;
+      event.preventDefault();
+      try { openSaleDetails(row.dataset.saleDetails); }
+      catch (error) { alert(error.message); }
+    };
+    root.addEventListener("click", open);
+    root.addEventListener("keydown", open);
+  }
+
   function brandProgressChart(scope) {
     const brand = String(currentProfile.assigned_brand || "").trim();
     const title = `${brand || "Brand"} sales · your branch contribution`;
@@ -3308,9 +3334,25 @@
       "brandlog",
       ["Sale date", "Invoice", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Qty"],
       rows,
-      row => `<tr><td>${escapeHTML(row.sold_on)}</td><td><strong>${escapeHTML(row.invoice_number)}</strong></td><td>${escapeHTML(row.ps_name)}</td><td>${escapeHTML(row.brand)}</td><td>${escapeHTML(row.category || "—")}</td><td>${escapeHTML(row.sub_category || "—")}</td><td>${escapeHTML(row.model_description)}</td><td>${escapeHTML(row.quantity)}</td></tr>`,
+      row => `<tr class="sale-summary-row" data-brand-sale="${escapeHTML(row.line_id)}" tabindex="0" aria-label="View invoice ${escapeHTML(row.invoice_number)}"><td>${escapeHTML(row.sold_on)}</td><td><strong>${escapeHTML(row.invoice_number)}</strong></td><td>${escapeHTML(row.ps_name)}</td><td>${escapeHTML(row.brand)}</td><td>${escapeHTML(row.category || "—")}</td><td>${escapeHTML(row.sub_category || "—")}</td><td>${escapeHTML(row.model_description)}</td><td>${escapeHTML(row.quantity)}</td></tr>`,
       "No sales of your brand match this period.",
     ));
+  }
+
+  function openBrandSale(lineId) {
+    if (currentProfile.role !== "ps") return;
+    const selected = liveData.brandSales.find(row => row.line_id === lineId && inPeriod(row.sold_on));
+    if (!selected) return;
+    const own = liveData.sales.find(sale => sale.ps_id === currentProfile.id &&
+      linesForSale(sale.id).some(line => line.id === lineId));
+    if (own) return openSaleDetails(own.id);
+    const items = liveData.brandSales.filter(row => row.invoice_number === selected.invoice_number &&
+      row.branch_id === selected.branch_id && row.sold_on === selected.sold_on && row.ps_id === selected.ps_id);
+    openModal({ title: `Transaction · ${selected.invoice_number}`, readOnly: true, wide: true,
+      intro: `${selected.sold_on} · ${selected.ps_name} · ${branchName(selected.branch_id)}. Products available in your assigned-brand sales log.`,
+      body: `<div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Barcode</th><th>Brand</th><th>Product</th><th>Qty</th></tr></thead><tbody>${items.map(row =>
+        `<tr><td>${escapeHTML(row.barcode || "—")}</td><td>${escapeHTML(row.brand)}</td><td>${escapeHTML(row.model_description)}</td><td>${escapeHTML(row.quantity)}</td></tr>`).join("")}</tbody></table></div>`,
+    });
   }
 
   function inventoryStockFor(branch, barcode) {
@@ -5138,6 +5180,92 @@
         ), deleteButton);
       },
     );
+  }
+
+  const customerColumns = ["Customer", "Barangay", "City", "Branch", "Invoices", "Last sale"];
+
+  function customerRows() {
+    const ids = scopeBranchIds();
+    const customers = new Map();
+    for (const sale of visibleSales()) {
+      if (!ids.has(sale.branch_id) || !sale.customer_name?.trim() || /^RET-/i.test(sale.invoice_number || "")) continue;
+      const identity = [sale.customer_name, sale.barangay, sale.city].map(value =>
+        String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase());
+      const key = JSON.stringify([sale.branch_id, ...identity]);
+      const row = customers.get(key) ?? [sale.customer_name.trim(), sale.barangay || "—", sale.city || "—",
+        branchName(sale.branch_id), 0, sale.sold_on];
+      row[4]++;
+      if (sale.sold_on > row[5]) row[5] = sale.sold_on;
+      customers.set(key, row);
+    }
+    return [...customers.values()].sort((a, b) => natural(a[0], b[0]) || natural(a[3], b[3]));
+  }
+
+  function renderCustomersPage() {
+    mountPage(
+      pageHeading("Customer Master", "Customers recorded in sales within your assigned branches."),
+      "",
+      filterBar({ district: true, branch: true, search: "Customer, barangay, city or branch" }),
+      () => {
+        const rows = customerRows().filter(row => matches(searchQuery(), ...row) &&
+          customerColumns.every((_, col) => !ui.customerFilters[col] || ui.customerFilters[col].has(String(row[col]))));
+        return panel("Customers", `${rows.length} matching records. Download includes all filtered pages.`, tableBlock(
+          "customers", customerColumns, rows,
+          row => `<tr>${row.map(value => `<td>${escapeHTML(value)}</td>`).join("")}</tr>`,
+          "No customers match your search.", PAGE_SIZE, (row, col) => row[col],
+          (header, col) => `<button class="button button-outline button-small" type="button" data-customer-filter="${col}"
+            aria-label="Filter ${escapeHTML(header)}" aria-haspopup="dialog">${ui.customerFilters[col] ? "Filtered ▾" : "Filter ▾"}</button>`,
+        ));
+      },
+    );
+  }
+
+  function openCustomerFilter(col) {
+    if (activePage !== "customers" || !rolePages[currentProfile.role].includes("customers") || !customerColumns[col]) return;
+    const values = [...new Set(customerRows().map(row => String(row[col])))].sort(natural);
+    const selected = new Set(ui.customerFilters[col] ?? values);
+    openModal({ title: `Filter ${customerColumns[col]}`, readOnly: true,
+      body: `<label class="field"><span>Find values</span><input type="search" data-find-customer-value autocomplete="off"></label>
+        <div class="filter-actions"><button class="button button-outline" type="button" data-customer-choose="all">Select all</button>
+        <button class="button button-outline" type="button" data-customer-choose="none">Deselect all</button></div>
+        <div class="customer-filter-values" data-customer-values style="max-height:45vh;overflow:auto"></div>
+        <button class="button button-primary" type="button" data-customer-apply>Apply filter</button>`,
+      onReady: form => {
+        const search = form.querySelector("[data-find-customer-value]");
+        const list = form.querySelector("[data-customer-values]");
+        const visible = () => values.filter(value => value.toLowerCase().includes(search.value.trim().toLowerCase()));
+        const render = () => {
+          const shown = new Set(visible());
+          list.innerHTML = values.map((value, index) => shown.has(value)
+            ? `<label class="check-row"><input type="checkbox" data-customer-value="${index}" ${selected.has(value) ? "checked" : ""}> <span>${escapeHTML(value)}</span></label>` : "").join("") ||
+            "<p>No matching values.</p>";
+        };
+        search.addEventListener("input", render);
+        list.addEventListener("change", event => {
+          const box = event.target.closest("[data-customer-value]");
+          if (!box) return;
+          const value = values[Number(box.dataset.customerValue)];
+          if (box.checked) selected.add(value);
+          else selected.delete(value);
+        });
+        form.querySelectorAll("[data-customer-choose]").forEach(button => button.addEventListener("click", () => {
+          for (const value of visible()) {
+            if (button.dataset.customerChoose === "all") selected.add(value);
+            else selected.delete(value);
+          }
+          render();
+        }));
+        form.querySelector("[data-customer-apply]").addEventListener("click", () => {
+          if (selected.size === values.length) delete ui.customerFilters[col];
+          else ui.customerFilters[col] = selected;
+          ui.pages.customers = 1;
+          closeModal();
+          refreshResults();
+          connectedContent.querySelector(`[data-customer-filter="${col}"]`)?.focus();
+        });
+        render();
+      },
+    });
   }
 
   function renderPeoplePage() {
@@ -7108,8 +7236,9 @@
   }
 
   // Pop-up with one brand's sales in the current view, broken down by category and sub-category.
-  function openBrandDetailModal(brand) {
-    const ids = scopeBranchIds();
+  function openBrandDetailModal(row) {
+    const { brandDetail: brand, brandRange, brandFrom, brandThrough } = row.dataset;
+    const ids = row.closest('[data-table-key="brands"]') ? panelIds("brandBranch", scopeBranchIds()) : scopeBranchIds();
     const I = window.BranchlineInventory;
     const assigned = I.brandParts(brand, liveData.products);
     const keyOf = parts => parts.map(part => `${part.brand}${part.scope ? ` - ${part.scope}` : ""}`).sort().join(" / ");
@@ -7123,8 +7252,9 @@
       claimed.get(period).push(...parts);
     });
     const all = [];
-    liveData.sales.forEach(sale => {
-      if (!ids.has(sale.branch_id) || !inStatus(sale.sold_on)) return;
+    visibleSales().forEach(sale => {
+      if (!ids.has(sale.branch_id)) return;
+      if (brandRange !== "all" && (brandFrom ? sale.sold_on < brandFrom || sale.sold_on > brandThrough : !inStatus(sale.sold_on))) return;
       linesForSale(sale.id).forEach(line => {
         const item = { ...line, brand: line.brand || "Unbranded" };
         if (I.matchesBrandParts(item, assigned, claimed.get(`${sale.branch_id}|${sale.sold_on.slice(0, 7)}`) || [])) all.push({ sale, line });
@@ -7132,7 +7262,7 @@
     });
     openBreakdownModal({
       title: `${brand} · sales`,
-      intro: `${periodLabel()} · current branch and district selection. Sort the columns to see which category or sub-category sold most.`,
+      intro: `${brandRange === "all" ? "All time" : brandFrom ? `${brandFrom} to ${brandThrough}` : periodLabel()} · ${currentProfile.role === "ps" ? "Your recorded sales" : "Sales in the selected branches"}.`,
       all,
       state: { brand: "", category: "", sub: "" },
       fileBase: `branchline-${brand.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-sales`,
@@ -7186,7 +7316,7 @@
       const categories = uniqueSorted(all.map(({ line }) => line.category));
       const subs = uniqueSorted(all.filter(({ line }) => !state.category || line.category === state.category).map(({ line }) => line.sub_category));
       const lineRows = list.slice().sort((a, b) => String(b.sale.sold_on).localeCompare(String(a.sale.sold_on)))
-        .map(({ sale, line }) => `<tr><td>${escapeHTML(sale.sold_on)}</td><td><strong>${escapeHTML(sale.invoice_number)}</strong></td><td>${escapeHTML(line.brand)}</td><td>${escapeHTML(line.category || "—")}</td><td>${escapeHTML(line.sub_category || "—")}</td><td>${escapeHTML(line.model_description)}</td><td>${escapeHTML(line.quantity)}</td><td>${formatMoney(window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis))}</td></tr>`).join("");
+        .map(({ sale, line }) => `<tr class="sale-summary-row" data-sale-details="${escapeHTML(sale.id)}" tabindex="0" aria-label="View invoice ${escapeHTML(sale.invoice_number)}"><td>${escapeHTML(sale.sold_on)}</td><td><strong>${escapeHTML(sale.invoice_number)}</strong></td><td>${escapeHTML(line.brand)}</td><td>${escapeHTML(line.category || "—")}</td><td>${escapeHTML(line.sub_category || "—")}</td><td>${escapeHTML(line.model_description)}</td><td>${escapeHTML(line.quantity)}</td><td>${formatMoney(window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis))}</td></tr>`).join("");
       root.querySelector("#ps-detail").innerHTML = `<p class="dlg-intro">${escapeHTML(intro)}</p><p class="an-note">${escapeHTML(salesBasisNote())}</p>
         <div class="rank-filters">${showBrand ? rankFilterSelect("brand", "Brand", brands, state.brand) : ""}${rankFilterSelect("category", "Category", categories, state.category)}${rankFilterSelect("sub", "Sub-category", subs, state.sub)}
         <label class="field"><span>Group by</span><select data-group>${groupOptions.map(([value, label]) => `<option value="${value}" ${state.group === value ? "selected" : ""}>${escapeHTML(label)}</option>`).join("")}</select></label></div>
@@ -7230,6 +7360,7 @@
         exportWorkbook([{ name: sheet, rows: [header, ...data] }], `${fileBase}-${localISODate()}`);
       } catch (error) { exportError(error); }
     });
+    bindSaleDetailRows(root);
     render();
   }
 
@@ -7525,6 +7656,10 @@
       try { openSaleDetails(saleDetails.dataset.saleDetails); }
       catch (error) { alert(error.message); }
     }
+    const brandSale = event.target.closest("[data-brand-sale]");
+    if (brandSale) openBrandSale(brandSale.dataset.brandSale);
+    const salesDay = event.target.closest("[data-daily-sales-table-date]");
+    if (salesDay) openDailySalesLog(salesDay.dataset.dailySalesTableDate, true);
     const editProduct = event.target.closest("[data-edit-product]");
     if (editProduct) {
       const product = liveData.products.find(item => item.barcode === editProduct.dataset.editProduct);
@@ -7566,6 +7701,7 @@
   }
 
   function exportTable(key) {
+    if (key === "customers" && (activePage !== "customers" || !rolePages[currentProfile?.role]?.includes("customers"))) return;
     const table = tableStore[key];
     if (!table) throw new Error("This table is no longer available. Reopen it and try again.");
     const title = table.title || key;
@@ -7587,25 +7723,23 @@
     return registration.pushManager.getSubscription();
   }
 
-  async function refreshPushButton(isPs) {
+  function refreshPushButton() {
     const button = pushButton();
     if (!button) return;
-    if (demoStore || (!isPs && !["manager","inventory_controller","stock_custodian"].includes(currentProfile?.role)) || !config.vapidPublicKey) { button.hidden = true; return; }
-    button.hidden = false;
-    if (!pushSupported) {
-      button.disabled = true;
-      button.textContent = "Notifications not supported here";
-      return;
-    }
-    if (Notification.permission === "denied") {
-      button.disabled = true;
-      button.textContent = "Notifications blocked in browser";
-      return;
-    }
+    const permission = document.querySelector("#push-permission");
+    const status = document.querySelector("#push-status");
+    const eligible = !demoStore && ["ps","manager","inventory_controller","stock_custodian"].includes(currentProfile?.role);
+    const off = Boolean(localStorage.getItem(pushOptOutKey()));
+    button.hidden = !eligible;
+    permission.hidden = !eligible || off || !pushSupported || !config.vapidPublicKey || Notification.permission !== "default";
+    status.hidden = !eligible;
     button.disabled = false;
-    const subscription = await currentPushSubscription().catch(() => null);
-    button.textContent = subscription ? "Turn off pace alerts" : "Turn on pace alerts";
-    button.dataset.on = subscription ? "1" : "";
+    button.textContent = off ? "Turn on pace alerts" : "Turn off pace alerts";
+    status.textContent = off ? "Pace alerts are off on this device." :
+      !pushSupported || !config.vapidPublicKey ? "Pace alerts are on. This device does not support background delivery here." :
+      Notification.permission === "denied" ? "Pace alerts are on. Device notifications are blocked in browser settings." :
+      Notification.permission === "default" ? "Pace alerts are on. Allow device notifications to receive them in the background." :
+      "Pace alerts are on and device notifications are allowed.";
   }
 
   const pushOptOutKey = () => `branchline-push-off-${currentProfile?.id || ""}`;
@@ -7645,7 +7779,7 @@
   async function enablePush() {
     if (demoStore) throw new Error("Real push notifications are disabled in demo mode.");
     const profileId = currentProfile?.id;
-    if ((await Notification.requestPermission()) !== "granted") throw new Error("Notifications were not allowed. You can allow them in your browser or phone settings for this site.");
+    if ((await Notification.requestPermission()) !== "granted") throw new Error("Allow notifications in your browser or device settings to receive background alerts.");
     if (demoStore || currentProfile?.id !== profileId) throw new Error("The account changed. Enable notifications again after signing in.");
     localStorage.removeItem(pushOptOutKey());
     await saveCurrentPushSubscription(await navigator.serviceWorker.ready);
@@ -7656,14 +7790,18 @@
     const button = pushButton();
     button.disabled = true;
     try {
-      const registration = await navigator.serviceWorker.ready;
-      const existing = await registration.pushManager.getSubscription();
-      if (existing) {
-        mustRpc(await client.rpc("delete_push_subscription", { p_endpoint: existing.endpoint }));
-        await existing.unsubscribe();
-        localStorage.setItem(pushOptOutKey(), "1");
+      if (localStorage.getItem(pushOptOutKey())) {
+        localStorage.removeItem(pushOptOutKey());
+        await autoRegisterPush();
       } else {
-        await enablePush();
+        if (pushSupported) {
+          const existing = await currentPushSubscription();
+          if (existing) {
+            mustRpc(await client.rpc("delete_push_subscription", { p_endpoint: existing.endpoint }));
+            await existing.unsubscribe();
+          }
+        }
+        localStorage.setItem(pushOptOutKey(), "1");
       }
     } catch (error) {
       alert(error.message || "Could not change notification settings.");
@@ -7696,7 +7834,7 @@
   }
 
   function showPacePopup() {
-    if (currentProfile?.role !== "ps" || pacePopupShown) return;
+    if (currentProfile?.role !== "ps" || pacePopupShown || localStorage.getItem(pushOptOutKey())) return;
     const { actual, target } = personalTargetProgress("price");
     if (!(target > 0)) return;
     pacePopupShown = true;
@@ -7743,6 +7881,11 @@
   }
 
   document.querySelector("#push-toggle")?.addEventListener("click", togglePush);
+  document.querySelector("#push-permission")?.addEventListener("click", async () => {
+    try { await enablePush(); }
+    catch (error) { alert(error.message || "Could not allow device notifications."); }
+    refreshPushButton();
+  });
   document.querySelector("#change-password").addEventListener("click", () => openPasswordModal());
   document.querySelector("#forgot-password").addEventListener("click", openForgotPasswordModal);
   document.querySelector("#show-password").addEventListener("change", event => {
@@ -7751,7 +7894,7 @@
 
   connectedNav.addEventListener("click", event => {
     const button = event.target.closest("[data-live-page]");
-    if (!button) return;
+    if (!button || !rolePages[currentProfile?.role]?.includes(button.dataset.livePage)) return;
     activePage = button.dataset.livePage;
     ui.search = "";
     ui.pages = {};
@@ -7956,10 +8099,15 @@
   });
 
   connectedContent.addEventListener("click", event => {
+    const customerFilter = event.target.closest("[data-customer-filter]");
+    if (customerFilter) {
+      openCustomerFilter(Number(customerFilter.dataset.customerFilter));
+      return;
+    }
     const detailRow = event.target.closest("[data-ps-detail]");
     if (detailRow) openPsDetailModal(detailRow.dataset.psDetail);
     const brandRow = event.target.closest("[data-brand-detail]");
-    if (brandRow) openBrandDetailModal(brandRow.dataset.brandDetail);
+    if (brandRow) openBrandDetailModal(brandRow);
     const pagerButton = event.target.closest("[data-pager]");
     const sortButton = event.target.closest("[data-sort-table]");
     if (sortButton) {
@@ -8005,7 +8153,7 @@
       dailySalesDay.dispatchEvent(new MouseEvent("click",{ bubbles: true }));
       return;
     }
-    const saleRow = event.target.closest("[data-sale-details], [data-delivery-person]");
+    const saleRow = event.target.closest("[data-sale-details], [data-delivery-person], [data-brand-sale], [data-daily-sales-table-date]");
     if (saleRow && ["Enter", " "].includes(event.key)) {
       event.preventDefault();
       saleRow.click();
@@ -8021,7 +8169,7 @@
     const brandRow = event.target.closest?.("[data-brand-detail]");
     if (brandRow && (event.key === "Enter" || event.key === " ")) {
       event.preventDefault();
-      openBrandDetailModal(brandRow.dataset.brandDetail);
+      openBrandDetailModal(brandRow);
     }
     if (detailRow && (event.key === "Enter" || event.key === " ")) {
       event.preventDefault();
