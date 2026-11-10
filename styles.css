@@ -473,11 +473,18 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .ps-break h3 { margin: 0 0 4px; font-size: 12px; }
 .ps-break .connected-table { min-width: 0; }
 .ps-lines { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
-.ps-sum { max-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
-#ps-detail :is(.ps-sum, .ps-lines) .connected-table { border-collapse: separate; border-spacing: 0; }
-#ps-detail :is(.ps-sum, .ps-lines) thead th { position: sticky; top: 0; z-index: 1; background: #f8f9fb; }
 .purchase-history-table tbody tr { height: 37px; }
 .purchase-history-table td { padding-block: 0; line-height: 16px; white-space: nowrap; }
+.sales-breakdown-dialog .dlg-form { gap: 8px; padding-top: 10px; }
+.sales-breakdown-context { display: grid; gap: 6px; }
+.sales-breakdown-context .an-note { margin: 0; }
+.sales-breakdown-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
+.sales-breakdown-controls .field { margin: 0; width: min(100%, 250px); }
+.sales-breakdown-controls .ps-total { flex: 1; min-width: 155px; gap: 8px; padding: 6px 0; }
+.sales-breakdown-table .connected-table-wrap { max-height: 244px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.sales-breakdown-table .connected-table { border-collapse: separate; border-spacing: 0; }
+.sales-breakdown-table th { position: sticky; top: 0; z-index: 1; background: #f8f9fb; }
+.sales-breakdown-table .connected-pager { padding: 5px 0; }
 .sort-btn { all: unset; cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
 .sort-btn:hover, .sort-btn:focus-visible { color: var(--ink); text-decoration: underline; }
 .customer-filter-indicator { color: var(--blue); }
