@@ -2676,15 +2676,17 @@
       `<td${row.mohBad && [7,8].includes(index) ? ' class="inventory-stock-alert"' : ""}>${escapeHTML(typeof value === "number" && index >= 3 && index <= 6 ? formatMoney(value) : index === 7 && typeof value === "number" ? value.toFixed(2) : value)}</td>`).join("")}</tr>`;
     openModal({ title: brand ? `${brand.brand} products · ${branchName(brand.branch_id)}` : "Months-on-Hand · Brands",
       wide: true, readOnly: true,
+      headerAction: exportButton("data-moh-export", `Export ${brand ? "products" : "brands"}`),
       intro: `${data.from} to ${data.to} · ${data.months} completed months. Target: 3 months. SRP values are priced subtotals. Unavailable numbers display as zero only; check Status. Zero MOH with no sell-out or unavailable data is not a valid stock-coverage ratio.`,
       body: `${data.error ? `<p role="alert" class="connected-error">${escapeHTML(data.error)}</p>` : ""}
         ${brand ? '<button type="button" class="button button-outline" data-moh-back>Back to brands</button>' : ""}
         <label class="field"><span>${brand ? "Search products" : "Search brands"}</span><input type="search" data-moh-search></label>
-        <div class="table-export-tools">${exportButton("data-moh-export", `Export ${brand ? "products" : "brands"}`)}</div>
         <div class="connected-table-wrap inventory-moh-drill"><table class="connected-table"><thead><tr>${headers.map((label, col) => columnHeading(label, "", false, `data-moh-sort="${col}"`)).join("")}</tr></thead><tbody data-moh-rows>${rows.map(rowHtml).join("")}</tbody></table></div>
         <p data-moh-empty${rows.length ? " hidden" : ""}>No data in this scope.</p>`,
       onReady: form => {
         let visible = rows, search = "", sort = null;
+        form.closest(".dlg").querySelector("[data-moh-export]").addEventListener("click", () =>
+          exportWorkbook([{ name: brand ? "Products" : "Brands", rows: [headers,...visible.map(values)] }], `branchline-moh-${localISODate()}`));
         const filters = {};
         const display = (row, col) => {
           const value = values(row)[col];
@@ -2722,7 +2724,6 @@
           const selected = event.target.closest("[data-moh-brand]");
           if (selected) openInventoryMoh(data, Number(selected.dataset.mohBrand));
           else if (event.target.closest("[data-moh-back]")) openInventoryMoh(data);
-          else if (event.target.closest("[data-moh-export]")) exportWorkbook([{ name: brand ? "Products" : "Brands", rows: [headers,...visible.map(values)] }], `branchline-moh-${localISODate()}`);
         });
         form.addEventListener("keydown", event => {
           if (!["Enter"," "].includes(event.key) || !event.target.matches("[data-moh-brand]")) return;
@@ -5919,7 +5920,7 @@
       <div class="dlg-head"><h2>${escapeHTML(label)} · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><div class="dlg-head-actions walkin-actions">
         <label class="field"><span>From</span><input type="date" data-walkin-from value="${escapeHTML(monthStart)}" required></label>
         <label class="field"><span>To</span><input type="date" data-walkin-to value="${escapeHTML(through)}" required></label>
-        ${isPs ? "" : '<button class="button button-outline button-small" type="button" data-walkin-entry>Record store visitors</button>'}<button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div></div>
+        ${isPs ? "" : '<button class="button button-outline button-small" type="button" data-walkin-entry>Record store visitors</button>'}${exportButton('data-download-dialog', `Download ${label} by day`)}<button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div></div>
       <div class="dlg-form">
         <div class="connected-metrics wk-totals">
           <article class="connected-metric"><span>Selected period</span><strong>${value(total)}</strong><small>${total.coveredDays} day(s) counted · conversion ${rate(total)}</small></article>
@@ -5928,10 +5929,10 @@
         </div>
         ${showAssistedComparison ? '<p class="an-note">Clients assisted is the sum of available PS entries, which may be incomplete. This year and last year use recorded store visitors or imported store history, not PS assistance. Other traffic totals may differ because they can use PS counts as a fallback. A dash means no count was recorded.</p>' : ""}
         <div class="ps-lines"><table class="connected-table"><thead><tr>${headers.map(header => `<th>${escapeHTML(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
-        <div class="dlg-actions">${exportButton('data-download-dialog', `Download ${label} by day`)}<button class="button button-primary" type="button" data-modal-close>Close</button></div>
       </div></div>`;
     document.body.appendChild(root);
     wireDialogExport(root, `${label} by day`);
+    root.querySelector(".dlg-close").addEventListener("click", closeModal);
     root.addEventListener("pointerdown", event => {
       if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
     });
@@ -5990,7 +5991,7 @@
     modalRoot.className = "dlg-backdrop";
     const root = modalRoot;
     root.innerHTML = `<div class="dlg dlg-xwide" role="dialog" aria-modal="true" aria-label="Transactions by day">
-      <div class="dlg-head"><h2>Transactions · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div>
+      <div class="dlg-head"><h2>Transactions · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><div class="dlg-head-actions">${exportButton('data-download-dialog', "Download transactions by day")}<button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div></div>
       <div class="dlg-form">
         <div class="connected-metrics wk-totals">
           <article class="connected-metric"><span>This year (month to date)</span><strong>${total}</strong><small>TEST transactions are not counted</small></article>
@@ -5998,10 +5999,10 @@
           <article class="connected-metric"><span>Change</span><strong>${change(total, priorTotal)}</strong><small>Versus the same days last year</small></article>
         </div>
         <div class="ps-lines"><table class="connected-table"><thead><tr><th>Date</th><th>This year</th><th>Last year date</th><th>Last year</th><th>Change</th></tr></thead><tbody>${body}</tbody></table></div>
-        <div class="dlg-actions">${exportButton('data-download-dialog', "Download transactions by day")}<button class="button button-primary" type="button" data-modal-close>Close</button></div>
       </div></div>`;
     document.body.appendChild(root);
     wireDialogExport(root, "Transactions by day");
+    root.querySelector(".dlg-close").addEventListener("click", closeModal);
     root.addEventListener("pointerdown", event => {
       if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
     });
@@ -6050,22 +6051,23 @@
   }
 
   // onSubmit(form) may return HTML to show as a result view; returning nothing closes the modal.
-  function openModal({ title, intro = "", body, submitLabel = "Save", wide = false, inline = false, readOnly = false, onSubmit, onReady }) {
+  function openModal({ title, intro = "", body, submitLabel = "Save", wide = false, inline = false, readOnly = false, headerAction = "", onSubmit, onReady }) {
     if (!inline) closeModal();
     const root = document.createElement("div");
     root.className = inline ? "inventory-form-panel" : "dlg-backdrop";
     root.innerHTML = `<div class="dlg${wide ? " dlg-wide" : ""}" ${inline ? 'role="region"' : 'role="dialog" aria-modal="true"'} aria-label="${escapeHTML(title)}">
-      <div class="dlg-head"><h2>${escapeHTML(title)}</h2>${inline ? "" : '<button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button>'}</div>
+      <div class="dlg-head"><h2>${escapeHTML(title)}</h2>${inline ? "" : `<div class="dlg-head-actions">${headerAction}<button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div>`}</div>
       <form class="dlg-form" novalidate>
         ${intro ? `<p class="dlg-intro">${escapeHTML(intro)}</p>` : ""}
         <div class="dlg-body">${body}</div>
         <p class="dlg-error" role="alert" hidden></p>
-        <div class="dlg-actions">${readOnly ? '<button class="button button-primary" type="button" data-modal-close>Close</button>' : `${inline ? "" : '<button class="button button-outline" type="button" data-modal-close>Cancel</button>'}<button class="button button-primary" type="submit">${escapeHTML(submitLabel)}</button>`}</div>
+        ${readOnly && headerAction ? "" : `<div class="dlg-actions">${readOnly ? '<button class="button button-primary" type="button" data-modal-close>Close</button>' : `${inline ? "" : '<button class="button button-outline" type="button" data-modal-close>Cancel</button>'}<button class="button button-primary" type="submit">${escapeHTML(submitLabel)}</button>`}</div>`}
       </form></div>`;
     if (inline) document.querySelector("#live-results").appendChild(root);
     else { modalRoot = root; document.body.appendChild(root); }
     const form = root.querySelector("form");
     const error = root.querySelector(".dlg-error");
+    if (headerAction) root.querySelector(".dlg-close")?.addEventListener("click", closeModal);
     if (!inline) root.addEventListener("pointerdown", event => {
       if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
     });
@@ -7414,60 +7416,125 @@
   }
 
   function openBreakdownModal({ title, intro, all, state, fileBase, sheet, showBrand }) {
-    state.group = "all";
+    const rankingKey = "sales-detail-ranking";
+    const linesKey = "sales-detail-lines";
+    const detailPageSize = 5;
+    const lineScope = all.filter(({ line }) => lineMatches(line, state));
+    const groupOptions = [["all", showBrand ? "Brand, category and sub-category" : "Category and sub-category"], ...(showBrand ? [["brand", "Brand only"]] : []), ["category", "Category only"], ["sub", "Sub-category only"]];
+    const labels = { brand: "Brand", category: "Category", sub: "Sub-category" };
+    const valueOf = (line, key) => String(line[key === "sub" ? "sub_category" : key] ?? "").trim() || "—";
+    const amountOf = ({ line }) => window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis);
+    let group = "all";
+    let brand = null;
+    let category = null;
+
+    const resetTables = () => {
+      for (const key of [rankingKey, linesKey]) {
+        ui.pages[key] = 1;
+        delete ui.sort[key];
+        delete ui.columnFilters[key];
+      }
+    };
+    resetTables();
     closeModal();
     modalRoot = document.createElement("div");
     modalRoot.className = "dlg-backdrop";
     const root = modalRoot;
-    root.innerHTML = `<div class="dlg dlg-xwide" role="dialog" aria-modal="true" aria-label="${escapeHTML(title)}">
-      <div class="dlg-head"><h2>${escapeHTML(title)}</h2><button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div>
-      <div class="dlg-form"><div id="ps-detail"></div>
-      <div class="dlg-actions">${exportButton('id="ps-detail-export"', `Download ${title}`)}<button class="button button-primary" type="button" data-modal-close>Close</button></div></div></div>`;
+    root.innerHTML = `<div class="dlg dlg-xwide sales-breakdown-dialog" role="dialog" aria-modal="true" aria-labelledby="sales-breakdown-title">
+      <div class="dlg-head"><h2 id="sales-breakdown-title">${escapeHTML(title)}</h2>
+        <div class="dlg-head-actions">${exportButton('id="ps-detail-export"', `Download ${title}`)}<button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div></div>
+      <div class="dlg-form" id="ps-detail">
+        <div class="sales-breakdown-context">
+          <p class="dlg-intro">${escapeHTML(intro)}</p>
+          <p class="an-note">${escapeHTML(salesBasisNote())}</p>
+          <div class="sales-breakdown-controls">
+            <label class="field"><span>Group by</span><select data-group>${groupOptions.map(([value, label]) => `<option value="${value}">${escapeHTML(label)}</option>`).join("")}</select></label>
+            <button class="button button-outline button-small" type="button" data-breakdown-back hidden>Back</button>
+            <p class="ps-total" data-breakdown-total></p>
+          </div>
+        </div>
+        <div class="sales-breakdown-table" data-breakdown-ranking></div>
+        <div class="sales-breakdown-table" data-breakdown-lines></div>
+      </div></div>`;
     document.body.appendChild(root);
-    const rows = () => all.filter(({ line }) => lineMatches(line, state));
-    const breakdown = list => {
-      const keys = { brand: showBrand && ["all", "brand"].includes(state.group), category: ["all", "category"].includes(state.group), sub: ["all", "sub"].includes(state.group) };
+    const rankingHost = root.querySelector("[data-breakdown-ranking]");
+    const linesHost = root.querySelector("[data-breakdown-lines]");
+    const back = root.querySelector("[data-breakdown-back]");
+    const rows = () => lineScope.filter(({ line }) =>
+      (brand === null || valueOf(line, "brand") === brand) &&
+      (category === null || valueOf(line, "category") === category));
+    const rankingColumns = () => category !== null ? ["sub"] : brand !== null ? ["category"] :
+      group === "all" ? (showBrand ? ["brand", "category", "sub"] : ["category", "sub"]) : [group];
+    const renderRanking = () => {
+      const keys = rankingColumns();
+      const canDrill = category === null && (brand !== null || group === "brand");
       const totals = new Map();
-      list.forEach(({ line }) => {
-        const parts = [keys.brand ? (line.brand || "").trim() || "—" : "", keys.category ? line.category || "—" : "", keys.sub ? line.sub_category || "—" : ""];
-        const id = parts.join("\u0001");
-        const entry = totals.get(id) || { brand: parts[0], category: parts[1], sub: parts[2], amount: 0, qty: 0 };
-        entry.amount += window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis);
-        entry.qty += Number(line.quantity);
-        totals.set(id, entry);
-      });
-      const entries = [...totals.values()];
+      for (const entry of rows()) {
+        const parts = keys.map(key => valueOf(entry.line, key));
+        const id = JSON.stringify(parts);
+        const item = totals.get(id) ?? { parts, amount: 0, qty: 0 };
+        item.amount += amountOf(entry);
+        item.qty += Number(entry.line.quantity);
+        totals.set(id, item);
+      }
+      const entries = [...totals.values()].sort((a, b) => b.amount - a.amount || natural(a.parts.join(" "), b.parts.join(" ")));
       const sum = entries.reduce((total, entry) => total + entry.amount, 0);
-      entries.sort((a, b) => b.amount - a.amount);
-      const columns = [keys.brand && ["brand", "Brand"], keys.category && ["category", "Category"], keys.sub && ["sub", "Sub-category"]].filter(Boolean);
-      const body = entries.map(entry => `<tr>${columns.map(([key]) => `<td>${key === "brand" ? `<strong>${escapeHTML(entry[key])}</strong>` : escapeHTML(entry[key])}</td>`).join("")}<td>${entry.qty}</td><td>${formatMoney(entry.amount)}</td><td>${percent(entry.amount, sum, 2)}</td></tr>`).join("");
-      return `<table class="connected-table"><thead><tr>${columns.map(([, label]) => `<th>${escapeHTML(label)}</th>`).join("")}<th>Qty</th><th>Sales</th><th>Share</th></tr></thead><tbody>${body || `<tr><td colspan="${columns.length + 3}">No sales.</td></tr>`}</tbody></table>`;
+      const row = entry => `<tr${canDrill ? ` class="sale-summary-row" tabindex="0" data-breakdown-drill="${escapeHTML(entry.parts[0])}" aria-label="${escapeHTML(`View ${brand === null ? "categories" : "sub-categories"} for ${entry.parts[0]}`)}"` : ""}>
+        ${entry.parts.map(value => `<td>${escapeHTML(value)}</td>`).join("")}<td>${entry.qty}</td><td>${formatMoney(entry.amount)}</td><td>${percent(entry.amount, sum, 2)}</td></tr>`;
+      return tableBlock(rankingKey, [...keys.map(key => labels[key]), "Qty", "Sales", "Share"], entries, row, "No sales match these filters.", detailPageSize);
     };
-    const groupOptions = [["all", showBrand ? "Brand, category and sub-category" : "Category and sub-category"], ...(showBrand ? [["brand", "Brand only"]] : []), ["category", "Category only"], ["sub", "Sub-category only"]];
-    const render = () => {
+    const renderLines = () => tableBlock(linesKey, ["Date", "Invoice", "Brand", "Category", "Sub-category", "Product", "Qty", "Amount"],
+      rows().sort((a, b) => String(b.sale.sold_on).localeCompare(String(a.sale.sold_on))),
+      entry => {
+        const { sale, line } = entry;
+        return `<tr class="sale-summary-row" data-sale-details="${escapeHTML(sale.id)}" tabindex="0" aria-label="View invoice ${escapeHTML(sale.invoice_number)}"><td>${escapeHTML(sale.sold_on)}</td><td><strong>${escapeHTML(sale.invoice_number)}</strong></td><td>${escapeHTML(line.brand)}</td><td>${escapeHTML(line.category || "—")}</td><td>${escapeHTML(line.sub_category || "—")}</td><td>${escapeHTML(line.model_description)}</td><td>${escapeHTML(line.quantity)}</td><td>${formatMoney(amountOf(entry))}</td></tr>`;
+      }, "No sales match these filters.", detailPageSize);
+    const render = (focusRanking = false) => {
       const list = rows();
-      const total = list.reduce((sum, { line }) => sum + window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), 0);
-      const lineRows = list.slice().sort((a, b) => String(b.sale.sold_on).localeCompare(String(a.sale.sold_on)))
-        .map(({ sale, line }) => `<tr class="sale-summary-row" data-sale-details="${escapeHTML(sale.id)}" tabindex="0" aria-label="View invoice ${escapeHTML(sale.invoice_number)}"><td>${escapeHTML(sale.sold_on)}</td><td><strong>${escapeHTML(sale.invoice_number)}</strong></td><td>${escapeHTML(line.brand)}</td><td>${escapeHTML(line.category || "—")}</td><td>${escapeHTML(line.sub_category || "—")}</td><td>${escapeHTML(line.model_description)}</td><td>${escapeHTML(line.quantity)}</td><td>${formatMoney(window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis))}</td></tr>`).join("");
-      root.querySelector("#ps-detail").innerHTML = `<p class="dlg-intro">${escapeHTML(intro)}</p><p class="an-note">${escapeHTML(salesBasisNote())}</p>
-        <div class="rank-filters">
-        <label class="field"><span>Group by</span><select data-group>${groupOptions.map(([value, label]) => `<option value="${value}" ${state.group === value ? "selected" : ""}>${escapeHTML(label)}</option>`).join("")}</select></label></div>
-        <p class="ps-total"><span>${list.length} line${list.length === 1 ? "" : "s"}</span> <strong>${formatMoney(total)}</strong></p>
-        <div class="connected-table-wrap ps-sum">${breakdown(list)}</div>
-        <div class="connected-table-wrap ps-lines"><table class="connected-table"><thead><tr><th>Date</th><th>Invoice</th><th>Brand</th><th>Category</th><th>Sub-category</th><th>Product</th><th>Qty</th><th>Amount</th></tr></thead><tbody>${lineRows || '<tr><td colspan="8">No sales match these filters.</td></tr>'}</tbody></table></div>`;
+      const heading = category !== null ? `${brand} · ${category} · Sub-category ranking` : brand !== null ? `${brand} · Category ranking` : title;
+      root.querySelector("h2").textContent = heading;
+      back.hidden = brand === null;
+      back.textContent = category === null ? "Back to brands" : "Back to categories";
+      root.querySelector("[data-breakdown-total]").innerHTML = `<span>${list.length} line${list.length === 1 ? "" : "s"}</span>
+        <strong>${formatMoney(list.reduce((sum, entry) => sum + amountOf(entry), 0))}</strong>`;
+      rankingHost.innerHTML = renderRanking();
+      linesHost.innerHTML = renderLines();
+      if (focusRanking) rankingHost.querySelector("th button")?.focus({ preventScroll: true });
     };
+    bindModalTable(rankingHost, renderRanking);
+    bindModalTable(linesHost, renderLines);
+    const drill = event => {
+      const row = event.target.closest("[data-breakdown-drill]");
+      if (!row || (event.type === "keydown" && !["Enter", " "].includes(event.key))) return;
+      event.preventDefault();
+      if (brand === null) brand = row.dataset.breakdownDrill;
+      else category = row.dataset.breakdownDrill;
+      resetTables();
+      render(true);
+    };
+    rankingHost.addEventListener("click", drill);
+    rankingHost.addEventListener("keydown", drill);
+    root.querySelector(".dlg-close").addEventListener("click", closeModal);
+    back.addEventListener("click", () => {
+      if (category !== null) category = null;
+      else brand = null;
+      resetTables();
+      render(true);
+    });
     root.addEventListener("pointerdown", event => {
       if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
     });
     root.addEventListener("input", event => {
       if (!event.target.matches("[data-group]")) return;
-      state.group = event.target.value;
+      group = event.target.value;
+      brand = category = null;
+      resetTables();
       render();
     });
     root.querySelector("#ps-detail-export").addEventListener("click", () => {
       try {
         const header = ["Sale date", "Invoice", "Customer", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment", "City / town", "Barangay", "Serial numbers", "Sales code", "PS name"];
-        const data = itemizedSaleLines(rows()).map(({ sale, line, serial }) => [sale.sold_on, sale.invoice_number, sale.customer_name, line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), sale.payment_mode || "", sale.city || "", sale.barangay || "", serial, ...exportPsIdentity(sale)]);
+        const data = itemizedSaleLines(tableStore[linesKey].items).map(({ sale, line, serial }) => [sale.sold_on, sale.invoice_number, sale.customer_name, line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), sale.payment_mode || "", sale.city || "", sale.barangay || "", serial, ...exportPsIdentity(sale)]);
         exportWorkbook([{ name: sheet, rows: [header, ...data] }], `${fileBase}-${localISODate()}`);
       } catch (error) { exportError(error); }
     });
