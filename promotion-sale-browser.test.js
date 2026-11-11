@@ -42,7 +42,7 @@ test("promotion sales show one price, actual products and stock protection on de
                 components:[{barcode:product.barcode,quantity:5,free:false},{barcode:product.barcode,quantity:1,free:true}]});
               return product.barcode;
             },
-            openRegular: (missingPrice = false) => {
+            openRegular: (missingPrice = false, duplicate = false) => {
               const product = saleProducts().find(item => item.srp != null);
               const other = saleProducts().find(item => item.srp != null && item.barcode !== product?.barcode);
               liveData.inventoryStock = [{branch_id:currentProfile.branch_id,barcode:product.barcode,quantity:10,serialized:false},
@@ -54,6 +54,13 @@ test("promotion sales show one price, actual products and stock protection on de
                 tag_price:missingPrice ? null : 99.50,memo_srp:120,source_name:"fixture.pdf",source_page:1,source_excerpt:"BUY5 GET1",
                 valid_from:"2026-01-01",valid_to:"2026-12-31",price_conflict:false,
                 components:[{barcode:product.barcode,quantity:5,free:false},{barcode:product.barcode,quantity:1,free:true}]}]});
+              if (duplicate) {
+                const original = fetchAllFrom;
+                fetchAllFrom = async () => {
+                  const result = await original();
+                  return {...result,data:[...result.data,{...result.data[1],id:"fixture-other",tag_price:109.5,source_name:"other-offer.pdf"}]};
+                };
+              }
               openSaleModal();
               return product.barcode;
             },
@@ -160,6 +167,23 @@ test("promotion sales show one price, actual products and stock protection on de
       assert.match(await dialog.locator("[data-sale-promotion-status]").textContent(), /no saved selling price/i);
       await dialog.locator('[name="bundle_price"]').fill("3479");
       assert.match(await dialog.locator("#sale-total").textContent(), /3,479/);
+      await page.evaluate(() => window.promotionSaleTest.openRegular(false, true));
+      dialog = page.getByRole("dialog", { name: "Record a sale", exact: true });
+      await dialog.locator('[name="product"]').fill("65433");
+      await dialog.locator('[name="product"]').dispatchEvent("change");
+      assert.equal(await dialog.locator("[data-promotion-header]").count(), 0);
+      assert.equal(await dialog.locator('[name="product"]').evaluate(input => input.checkValidity()), false);
+      assert.match(await dialog.locator("[data-sale-promotion-status]").textContent(), /Choose a specific promotion/);
+      const choices = await dialog.locator("#sale-products option").evaluateAll(options => options.map(option => option.value));
+      const chosen = choices.find(value => value.includes("other-offer.pdf"));
+      assert.ok(chosen);
+      await dialog.locator('[name="product"]').fill(chosen);
+      await dialog.locator('[name="product"]').dispatchEvent("change");
+      await dialog.locator("[data-promotion-header]").waitFor();
+      assert.equal(await dialog.locator('[name="bundle_price"]').inputValue(), "109.5");
+      assert.equal(await dialog.locator('[name="quantity"]').inputValue(), "6");
+      await dialog.locator('[name="bundle_price"]').fill("105");
+      assert.match(await dialog.locator("#sale-total").textContent(), /105/);
       assert.deepEqual(errors, []);
       await page.close();
     }
