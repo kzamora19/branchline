@@ -54,6 +54,24 @@ test("direct buy/get components distinguish paid and free units and installation
   assert.ok(result.every(value => value.ready));
 });
 
+test("bundle 65138 uses the exact printed cooker model when two barcodes differ by a hyphen", async () => {
+  const { preparePromotionImport } = await import("./import-engine/promotion-import.mjs");
+  const row = { barcode: "65138", description: "TOUGH MAMA BUNDLE NRC1M RICE COOKER & NTMGS-S3CTD GAS STOVE",
+    brand: "TOUGH MAMA", category: "BUNDLE", remarks: "", sourceColumns: {}, tagPrice: 1749, warnings: [] };
+  const catalog = [
+    { barcode: "36639", brand: "TOUGH MAMA", model_description: "TOUGH MAMA RICE COOKER NRC-1M", srp: 1149 },
+    { barcode: "64025", brand: "TOUGH MAMA", model_description: "TOUGH MAMA RICE COOKER NRC1M 6-CUP", srp: 1149 },
+    { barcode: "44895", brand: "TOUGH MAMA", model_description: "TOUGH MAMA GAS STOVE NTMGS-S3CTD 2 BURNER", srp: 1199 },
+  ];
+  const [prepared] = preparePromotionImport([row], catalog, []);
+  assert.equal(prepared.ready, true);
+  assert.deepEqual(prepared.components.map(part => [part.barcode, part.quantity, part.free]), [
+    ["00064025", 1, false], ["00044895", 1, false],
+  ]);
+  const samePrintedModel = { ...catalog[1], barcode: "77777" };
+  assert.equal(preparePromotionImport([row], [...catalog, samePrintedModel], [])[0].ready, false);
+});
+
 test("all six original PDFs retain their complete row counts and separate printed price columns", {
   skip: !process.env.PROMOTION_SOURCE_DIR || !process.env.BRANCHLINE_PDFJS,
 }, async () => {
