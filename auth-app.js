@@ -3098,7 +3098,7 @@
         district: true,
         branch: true,
         period: true,
-        actions: `${isPs ? '<button class="button button-primary record-sale-floating" type="button" data-open="sale">+ Record sale</button>' : ""}${isPs && !demoStore ? '<button class="button button-outline" type="button" data-open="promotion-sale">Record promotion sale</button>' : ""}${["ps","manager","district_manager","admin"].includes(currentProfile.role) ? '<button class="button button-outline" type="button" data-open="sales-return">&minus; Sales return</button>' : ""}`,
+        actions: `${isPs ? '<button class="button button-primary record-sale-floating" type="button" data-open="sale">+ Record sale</button>' : ""}${["ps","manager","district_manager","admin"].includes(currentProfile.role) ? '<button class="button button-outline" type="button" data-open="sales-return">&minus; Sales return</button>' : ""}`,
       }),
       () => {
         const ids = scopeBranchIds();
@@ -4619,9 +4619,23 @@
     });
   }
 
+  function promotionChoiceLabel(item) {
+    const price = item.tag_price == null ? "Price to be entered" : formatMoney(item.tag_price);
+    return `PROMOTION · ${item.barcode} · ${item.description} · ${price} · ${item.source_name}, p. ${item.source_page} · ${item.id}`;
+  }
+
   function openSaleModal(sale, promotion = null) {
+    const promotionGroups = new Map();
+    let nextPromotionGroup = 0;
+    const promotionHeader = (item, group) => `<div data-promotion-header="${group}" class="field">
+      <strong>Promotion barcode ${escapeHTML(item.barcode)} · ${escapeHTML(item.description)}</strong>
+      <span>${item.tag_price == null ? "Enter the amount charged." : `Memo offer ${escapeHTML(formatMoney(item.tag_price))}`}</span>
+      <input name="bundle_price" aria-label="Bundle selling price (PHP)" placeholder="Enter bundle selling price (PHP)" type="number" min="0" step="0.01" required>
+      ${!item.valid_from || !item.valid_to || item.price_conflict ? '<label class="check-row"><input type="checkbox" name="confirm_promotion_warning" required> I checked the incomplete dates or conflicting prices against the source.</label>' : ""}
+      <button type="button" class="button button-outline button-small" data-remove-promotion>Remove bundle</button></div>`;
     let lines = sale ? linesForSale(sale.id) : [{}];
     if (promotion) {
+      promotionGroups.set(++nextPromotionGroup, promotion);
       const quantities = new Map();
       for (const component of promotion.components) quantities.set(component.barcode, (quantities.get(component.barcode) || 0) + component.quantity);
       lines = [...quantities].map(([barcode, quantity]) => {
@@ -4663,20 +4677,19 @@
         <datalist id="sale-products"></datalist>
         <label class="check-row sale-unlisted-toggle"><input type="checkbox" name="show_unavailable"> Show unavailable products for manual late-sale serial entry</label>
         <p data-sale-promotion-status role="status"></p>
-        ${promotion ? `<div data-promotion-header class="field"><strong>${escapeHTML(promotion.description)} · ${escapeHTML(promotion.barcode)}</strong>
-          <input name="bundle_price" aria-label="Bundle selling price (PHP)" placeholder="Enter bundle selling price (PHP)" type="number" min="0" step="0.01" required value="${escapeHTML(promotion.tag_price ?? "")}">
-          ${!promotion.valid_from || !promotion.valid_to || promotion.price_conflict ? '<label class="check-row"><input type="checkbox" name="confirm_promotion_warning" required> I checked the incomplete dates or conflicting prices against the source.</label>' : ""}</div>` : ""}
+        ${promotion ? promotionHeader(promotion, nextPromotionGroup) : ""}
         <div id="sale-rows">${lines.map(saleLineRow).join("")}</div>
         <div class="sale-footer"><span class="sale-footer-actions"><button class="button button-outline button-small" type="button" data-add-line>+ Add product line</button></span><strong>Sale total: <span id="sale-total">${formatMoney(lines.reduce((sum, line) => sum + Number(line.selling_price || 0) * Number(line.quantity || 0), 0))}</span></strong></div>
         ${sale ? '<label class="check-row"><input name="reconcile" type="checkbox"> Apply quantity/serial corrections to current inventory if this sale was included in a replacement snapshot. Prices and customer corrections do not require this.</label>' : ""}`,
       onReady: form => {
-        if (promotion) form.querySelectorAll(".sale-row").forEach(row => {
-          row.dataset.promotionComponent = "true";
+        const markPromotionComponent = (row, group) => {
+          row.dataset.promotionGroup = group;
           for (const name of ["product", "srp", "price", "quantity"]) row.querySelector(`[name="${name}"]`).readOnly = true;
           for (const name of ["price", "linetotal"]) row.querySelector(`[name="${name}"]`).closest("label").hidden = true;
           row.querySelector('[name="product"]').closest("label").querySelector("span").hidden = true;
           row.querySelector("[data-remove-line]").hidden = true;
-        });
+        };
+        if (promotion) form.querySelectorAll(".sale-row").forEach(row => markPromotionComponent(row, nextPromotionGroup));
         const syncDelivery = () => {
           const delivery = form.elements.fulfillment.value === "delivery";
           form.querySelector(".delivery-fee-fields").hidden = !delivery;
@@ -4720,7 +4733,7 @@
             const product = resolve(row.querySelector('[name="product"]').value);
             const qty = Number(row.querySelector('[name="quantity"]').value);
             if (!product || !Number.isInteger(qty) || qty < 1) return;
-            const group = groups.get(product.barcode) || { barcode: product.barcode, label: `${product.brand} · ${product.model_description}`, qty: 0 };
+            const group = groups.get(product.barcode) || { barcode: product.barcode, row, product, qty: 0 };
             group.qty += qty;
             groups.set(product.barcode, group);
           });
@@ -4733,11 +4746,19 @@
         const serialOptions = (barcode, selected) => `<option value="">Select serial for this sale...</option>${inventorySaleUnitsFor(saleBranch, barcode, sale?.id)
           .map(item => `<option value="${escapeHTML(item.serial)}" ${item.serial === selected ? "selected" : ""}>${escapeHTML(item.serial)} · ${escapeHTML(item.received_on || "date unknown")}${item.status === "absent" ? " · Not in latest inventory" : ""}</option>`).join("")}`;
         const showSerialFields = () => {
+          const groups = new Map(saleGroups().map(group => [group.barcode, group]));
           form.querySelectorAll(".sale-row").forEach(row => {
             const product = resolve(row.querySelector('[name="product"]').value);
             const stock = product && inventoryStockFor(saleBranch, product.barcode);
-            const qty = Number(row.querySelector('[name="quantity"]').value);
+            const group = groups.get(product?.barcode);
+            const qty = group?.qty || 0;
             const host = row.querySelector(".sale-inventory-serials");
+            host.hidden = Boolean(group && group.row !== row);
+            if (host.hidden) {
+              host.replaceChildren();
+              delete host.dataset.key;
+              return;
+            }
             const selected = serials.get(product?.barcode) || [];
             const manual = manualModes.has(product?.barcode);
             const key = `${product?.barcode}:${qty}:${manual}:${selected.join("|")}`;
@@ -4763,7 +4784,7 @@
         const notifyAvailability = (row, force = false) => {
           const product = resolve(row.querySelector('[name="product"]').value);
           if (!product) { delete row.dataset.stockNotice; return; }
-          const quantity = Number(row.querySelector('[name="quantity"]').value);
+          const quantity = saleGroups().find(group => group.barcode === product.barcode)?.qty;
           if (!Number.isInteger(quantity) || quantity < 1) return;
           const state = stockState(product, quantity);
           const notice = `${product.barcode}:${quantity}:${state.warning}`;
@@ -4784,15 +4805,11 @@
           pop.querySelector("button").focus();
         };
         form.addEventListener("submit", event => {
-          const blocked = [...form.querySelectorAll(".sale-row")].find(row => {
-            const product = resolve(row.querySelector('[name="product"]').value);
-            const quantity = Number(row.querySelector('[name="quantity"]').value);
-            return product && Number.isInteger(quantity) && quantity > 0 && stockState(product, quantity).blocked;
-          });
+          const blocked = saleGroups().find(group => stockState(group.product, group.qty).blocked);
           if (!blocked) return;
           event.preventDefault();
           event.stopImmediatePropagation();
-          notifyAvailability(blocked, true);
+          notifyAvailability(blocked.row, true);
         }, { capture: true });
         let places = [];
         let placeCode = "";
@@ -4833,7 +4850,7 @@
           const button = event.target.closest("[data-select-serials]");
           if (!button) return;
           const barcode = button.dataset.selectSerials;
-          const qty = Number(button.closest(".sale-row").querySelector('[name="quantity"]').value);
+          const qty = saleGroups().find(group => group.barcode === barcode).qty;
           const pop = document.createElement("div");
           pop.className = "serial-pop";
           pop.innerHTML = `<div class="serial-card" role="dialog" aria-modal="true" aria-label="Choose available serials"><h3>${escapeHTML(barcode)} · choose ${qty} serials</h3>
@@ -4857,6 +4874,7 @@
             ? (serials.get(group.barcode) || []).slice(0, group.qty).filter(Boolean).map(serial => ({ barcode: group.barcode, serial,
               manual: manualModes.has(group.barcode) && !inventorySaleUnitsFor(saleBranch, group.barcode, sale?.id).some(unit => unit.serial === serial) })) : []);
         form.manualModes = manualModes;
+        form.saleGroups = saleGroups;
         const enableCurrencyInput = row => {
           ["price", "srp"].forEach(name => {
             const input = row.querySelector(`[name="${name}"]`);
@@ -4878,28 +4896,38 @@
               row.querySelector('[name="srp"]').value = product && product.srp != null ? formatCurrencyInput(product.srp) : "";
             }
             const price = parseCurrency(row.querySelector('[name="price"]').value);
-            const total = price === null ? 0 : price * Number(row.querySelector('[name="quantity"]').value || 0);
+            const total = !product || price === null ? 0 : price * Number(row.querySelector('[name="quantity"]').value || 0);
             row.querySelector('[name="linetotal"]').value = price !== null && total ? formatMoney(total) : "";
             grand += total;
           });
-          const bundlePrice = promotion ? parseCurrency(form.elements.bundle_price.value) : 0;
-          form.querySelector("#sale-total").textContent = bundlePrice === null
-            ? "Enter bundle price" : formatMoney(grand + bundlePrice);
+          const bundlePrices = [...form.querySelectorAll('[name="bundle_price"]')].map(input => parseCurrency(input.value));
+          form.querySelector("#sale-total").textContent = bundlePrices.includes(null)
+            ? "Enter bundle price" : formatMoney(grand + bundlePrices.reduce((sum, price) => sum + price, 0));
           showSerialFields();
         };
         let availablePromotions = [];
-        const promotionLabel = item => `PROMOTION · ${item.barcode} · ${item.description}`;
+        const promotionLabel = promotionChoiceLabel;
         const applicablePromotions = () => availablePromotions.filter(item => {
           const date = form.elements.date.value;
           return !date || ((!item.valid_from || date >= item.valid_from) && (!item.valid_to || date <= item.valid_to));
         });
-        if (!sale && !promotion && !demoStore && currentProfile?.role === "ps") {
+        const promotionChoices = value => {
+          if (!value) return [];
+          const choices = applicablePromotions();
+          const selected = choices.find(item => promotionLabel(item).toLowerCase() === value.toLowerCase());
+          if (selected) return [selected];
+          if (resolve(value)) return [];
+          return choices.filter(item => item.barcode === normBarcode(value));
+        };
+        if (!sale && !demoStore && currentProfile?.role === "ps") {
           const lookupClient = client, profileId = currentProfile.id, branch = currentProfile.branch_id;
           fetchAllFrom(lookupClient, "reviewed_promotions", "*", [["reviewed_at", false], ["id", true]],
             query => query.eq("branch_id", branch).is("revoked_at", null)).then(result => {
             if (result.error) throw result.error;
             if (client !== lookupClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen the sale.");
             availablePromotions = result.data;
+            const activeInput = form.ownerDocument.activeElement;
+            if (form.contains(activeInput) && activeInput.name === "product") activeInput.dispatchEvent(new Event("input", { bubbles: true }));
           }).catch(error => {
             console.error("Promotion search failed.", error);
             form.querySelector("[data-sale-promotion-status]").textContent = `Unable to load promotion barcodes: ${friendlyError(error)}`;
@@ -4907,7 +4935,7 @@
         }
         const activatePromotion = (item, row) => {
           const message = form.querySelector("[data-sale-promotion-status]");
-          if (promotion) { message.textContent = "Only one bundle can be added to a sale. Use a separate invoice for another bundle."; return; }
+          if (promotionGroups.size >= 50) throw new Error("An invoice can contain up to 50 bundles.");
           const quantities = new Map();
           for (const part of item.components) quantities.set(part.barcode, (quantities.get(part.barcode) || 0) + part.quantity);
           const components = [...quantities].map(([barcode, quantity]) => {
@@ -4917,27 +4945,19 @@
           });
           if (!components.length) throw new Error("This promotion has no reviewed products.");
           if (row.dataset.outdoorRow) form.querySelector(`[data-outdoor-of="${row.dataset.outdoorRow}"]`)?.remove();
-          promotion = item;
-          row.insertAdjacentHTML("beforebegin", `<div data-promotion-header class="field"><strong>${escapeHTML(promotionLabel(item))}</strong>
-            <input name="bundle_price" aria-label="Bundle selling price (PHP)" placeholder="Enter bundle selling price (PHP)" type="number" min="0" step="0.01" required value="${escapeHTML(item.tag_price ?? "")}">
-            ${!item.valid_from || !item.valid_to || item.price_conflict ? '<label class="check-row"><input type="checkbox" name="confirm_promotion_warning" required> I checked the incomplete dates or conflicting prices against the source.</label>' : ""}
-            <button type="button" class="button button-outline button-small" data-remove-promotion>Remove bundle</button></div>${components.map(saleLineRow).join("")}`);
-          const header = row.previousElementSibling;
+          const group = ++nextPromotionGroup;
+          promotionGroups.set(group, item);
+          row.dataset.promotionGroup = group;
+          row.insertAdjacentHTML("beforebegin", promotionHeader(item, group) + components.map(saleLineRow).join(""));
           const inserted = [];
-          let previous = header;
+          let previous = row.previousElementSibling;
           while (previous && !previous.hasAttribute("data-promotion-header")) { inserted.unshift(previous); previous = previous.previousElementSibling; }
           row.remove();
           for (const component of inserted) {
-            component.dataset.promotionComponent = "true";
-            for (const name of ["product", "srp", "price", "quantity"]) component.querySelector(`[name="${name}"]`).readOnly = true;
-            for (const name of ["price", "linetotal"]) component.querySelector(`[name="${name}"]`).closest("label").hidden = true;
-            component.querySelector('[name="product"]').closest("label").querySelector("span").hidden = true;
-            component.querySelector("[data-remove-line]").hidden = true;
+            markPromotionComponent(component, group);
             enableCurrencyInput(component);
           }
-          message.textContent = item.tag_price == null
-            ? "This older promotion has no saved selling price. Enter the memo price and ask a manager to verify its bundle products and quantities."
-            : "";
+          message.textContent = "";
           recalc();
         };
         let linkSeq = 0;
@@ -4974,6 +4994,7 @@
             return;
           }
           if (event.target.name === "product") {
+            event.target.setCustomValidity("");
             const search = event.target.value.trim().toLowerCase();
             const promoOptions = search ? applicablePromotions().filter(item => `${item.barcode} ${item.description}`.toLowerCase().includes(search)
               || item.barcode === normBarcode(search)).slice(0, 30) : [];
@@ -4981,7 +5002,9 @@
               productSuggestions(event.target.value, item => form.elements.show_unavailable.checked || !stockState(item, 1).blocked)
                 .map(item => `<option value="${escapeHTML(productLabel(item))}"></option>`).join("");
             const row = event.target.closest(".sale-row");
-            const exactPromotion = applicablePromotions().some(item => promotionLabel(item).toLowerCase() === search || item.barcode === normBarcode(search));
+            const exact = promotionChoices(search);
+            if (exact.length > 1) event.target.setCustomValidity("Choose a specific promotion from the suggestions, including its price and source.");
+            const exactPromotion = exact.length > 0;
             if (!exactPromotion) {
               syncOutdoor(row);
               notifyAvailability(row);
@@ -4999,22 +5022,31 @@
         });
         form.addEventListener("change", event => {
           if (event.target.name === "product" && !sale) {
+            const row = event.target.closest(".sale-row");
+            if (!row || row.dataset.promotionGroup) return;
             const value = event.target.value.trim();
-            const exact = applicablePromotions().filter(item => promotionLabel(item).toLowerCase() === value.toLowerCase()
-              || item.barcode === normBarcode(value));
+            const exact = promotionChoices(value);
             if (exact.length === 1) {
-              try { activatePromotion(exact[0], event.target.closest(".sale-row")); }
-              catch (error) { form.querySelector("[data-sale-promotion-status]").textContent = error.message; }
+              try { activatePromotion(exact[0], row); }
+              catch (error) {
+                event.target.setCustomValidity(error.message);
+                form.querySelector("[data-sale-promotion-status]").textContent = error.message;
+                recalc();
+              }
               return;
             }
-            if (exact.length > 1) form.querySelector("[data-sale-promotion-status]").textContent = "Multiple promotions use this barcode. Ask a manager to retire the incorrect offer.";
+            if (exact.length > 1) {
+              const warning = "Choose a specific promotion from the suggestions, including its price and source.";
+              event.target.setCustomValidity(warning);
+              form.querySelector("[data-sale-promotion-status]").textContent = warning;
+            }
           }
           if (["product", "quantity"].includes(event.target.name)) notifyAvailability(event.target.closest(".sale-row"));
         });
         form.addEventListener("keydown", event => {
           if (event.key !== "Enter" || event.target.name !== "product" || sale) return;
           const value = event.target.value.trim();
-          if (applicablePromotions().some(item => promotionLabel(item).toLowerCase() === value.toLowerCase() || item.barcode === normBarcode(value))) {
+          if (promotionChoices(value).length) {
             event.preventDefault();
             event.target.dispatchEvent(new Event("change", { bubbles: true }));
           }
@@ -5025,10 +5057,13 @@
           }
         });
         form.addEventListener("click", event => {
-          if (event.target.closest("[data-remove-promotion]")) {
-            form.querySelectorAll('[data-promotion-component="true"]').forEach(row => row.remove());
-            form.querySelector("[data-promotion-header]").remove();
-            promotion = null;
+          const bundleRemove = event.target.closest("[data-remove-promotion]");
+          if (bundleRemove) {
+            const header = bundleRemove.closest("[data-promotion-header]");
+            const group = header.dataset.promotionHeader;
+            form.querySelectorAll(`[data-promotion-group="${group}"]`).forEach(row => row.remove());
+            promotionGroups.delete(Number(group));
+            header.remove();
             if (!form.querySelector(".sale-row")) {
               form.querySelector("#sale-rows").insertAdjacentHTML("beforeend", saleLineRow());
               enableCurrencyInput(form.querySelector(".sale-row:last-child"));
@@ -5069,15 +5104,16 @@
             srp,
             selling_price: parseCurrency(row.querySelector('[name="price"]').value),
             quantity: Number(row.querySelector('[name="quantity"]').value),
-            ...(promotion ? { promotion_component: row.dataset.promotionComponent === "true" } : {}),
+            promotion_component: Boolean(row.dataset.promotionGroup),
           };
         });
         if (rows.some(line => line.selling_price === null || line.selling_price < 0 || !Number.isInteger(line.quantity) || line.quantity < 1)) {
           throw new Error("Enter a valid non-negative price and a whole-number quantity for each product.");
         }
-        if (new Set(rows.map(row => row.barcode)).size !== rows.length) throw new Error("Use one item line per barcode and increase its quantity instead of repeating the product.");
+        const regularLines = rows.filter(row => !row.promotion_component).map(({ promotion_component, ...row }) => row);
+        if (new Set(regularLines.map(row => row.barcode)).size !== regularLines.length) throw new Error("Use one item line per barcode and increase its quantity instead of repeating the product.");
         if (liveData.inventoryError) throw new Error(liveData.inventoryError);
-        for (const row of rows) {
+        for (const row of form.saleGroups().map(group => ({ barcode: group.barcode, quantity: group.qty }))) {
           if (form.manualModes.has(row.barcode)) {
             const selected = form.serialPayload().filter(unit => unit.barcode === row.barcode);
             if (selected.length !== row.quantity || new Set(selected.map(unit => unit.serial.toLowerCase())).size !== row.quantity) throw new Error("Enter one different serial number for each unit and confirm adding missing serials.");
@@ -5099,17 +5135,26 @@
           p_barangay: uppercaseEntry(form.elements.barangay.value),
           p_serials: form.serialPayload(),
         };
-        if (promotion) {
-          const bundleTotal = parseCurrency(form.elements.bundle_price.value);
-          if (bundleTotal === null || bundleTotal < 0) throw new Error("Enter a valid non-negative bundle selling price.");
-          mustRpc(await client.rpc("save_promotion_sale", {
-            ...common, p_promotion: promotion.id, p_bundle_total: bundleTotal,
-            p_acknowledge_warnings: Boolean(form.elements.confirm_promotion_warning?.checked),
-            p_regular_lines: rows.filter(row => !row.promotion_component).map(({ promotion_component, ...row }) => row),
-          }));
+        if (promotionGroups.size) {
+          const bundles = [...form.querySelectorAll("[data-promotion-header]")].map(header => {
+            const item = promotionGroups.get(Number(header.dataset.promotionHeader));
+            const total = parseCurrency(header.querySelector('[name="bundle_price"]').value);
+            if (total === null || total < 0) throw new Error("Enter a valid non-negative selling price for each bundle.");
+            return { promotion: item.id, bundle_total: total,
+              acknowledge_warnings: Boolean(header.querySelector('[name="confirm_promotion_warning"]')?.checked) };
+          });
+          if (bundles.length === 1) {
+            const [bundle] = bundles;
+            mustRpc(await client.rpc("save_promotion_sale", {
+              ...common, p_promotion: bundle.promotion, p_bundle_total: bundle.bundle_total,
+              p_acknowledge_warnings: bundle.acknowledge_warnings, p_regular_lines: regularLines,
+            }));
+          } else {
+            mustRpc(await client.rpc("save_promotion_sales", { ...common, p_bundles: bundles, p_regular_lines: regularLines }));
+          }
         } else {
           mustRpc(await client.rpc("save_sale_with_delivery", {
-            ...common, p_lines: rows, p_sale_id: sale ? sale.id : null,
+            ...common, p_lines: regularLines, p_sale_id: sale ? sale.id : null,
             p_reconcile: Boolean(form.elements.reconcile?.checked),
           }));
         }
