@@ -5,9 +5,9 @@ function normalizeBarcode(value) {
   return /^\d{1,7}$/.test(code) ? code.padStart(8, "0") : code;
 }
 
-function modelTokens(value) {
+function modelTokens(value, preserveHyphens = false) {
   return [...new Set((String(value || "").toUpperCase().match(/[A-Z0-9]+(?:-[A-Z0-9]+)*/g) || [])
-    .map(token => token.replace(/-/g, ""))
+    .map(token => preserveHyphens ? token : token.replace(/-/g, ""))
     .filter(token => token.length >= 4 && /[A-Z]/.test(token) && /\d/.test(token) &&
       !/^(?:BUY|GET|TAKE)\d+$|^\d+(?:MOS?|MONTHS?|HP|LITER|LITRE|INCH|FT)$/.test(token)))];
 }
@@ -29,7 +29,13 @@ function matchingModel(row, catalog) {
     const brand = String(product.brand || "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
     return mentionedBrands.has(brand);
   });
-  const selected = mentionedBrands.size ? branded : matches;
+  let selected = mentionedBrands.size ? branded : matches;
+  if (selected.length > 1 && mentionedBrands.size === 1) {
+    // The catalog can carry different barcodes for models such as NRC1M and NRC-1M.
+    const printedModels = new Set(modelTokens(description, true));
+    selected = selected.filter(product => modelTokens(product.model_description, true)
+      .some(model => printedModels.has(model)));
+  }
   if (selected.length !== 1) return null;
   const product = selected[0];
   if (!normalizeBarcode(product.barcode)) return null;
