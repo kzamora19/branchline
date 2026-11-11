@@ -250,19 +250,14 @@ export function openPromotionReview(env) {
             }
             for (const item of branchRows) {
               if (revision !== token) throw new Error("The import changed. Check the remaining rows again.");
-              const params = {
+              await rpc("import_new_priced_promotion", {
                 p_branch: branch, p_barcode: item.code, p_description: item.row.description,
                 p_valid_from: item.row.validFrom || null, p_valid_to: item.row.validTo || null,
                 p_price_conflict: false, p_source_name: item.row.sourceName,
                 p_source_page: item.row.sourcePage, p_source_excerpt: item.row.sourceExcerpt,
                 p_components: checked[item.candidateIndex].components,
                 p_memo_srp: item.row.memoSrp, p_tag_price: item.row.tagPrice,
-              };
-              if (item.row.sourceColumns) {
-                await rpc("import_source_priced_promotions", { p_branch: branch, p_offers: [params] });
-              } else {
-                await rpc("import_new_priced_promotion", params);
-              }
+              });
               item.ready = false;
               item.imported = true;
               item.reasons = ["Imported in this session."];
