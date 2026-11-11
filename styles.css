@@ -40,6 +40,7 @@
 .delivery-fee-fields input[name="dg_amount"]:disabled { display: none; }
 .manual-sale-serials { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
 .manual-sale-toggle, .sale-unlisted-toggle { margin: 8px 0; font-size: 11px; }
+[data-sale-promotion-status]:empty { position: absolute; margin: 0; }
 .manual-sale-serials input[data-manual-serial] { text-transform: none; }
 .delivery-fee-fields[hidden] { display: none; }
 * { box-sizing: border-box; }

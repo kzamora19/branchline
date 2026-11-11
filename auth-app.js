@@ -4895,13 +4895,11 @@
         });
         if (!sale && !promotion && !demoStore && currentProfile?.role === "ps") {
           const lookupClient = client, profileId = currentProfile.id, branch = currentProfile.branch_id;
-          form.querySelector("[data-sale-promotion-status]").textContent = "Loading promotion barcodes...";
           fetchAllFrom(lookupClient, "reviewed_promotions", "*", [["reviewed_at", false], ["id", true]],
             query => query.eq("branch_id", branch).is("revoked_at", null)).then(result => {
             if (result.error) throw result.error;
             if (client !== lookupClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen the sale.");
             availablePromotions = result.data;
-            form.querySelector("[data-sale-promotion-status]").textContent = "Promotion barcodes loaded. Select the promotion from product suggestions.";
           }).catch(error => {
             console.error("Promotion search failed.", error);
             form.querySelector("[data-sale-promotion-status]").textContent = `Unable to load promotion barcodes: ${friendlyError(error)}`;
