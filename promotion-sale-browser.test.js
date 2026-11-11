@@ -22,8 +22,8 @@ test("promotion sales show one price, actual products and stock protection on de
         const contentType = ({ ".js": "text/javascript", ".mjs": "text/javascript", ".html": "text/html", ".css": "text/css" })[path.extname(filename)] || "application/octet-stream";
         let body = fs.readFileSync(filename);
         if (path.basename(filename) === "auth-app.js") body = Buffer.from(body.toString().replace(
-          'if (!sale && !promotion && !demoStore && currentProfile?.role === "ps")',
-          'if (!sale && !promotion && currentProfile?.role === "ps")'
+          'if (!sale && !demoStore && currentProfile?.role === "ps")',
+          'if (!sale && currentProfile?.role === "ps")'
         ).replace("  function renderDemoControls() {", `
           window.promotionSaleTest = {
             capture: () => { window.promotionSaleCalls = []; client.rpc = async (name,args) => {
@@ -42,7 +42,7 @@ test("promotion sales show one price, actual products and stock protection on de
                 components:[{barcode:product.barcode,quantity:5,free:false},{barcode:product.barcode,quantity:1,free:true}]});
               return product.barcode;
             },
-            openRegular: (missingPrice = false, duplicate = false) => {
+            openRegular: (missingPrice = false, duplicate = false, secondBundle = false) => {
               const product = saleProducts().find(item => item.srp != null);
               const other = saleProducts().find(item => item.srp != null && item.barcode !== product?.barcode);
               liveData.inventoryStock = [{branch_id:currentProfile.branch_id,barcode:product.barcode,quantity:10,serialized:false},
@@ -59,6 +59,15 @@ test("promotion sales show one price, actual products and stock protection on de
                 fetchAllFrom = async () => {
                   const result = await original();
                   return {...result,data:[...result.data,{...result.data[1],id:"fixture-other",tag_price:109.5,source_name:"other-offer.pdf"}]};
+                };
+              }
+              if (secondBundle) {
+                const original = fetchAllFrom;
+                fetchAllFrom = async () => {
+                  const result = await original();
+                  return {...result,data:[...result.data,{...result.data[1],id:"fixture-second",barcode:"00065138",
+                    description:"Second bundle",tag_price:1749,components:[{barcode:product.barcode,quantity:1,free:false},
+                      {barcode:other.barcode,quantity:1,free:false}]}]};
                 };
               }
               openSaleModal();
@@ -184,6 +193,35 @@ test("promotion sales show one price, actual products and stock protection on de
       assert.equal(await dialog.locator('[name="quantity"]').inputValue(), "6");
       await dialog.locator('[name="bundle_price"]').fill("105");
       assert.match(await dialog.locator("#sale-total").textContent(), /105/);
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      await page.evaluate(() => window.promotionSaleTest.openRegular(false, false, true));
+      dialog = page.getByRole("dialog", { name: "Record a sale", exact: true });
+      const selectBundle = async code => {
+        const input = dialog.locator(".sale-row").last().locator('[name="product"]');
+        await input.fill(code);
+        await input.dispatchEvent("change");
+      };
+      await selectBundle("65433");
+      await dialog.locator("[data-add-line]").click();
+      await selectBundle("65138");
+      assert.equal(await dialog.locator("[data-promotion-header]").count(), 2);
+      assert.match(await dialog.locator("[data-promotion-header]").last().textContent(), /Promotion barcode 00065138/i);
+      assert.equal(await dialog.locator('.sale-row [name="code"]').evaluateAll(nodes => nodes.filter(node => node.value).length), 3);
+      assert.equal(await dialog.locator('.sale-inventory-serials:visible').count(), 2);
+      assert.match(await dialog.locator("#sale-total").textContent(), /1,848\.50/);
+      await page.evaluate(() => window.promotionSaleTest.capture());
+      await dialog.locator('[name="customer"]').fill("Test customer");
+      await dialog.locator('[name="invoice"]').fill("TEST-TWO-BUNDLES");
+      await dialog.locator('[name="city"]').fill("Santiago");
+      await dialog.locator('[name="barangay"]').fill("Sample");
+      await dialog.locator('[name="fulfillment"]').selectOption("pickup");
+      await dialog.locator('[name="payment"]').selectOption(payment);
+      await dialog.getByRole("button", { name: "Save sale" }).click();
+      await page.waitForFunction(() => window.promotionSaleCalls.length > 0);
+      const [multiCall] = await page.evaluate(() => window.promotionSaleCalls);
+      assert.equal(multiCall.name, "save_promotion_sales");
+      assert.deepEqual(multiCall.args.p_bundles.map(bundle => [bundle.promotion, bundle.bundle_total]), [["fixture", 99.5], ["fixture-second", 1749]]);
+      assert.deepEqual(multiCall.args.p_regular_lines, []);
       assert.deepEqual(errors, []);
       await page.close();
     }
