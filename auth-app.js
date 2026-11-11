@@ -4574,6 +4574,11 @@
   }
 
   // Records a new sale, or corrects an existing one when `sale` is given.
+  function promotionChoiceLabel(item) {
+    const price = item.tag_price == null ? "Price to be entered" : formatMoney(item.tag_price);
+    return `PROMOTION · ${item.barcode} · ${item.description} · ${price} · ${item.source_name}, p. ${item.source_page} · ${item.id}`;
+  }
+
   function openPromotionSaleLookup() {
     if (demoStore || currentProfile?.role !== "ps") throw new Error("Promotion sales require a signed-in product specialist.");
     const lookupClient = client, profileId = currentProfile.id, branchId = currentProfile.branch_id;
@@ -4598,6 +4603,7 @@
             if (client !== lookupClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen promotion search.");
             matches = response.data;
             result.innerHTML = matches.map((item, index) => `<div class="field"><strong>${escapeHTML(item.description)}</strong>
+              <span>${escapeHTML(item.tag_price == null ? "Enter selling price when recording the sale." : "Suggested price: " + formatMoney(item.tag_price))}</span>
               <span>${escapeHTML(`${item.valid_from || "Start date unknown"} to ${item.valid_to || "End date unknown"} · ${item.source_name}, page ${item.source_page}`)}</span>
               <button type="button" class="button button-outline" data-use-promotion="${index}">Use this promotion</button></div>`).join("");
             status.textContent = matches.length ? "Check the offer and its date before choosing." : "No unretired reviewed promotion matches this barcode in your branch.";
@@ -4888,11 +4894,13 @@
           showSerialFields();
         };
         let availablePromotions = [];
-        const promotionLabel = item => `PROMOTION · ${item.barcode} · ${item.description}`;
+        const promotionLabel = promotionChoiceLabel;
         const applicablePromotions = () => availablePromotions.filter(item => {
           const date = form.elements.date.value;
           return !date || ((!item.valid_from || date >= item.valid_from) && (!item.valid_to || date <= item.valid_to));
         });
+        const promotionChoices = value => applicablePromotions().filter(item =>
+          promotionLabel(item).toLowerCase() === value.toLowerCase() || item.barcode === normBarcode(value));
         if (!sale && !promotion && !demoStore && currentProfile?.role === "ps") {
           const lookupClient = client, profileId = currentProfile.id, branch = currentProfile.branch_id;
           form.querySelector("[data-sale-promotion-status]").textContent = "Loading promotion barcodes...";
@@ -4976,6 +4984,7 @@
             return;
           }
           if (event.target.name === "product") {
+            event.target.setCustomValidity("");
             const search = event.target.value.trim().toLowerCase();
             const promoOptions = search ? applicablePromotions().filter(item => `${item.barcode} ${item.description}`.toLowerCase().includes(search)
               || item.barcode === normBarcode(search)).slice(0, 30) : [];
@@ -4983,7 +4992,9 @@
               productSuggestions(event.target.value, item => form.elements.show_unavailable.checked || !stockState(item, 1).blocked)
                 .map(item => `<option value="${escapeHTML(productLabel(item))}"></option>`).join("");
             const row = event.target.closest(".sale-row");
-            const exactPromotion = applicablePromotions().some(item => promotionLabel(item).toLowerCase() === search || item.barcode === normBarcode(search));
+            const exact = promotionChoices(search);
+            if (exact.length > 1) event.target.setCustomValidity("Choose a specific promotion from the suggestions, including its price and source.");
+            const exactPromotion = exact.length > 0;
             if (!exactPromotion) {
               syncOutdoor(row);
               notifyAvailability(row);
@@ -5002,21 +5013,24 @@
         form.addEventListener("change", event => {
           if (event.target.name === "product" && !sale) {
             const value = event.target.value.trim();
-            const exact = applicablePromotions().filter(item => promotionLabel(item).toLowerCase() === value.toLowerCase()
-              || item.barcode === normBarcode(value));
+            const exact = promotionChoices(value);
             if (exact.length === 1) {
               try { activatePromotion(exact[0], event.target.closest(".sale-row")); }
               catch (error) { form.querySelector("[data-sale-promotion-status]").textContent = error.message; }
               return;
             }
-            if (exact.length > 1) form.querySelector("[data-sale-promotion-status]").textContent = "Multiple promotions use this barcode. Ask a manager to retire the incorrect offer.";
+            if (exact.length > 1) {
+              const warning = "Choose a specific promotion from the suggestions, including its price and source.";
+              event.target.setCustomValidity(warning);
+              form.querySelector("[data-sale-promotion-status]").textContent = warning;
+            }
           }
           if (["product", "quantity"].includes(event.target.name)) notifyAvailability(event.target.closest(".sale-row"));
         });
         form.addEventListener("keydown", event => {
           if (event.key !== "Enter" || event.target.name !== "product" || sale) return;
           const value = event.target.value.trim();
-          if (applicablePromotions().some(item => promotionLabel(item).toLowerCase() === value.toLowerCase() || item.barcode === normBarcode(value))) {
+          if (promotionChoices(value).length) {
             event.preventDefault();
             event.target.dispatchEvent(new Event("change", { bubbles: true }));
           }
