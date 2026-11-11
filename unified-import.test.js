@@ -271,7 +271,8 @@ async function inventorySources() {
 const inventoryOptions = { operations: ["inventory"], locationMap: { Santiago: "one", Tuguegarao: "two", "STG - Santiago": "one", "TUG - Tuguegarao": "two" } };
 
 test("inventory location mapping cannot relabel Santiago reports as another branch",async()=>{
-  const quantities=await sheet([["Item Code","Item Name","Santiago","Total"],["101","TCL TV",1,1]],"Stock","stock.xlsx",
+  const quantities=await sheet([["Item Code","Item Name","Santiago","Total","EK-017","EK-178","RC-87"],
+    ["101","TCL TV",1,1,2,"",1],["Total Qty :","",1,1,2,0,1]],"Stock","stock.xlsx",
     {complete:true,reportDate:"2026-11-02T08:00:00+08:00"});
   const units=await sheet([["Item Code","Item Name","Loc Code","serial No","tran Date"],
     ["101","TCL TV","STG - Santiago","SOURCE-SERIAL",46000]],"Serials","serials.xlsx",
@@ -281,6 +282,8 @@ test("inventory location mapping cannot relabel Santiago reports as another bran
   assert.ok(wrong.issues.some(issue=>/does not match selected branch/.test(issue.message)));
   const correct=await prepare([quantities,units],inventoryOptions);
   assert.equal(correct.valid,true,JSON.stringify(correct.issues));
+  assert.deepEqual((await engine).sourceLocations([quantities,units]), ["STG - Santiago","Santiago"]);
+  assert.equal(correct.inventory[0].items[0].quantity,1);
   assert.ok(correct.inventory[0].items.every(item=>item.source_location));
 });
 test("multi-location stock is split into explicitly mapped replacements without adding serial counts", async () => {

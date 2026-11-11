@@ -96,7 +96,12 @@ export function detect(rows, name = "") {
   }
   if (!best) return { role: "unknown", header: 0, cols: {}, locationCols: [] };
   const used = new Set(Object.values(best.cols).filter(at => at >= 0));
-  const locationCols = best.role === "inventory" ? rows[best.header].flatMap((value, index) =>
+  const headers = rows[best.header];
+  // Inventory Report Per Loc ends the branch quantity columns at Total.
+  // Columns after it can contain bundle component counts.
+  const branchHeaders = key(headers[best.cols.total]) === "total"
+    ? headers.slice(0, best.cols.total) : headers;
+  const locationCols = best.role === "inventory" ? branchHeaders.flatMap((value, index) =>
     text(value) && !used.has(index) ? [{ index, name: text(value) }] : []) : [];
   return { ...best, locationCols };
 }
