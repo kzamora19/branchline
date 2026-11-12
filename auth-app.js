@@ -2685,8 +2685,10 @@
         <p data-moh-empty${rows.length ? " hidden" : ""}>No data in this scope.</p>`,
       onReady: form => {
         let visible = rows, search = "", sort = null;
-        form.closest(".dlg").querySelector("[data-moh-export]").addEventListener("click", () =>
-          exportWorkbook([{ name: brand ? "Products" : "Brands", rows: [headers,...visible.map(values)] }], `branchline-moh-${localISODate()}`));
+        const download = form.closest(".dlg").querySelector("[data-moh-export]");
+        download.addEventListener("click", () => chooseExportFormat(download, format =>
+          exportWorkbook([{ name: brand ? "Products" : "Brands", rows: [headers,...visible.map(values)] }],
+            `branchline-moh-${localISODate()}`, false, format)));
         const filters = {};
         const display = (row, col) => {
           const value = values(row)[col];
@@ -2889,6 +2891,7 @@
 
         const cards = `<div class="connected-metrics">
           <article class="connected-metric"><span>Actual sales · ${escapeHTML(monthLabel(month))}${isCurrent ? " (to date)" : ""}</span><strong>${formatMoney(actual)}</strong><small>${escapeHTML(targetNote)}</small></article>
+          ${dailyAverageCard(actual, monthStart, through)}
           <article class="connected-metric"><span>Target achievement</span><strong>${target > 0 ? percent(actual, target) : "No target"}</strong><small>Target ${target > 0 ? formatMoney(target) : "not set"}</small></article>
           ${dailyNeededCard}
           <article class="connected-metric"><span>Remaining gap</span><strong>${gapText}</strong><small>${escapeHTML(gapSmall)}</small></article>
@@ -2898,7 +2901,6 @@
           <article class="connected-metric"><span>${isPs ? "Clients assisted" : "Walk-in traffic"}</span><strong>${walk.coveredDays ? walk.visitors : "No data"}</strong><small>${escapeHTML(walkSource)}</small><button class="button button-outline button-small wk-daily-btn" type="button" data-open="walkin-daily">View daily</button></article>
           <article class="connected-metric"><span>Conversion rate</span><strong>${walk.conversion === null ? "n/a" : `${(walk.conversion * 100).toFixed(1)}%`}</strong><small>${walk.conversion === null ? "Needs recorded walk-in counts" : `${walk.transactions} sale${walk.transactions === 1 ? "" : "s"} ÷ ${walk.visitors} on counted days`}</small></article>
           ${inventoryMohCard(ids, facts, today)}
-          ${dailyAverageCard(actual, monthStart, through)}
         </div>`;
 
         const sum = (from, to) => A.sumDaily(daily, from, to);
@@ -3269,6 +3271,7 @@
     const detail = (label, value) => `<div><dt>${label}</dt><dd>${escapeHTML(value || "—")}</dd></div>`;
     const person = liveData.profiles.find(profile => profile.id === sale.ps_id)?.full_name || titleCase(sale.ps_name || "") || "Staff member";
     openModal({ title: `Transaction · ${sale.invoice_number}`, readOnly: true, wide: true,
+      headerAction: exportButton("data-transaction-export", "Download transaction"),
       intro: isTestSale(sale, liveData.testPsIds) ? "TEST transaction — not counted in sales totals." : "",
       body: `${returnToHistory ? '<button class="button button-outline button-small" type="button" data-return-customer>← Back to Purchase History</button>' : ""}<dl class="sale-detail-info">${detail("Customer", sale.customer_name)}${detail("Address", addressOf(sale))}${detail("Sale date", sale.sold_on)}${detail("Product Specialist", person)}${detail("Branch", branchName(sale.branch_id))}${detail("Payment", sale.payment_mode)}${detail("Delivery / Pick up", fulfillmentLabel(sale))}${detail("Recorded", new Date(sale.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</dl>
         <div data-sale-promotions role="status">${demoStore ? "" : "Checking promotion details..."}</div>
@@ -3278,6 +3281,15 @@
         ${fee == null ? "" : `<p>Delivery Guarranty: ${formatMoney(Number(fee))} · Not included in sales total.</p>`}
         <div class="sale-log-actions">${canEdit ? `<button class="button button-outline" type="button" data-edit-sale="${escapeHTML(sale.id)}">Edit</button>` : ""}${currentProfile.role === "admin" ? `<button class="button button-outline button-danger" type="button" data-delete-sale="${escapeHTML(sale.id)}">Delete</button>` : ""}</div>`,
       onReady: form => {
+        const download = form.closest(".dlg").querySelector("[data-transaction-export]");
+        download.addEventListener("click", () => chooseExportFormat(download, format => {
+          const metadata = [...form.querySelectorAll(".sale-detail-info > div")].map(field =>
+            [field.querySelector("dt").textContent, field.querySelector("dd").textContent]);
+          const products = tableElementSheet(form.querySelector(".sale-detail-products table"), "Products");
+          const totals = [...form.querySelector(".sale-detail-total").children].map(item => [item.textContent]);
+          exportWorkbook([{ name: "Transaction " + sale.invoice_number, rows: [["Field", "Value"], ...metadata, ...totals] }, products],
+            "branchline-invoice-" + sale.invoice_number.replace(/[^a-z0-9_-]/gi, "-"), false, format);
+        }));
         if (returnToHistory) form.querySelector("[data-return-customer]").addEventListener("click", returnToHistory);
         form.addEventListener("click", event => {
           if (canEdit && event.target.closest("[data-edit-sale]")) openSaleModal(sale);
@@ -3374,9 +3386,16 @@
     const items = liveData.brandSales.filter(row => row.invoice_number === selected.invoice_number &&
       row.branch_id === selected.branch_id && row.sold_on === selected.sold_on && row.ps_id === selected.ps_id);
     openModal({ title: `Transaction · ${selected.invoice_number}`, readOnly: true, wide: true,
+      headerAction: exportButton("data-transaction-export", "Download transaction"),
       intro: `${selected.sold_on} · ${selected.ps_name} · ${branchName(selected.branch_id)}. Products available in your assigned-brand sales log.`,
       body: `<div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Barcode</th><th>Brand</th><th>Product</th><th>Qty</th></tr></thead><tbody>${items.map(row =>
         `<tr><td>${escapeHTML(row.barcode || "—")}</td><td>${escapeHTML(row.brand)}</td><td>${escapeHTML(row.model_description)}</td><td>${escapeHTML(row.quantity)}</td></tr>`).join("")}</tbody></table></div>`,
+      onReady: form => {
+        const download = form.closest(".dlg").querySelector("[data-transaction-export]");
+        download.addEventListener("click", () => chooseExportFormat(download, format =>
+          exportWorkbook([tableElementSheet(form.querySelector("table"), "Transaction " + selected.invoice_number)],
+            "branchline-invoice-" + selected.invoice_number.replace(/[^a-z0-9_-]/gi, "-"), false, format)));
+      },
     });
   }
 
@@ -4688,7 +4707,10 @@
       submitLabel: test ? "Validate test sale" : sale ? "Save changes" : "Save sale",
       wide: true,
       body: `<div class="dlg-grid">
-          ${fieldHTML("Customer", "customer", `<input name="customer" list="sale-customers" autocomplete="off" required value="${escapeHTML(sale?.customer_name || "")}">`)}
+          <div class="sale-customer-picker">
+            ${fieldHTML("Customer", "customer", `<input name="customer" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sale-customer-options" autocomplete="off" required value="${escapeHTML(sale?.customer_name || "")}">`)}
+            <div id="sale-customer-options" class="sale-customer-options" role="listbox" aria-label="Existing customers" hidden></div>
+          </div>
           ${fieldHTML("Invoice number", "invoice", `<input name="invoice" autocomplete="off" required value="${escapeHTML(sale?.invoice_number || "")}">`)}
           ${fieldHTML("Date", "date", `<input name="date" type="date" required value="${escapeHTML(sale?.sold_on || localISODate())}">`)}
           ${fieldHTML("Mode of payment", "payment", paymentSelectHTML(sale?.payment_mode))}
@@ -4701,7 +4723,6 @@
           ${fieldHTML("City / municipality", "city", `<input name="city" list="sale-cities" autocomplete="off" required placeholder="e.g. Santiago City" value="${escapeHTML(sale?.city || "")}">`)}
           ${fieldHTML("Barangay", "barangay", `<input name="barangay" list="sale-barangays" autocomplete="off" required placeholder="Pick a city first" value="${escapeHTML(sale?.barangay || "")}">`)}
         </div>
-        <datalist id="sale-customers"></datalist>
         <datalist id="sale-cities"></datalist>
         <datalist id="sale-barangays"></datalist>
         <datalist id="sale-products"></datalist>
@@ -4728,29 +4749,7 @@
         };
         form.elements.fulfillment.addEventListener("change", syncDelivery);
         syncDelivery();
-        const customerPool = new Map();
-        [...(liveData.sales || []), ...(liveData.testSales || [])].forEach(item => {
-          const name = titleCase(String(item.customer_name || "").trim());
-          if (!name) return;
-          const current = customerPool.get(name) || { name, count: 0, last: "" };
-          current.count += 1;
-          current.last = String(item.sold_on || "") > current.last ? String(item.sold_on || "") : current.last;
-          customerPool.set(name, current);
-        });
-        const customerOptions = query => {
-          const text = String(query || "").trim().toLowerCase();
-          return [...customerPool.values()]
-            .filter(item => !text || item.name.toLowerCase().includes(text))
-            .sort((a, b) => b.count - a.count || String(b.last).localeCompare(String(a.last)) || a.name.localeCompare(b.name))
-            .slice(0, 30)
-            .map(item => item.name);
-        };
-        const fillCustomers = query => {
-          form.querySelector("#sale-customers").innerHTML = customerOptions(query).map(name => `<option value="${escapeHTML(name)}"></option>`).join("");
-        };
-        fillCustomers(form.elements.customer.value);
-        form.elements.customer.addEventListener("input", () => fillCustomers(form.elements.customer.value));
-        form.elements.customer.addEventListener("focus", () => fillCustomers(form.elements.customer.value));
+        wireSaleCustomerPicker(form, saleBranch);
         const serials = new Map();
         const manualModes = new Set();
         (sale ? liveData.serialsBySale.get(sale.id) || [] : []).forEach(row => {
@@ -5165,7 +5164,7 @@
         const common = {
           p_fulfillment_method: method,
           p_dg_amount: fee,
-          p_customer_name: uppercaseEntry(form.elements.customer.value),
+          p_customer_name: uppercaseEntry(canonicalCustomer({ branch_id: saleBranch, customer_name: form.elements.customer.value }).name),
           p_invoice_number: form.elements.invoice.value.trim(),
           p_sold_on: form.elements.date.value,
           p_payment_mode: form.elements.payment.value,
@@ -5299,16 +5298,97 @@
 
   const customerColumns = ["Customer", "Barangay", "City", "Branch"];
 
+  function customerIdentityText(value) {
+    return String(value ?? "").normalize("NFKC").trim().replace(/[’']/g, "").replace(/\s+/g, " ").toLowerCase();
+  }
+
+  function canonicalCustomer(sale) {
+    const name = String(sale.customer_name ?? "").trim();
+    const branch = liveData.branches.find(item => item.id === sale.branch_id);
+    const knownSantiagoAlias = branch?.code === "STG" && [
+      "jelos", "jelos airconditioning and refrigeration", "jelos airconditioning and refrigerator",
+    ].includes(customerIdentityText(name));
+    if (knownSantiagoAlias) return { name: "Jelo’s Airconditioning and Refrigeration", barangay: "Maligaya", city: "Echague, Isabela" };
+    return { name, barangay: String(sale.barangay ?? "").trim(), city: String(sale.city ?? "").trim() };
+  }
+
+  function wireSaleCustomerPicker(form, branchId) {
+    const input = form.elements.customer;
+    const list = form.querySelector("#sale-customer-options");
+    const customers = new Map();
+    for (const sale of visibleSales()) {
+      if (sale.branch_id !== branchId || !sale.customer_name?.trim() || /^RET-/i.test(sale.invoice_number || "")) continue;
+      const customer = canonicalCustomer(sale);
+      const key = [customer.name, customer.barangay, customer.city].map(customerIdentityText).join("\0");
+      const prior = customers.get(key);
+      customers.set(key, { ...customer, count: (prior?.count || 0) + 1,
+        last: String(sale.sold_on || "") > (prior?.last || "") ? sale.sold_on : prior?.last || "" });
+    }
+    let options = [], active = -1;
+    const close = () => {
+      list.hidden = true;
+      input.setAttribute("aria-expanded", "false");
+      input.removeAttribute("aria-activedescendant");
+      active = -1;
+    };
+    const show = () => {
+      const search = customerIdentityText(input.value);
+      if (!search) return close();
+      options = [...customers.values()].filter(item => customerIdentityText(item.name).includes(search))
+        .sort((a, b) => Number(customerIdentityText(b.name) === search) - Number(customerIdentityText(a.name) === search) ||
+          Number(Boolean(b.city && b.barangay)) - Number(Boolean(a.city && a.barangay)) ||
+          b.last.localeCompare(a.last) || b.count - a.count || a.name.localeCompare(b.name))
+        .slice(0, 10);
+      if (!options.length) return close();
+      active = -1;
+      input.removeAttribute("aria-activedescendant");
+      list.innerHTML = options.map((item, index) => `<div role="option" id="sale-customer-option-${index}" data-customer-option="${index}" aria-selected="false"><strong>${escapeHTML(item.name)}</strong>${item.city || item.barangay ? `<small>${escapeHTML([item.barangay, item.city].filter(Boolean).join(", "))}</small>` : ""}</div>`).join("");
+      list.hidden = false;
+      input.setAttribute("aria-expanded", "true");
+    };
+    const select = index => {
+      const item = options[index];
+      if (!item) return;
+      input.value = item.name;
+      form.elements.city.value = item.city;
+      form.elements.barangay.value = item.barangay;
+      form.elements.city.dispatchEvent(new Event("change", { bubbles: true }));
+      close();
+    };
+    input.addEventListener("input", show);
+    input.addEventListener("focus", show);
+    input.addEventListener("blur", close);
+    list.addEventListener("pointerdown", event => {
+      const option = event.target.closest("[data-customer-option]");
+      if (!option) return;
+      event.preventDefault();
+      select(Number(option.dataset.customerOption));
+    });
+    input.addEventListener("keydown", event => {
+      if (list.hidden) return;
+      if (event.key === "Escape") { event.stopPropagation(); close(); }
+      if (event.key === "Enter" && active >= 0) { event.preventDefault(); select(active); }
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      event.preventDefault();
+      active = active < 0 && event.key === "ArrowUp" ? options.length - 1
+        : (active + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+      [...list.children].forEach((option, index) => option.setAttribute("aria-selected", String(index === active)));
+      const selected = list.children[active];
+      input.setAttribute("aria-activedescendant", selected.id);
+      selected.scrollIntoView({ block: "nearest" });
+    });
+  }
+
   function customerRows() {
     const ids = scopeBranchIds();
     const customers = new Map();
     for (const sale of visibleSales()) {
       if (!ids.has(sale.branch_id) || !sale.customer_name?.trim()) continue;
-      const identity = [sale.customer_name, sale.barangay, sale.city].map(value =>
-        String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase());
+      const customer = canonicalCustomer(sale);
+      const identity = [customer.name, customer.barangay, customer.city].map(customerIdentityText);
       const key = JSON.stringify([sale.branch_id, ...identity]);
-      const row = customers.get(key) ?? { key, values: [sale.customer_name.trim(), sale.barangay || "—",
-        sale.city || "—", branchName(sale.branch_id)], sales: [], hasPurchase: false };
+      const row = customers.get(key) ?? { key, values: [customer.name, customer.barangay || "—",
+        customer.city || "—", branchName(sale.branch_id)], sales: [], hasPurchase: false };
       row.sales.push(sale);
       row.hasPurchase ||= !/^RET-/i.test(sale.invoice_number || "");
       customers.set(key, row);
@@ -7086,6 +7166,55 @@
     alert(`Download failed: ${error.message || "Please try again."}`);
   }
 
+  function chooseExportFormat(trigger, run, includeImage = false) {
+    const profileId = currentProfile?.id;
+    const exportClient = client;
+    const dialog = document.createElement("dialog");
+    dialog.className = "dlg export-format-dialog";
+    dialog.setAttribute("aria-label", "Download format");
+    dialog.innerHTML = `<form method="dialog"><h2>Download format</h2><div class="dlg-actions">
+      <button type="submit" class="button button-primary" value="pdf">PDF</button>
+      <button type="submit" class="button button-primary" value="excel">Excel</button>
+      ${includeImage ? '<button type="submit" class="button button-outline" value="png">PNG</button>' : ""}
+      <button type="submit" class="button button-outline" value="">Cancel</button></div></form>`;
+    dialog.addEventListener("keydown", event => { if (event.key === "Escape") event.stopPropagation(); });
+    dialog.addEventListener("close", async () => {
+      dialog.remove();
+      const format = dialog.returnValue;
+      if (!format || currentProfile?.id !== profileId || client !== exportClient || !trigger.isConnected) return;
+      trigger.disabled = true;
+      try { await run(format); } catch (error) { exportError(error); }
+      finally { trigger.disabled = false; }
+    }, { once: true });
+    document.body.appendChild(dialog);
+    dialog.showModal();
+  }
+
+  function printReport(sheets, fileName) {
+    const frame = document.createElement("iframe");
+    frame.className = "report-print-frame";
+    frame.title = "Print report";
+    frame.setAttribute("aria-hidden", "true");
+    document.body.appendChild(frame);
+    const printable = frame.contentWindow;
+    const sections = sheets.map(({ name, rows }) => {
+      const [headers = [], ...body] = rows;
+      const cells = (row, tag) => row.map(cell => `<${tag}>${escapeHTML(cell ?? "")}</${tag}>`).join("");
+      return `<section><h2>${escapeHTML(name)}</h2><table><thead><tr>${cells(headers, "th")}</tr></thead>
+        <tbody>${body.map(row => `<tr>${cells(row, "td")}</tr>`).join("")}</tbody></table></section>`;
+    }).join("");
+    printable.document.open();
+    printable.document.write(`<!doctype html><meta charset="utf-8"><title>${escapeHTML(fileName)}</title><style>
+      @page{size:landscape;margin:12mm}body{font:10pt Arial,sans-serif;color:#18243a}
+      section+section{break-before:page}h2{font-size:15pt}table{width:100%;border-collapse:collapse}
+      th,td{border:1px solid #ccd5e2;text-align:left;padding:4px;overflow-wrap:anywhere}
+      th{background:#eaf1ff}thead{display:table-header-group}tr{break-inside:avoid}
+    </style>${sections}`);
+    printable.document.close();
+    printable.addEventListener("afterprint", () => frame.remove(), { once: true });
+    printable.print();
+  }
+
   function tableElementSheet(table, name) {
     const copy = table.cloneNode(true);
     copy.querySelectorAll(".sort-arrow").forEach(arrow => arrow.remove());
@@ -7099,13 +7228,12 @@
   }
 
   function wireDialogExport(root, title) {
-    root.querySelector("[data-download-dialog]").addEventListener("click", () => {
-      try {
+    const button = root.querySelector("[data-download-dialog]");
+    button.addEventListener("click", () => chooseExportFormat(button, format => {
         const table = root.querySelector("table");
         if (!table) throw new Error("The daily table is unavailable.");
-        exportWorkbook([tableElementSheet(table, title)], `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${localISODate()}`);
-      } catch (error) { exportError(error); }
-    });
+        exportWorkbook([tableElementSheet(table, title)], `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${localISODate()}`, false, format);
+    }));
   }
 
   async function downloadChart(button) {
@@ -7255,11 +7383,12 @@
     ] };
   }
 
-  function exportWorkbook(sheets, fileName, includeIndex = false) {
+  function exportWorkbook(sheets, fileName, includeIndex = false, format = "excel") {
     if (ui.salesBasis === "srp" && !["inventory_controller", "stock_custodian"].includes(currentProfile?.role)) {
       sheets = [{ name: "Comparison basis", rows: [["Sales comparison basis", salesBasisNote()], ["Original records", "Raw unit prices, entry/edit forms, targets and DG fees are unchanged."]] }, ...sheets];
     }
     sheets = sheets.map(exportIdentitySheet);
+    if (format === "pdf") return printReport(sheets, fileName);
     if (window.XLSX) {
       const book = window.XLSX.utils.book_new();
       const names = new Set(includeIndex ? ["worksheet index"] : []);
@@ -7302,12 +7431,12 @@
     }
   }
 
-  async function exportAllTables() {
-    if (!window.XLSX) throw new Error("Excel export is unavailable. Connect to the internet and reload before using Export All.");
+  async function exportAllTables(format = "excel") {
+    if (format === "excel" && !window.XLSX) throw new Error("Excel export is unavailable. Connect to the internet and reload before using Export All.");
     if (!liveData || !currentProfile) throw new Error("Sign in and wait for your workspace to finish loading.");
     if (liveData.inventoryError) throw new Error(liveData.inventoryError);
     if (["inventory_controller", "stock_custodian"].includes(currentProfile.role)) {
-      exportWorkbook(inventorySheets(), `branchline-inventory-${localISODate()}`, true);
+      exportWorkbook(inventorySheets(), `branchline-inventory-${localISODate()}`, true, format);
       return;
     }
     if (liveData.exportWarnings?.length) throw new Error(`Some datasets failed to load (${liveData.exportWarnings.join(", ")}). Reload successfully before exporting all tables.`);
@@ -7419,14 +7548,14 @@
       walkInDailyCtx = savedWalkContext;
       liveData.brandSales = savedBrandLog;
     }
-    exportWorkbook(sheets, `branchline-export-all-${localISODate()}`, true);
+    exportWorkbook(sheets, `branchline-export-all-${localISODate()}`, true, format);
   }
 
   function psNameOf(psId, fallbackName = "") {
     return liveData.profiles.find(profile => profile.id === psId)?.full_name || (psId && psId === currentProfile.id ? currentProfile.full_name : titleCase(fallbackName || "") || "—");
   }
 
-  function exportSales() {
+  function exportSales(format = "excel") {
     if (currentProfile.role === "ps" && liveData.brandSalesError) throw new Error(liveData.brandSalesError);
     const stamp = localISODate();
     const sales = visibleSales().filter(sale => !salesLogExport || salesLogExport.has(sale.id));
@@ -7451,7 +7580,7 @@
       sheets.push({ name: "By branch", rows: [["Branch", "Sales"], ...[...byBranch].sort((a, b) => b[1] - a[1])] });
       sheets.push({ name: "By brand", rows: [["Brand", "Sales"], ...[...byBrand].sort((a, b) => b[1] - a[1])] });
     }
-    exportWorkbook(sheets, `branchline-sales-${stamp}`);
+    exportWorkbook(sheets, `branchline-sales-${stamp}`, false, format);
   }
 
   // Pop-up with one Product Specialist's sales (every brand), filterable and sortable by brand, category and sub-category.
@@ -7621,13 +7750,12 @@
       resetTables();
       render();
     });
-    root.querySelector("#ps-detail-export").addEventListener("click", () => {
-      try {
+    const download = root.querySelector("#ps-detail-export");
+    download.addEventListener("click", () => chooseExportFormat(download, format => {
         const header = ["Sale date", "Invoice", "Customer", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment", "City / town", "Barangay", "Serial numbers", "Sales code", "PS name"];
         const data = itemizedSaleLines(tableStore[linesKey].items).map(({ sale, line, serial }) => [sale.sold_on, sale.invoice_number, sale.customer_name, line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), sale.payment_mode || "", sale.city || "", sale.barangay || "", serial, ...exportPsIdentity(sale)]);
-        exportWorkbook([{ name: sheet, rows: [header, ...data] }], `${fileBase}-${localISODate()}`);
-      } catch (error) { exportError(error); }
-    });
+        exportWorkbook([{ name: sheet, rows: [header, ...data] }], `${fileBase}-${localISODate()}`, false, format);
+    }));
     bindSaleDetailRows(root);
     render();
   }
@@ -7789,14 +7917,17 @@
     }
     const chartButton = event.target.closest("[data-chart-download]");
     if (chartButton) {
-      chartButton.disabled = true;
-      downloadChart(chartButton).catch(exportError).finally(() => { chartButton.disabled = false; });
+      chooseExportFormat(chartButton, format => {
+        if (format === "png") return downloadChart(chartButton);
+        const title = chartButton.dataset.chartDownload;
+        const rows = JSON.parse(chartButton.dataset.chartRows);
+        return exportWorkbook([{ name: title, rows }], `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${localISODate()}`, false, format);
+      }, true);
       return;
     }
     const exportAll = event.target.closest("[data-export-all]");
     if (exportAll) {
-      exportAll.disabled = true;
-      exportAllTables().catch(exportError).finally(() => { exportAll.disabled = false; });
+      chooseExportFormat(exportAll, exportAllTables);
       return;
     }
     const dailySalesDay = event.target.closest("[data-daily-sales-date]");
@@ -7887,13 +8018,10 @@
       ui.pages = {};
       refreshResults();
     }
-    if (event.target.closest("[data-export]")) {
-      try { exportSales(); } catch (error) { exportError(error); }
-    }
-    const exportKey = event.target.closest("[data-export-table]")?.dataset.exportTable;
-    if (exportKey) {
-      try { exportTable(exportKey); } catch (error) { exportError(error); }
-    }
+    const salesExport = event.target.closest("[data-export]");
+    if (salesExport) chooseExportFormat(salesExport, exportSales);
+    const tableExport = event.target.closest("[data-export-table]");
+    if (tableExport) chooseExportFormat(tableExport, format => exportTable(tableExport.dataset.exportTable, format));
     if (open === "sale") {
       if (currentProfile.role === "admin") openAdminTestSale();
       else if (currentProfile.role === "ps") openSaleModal();
@@ -7971,13 +8099,13 @@
     return { name, rows: [table.headers.filter(isDataHeader), ...rows] };
   }
 
-  function exportTable(key) {
+  function exportTable(key, format = "excel") {
     if (key === "customers" && (activePage !== "customers" || !rolePages[currentProfile?.role]?.includes("customers"))) return;
     const table = tableStore[key];
     if (!table) throw new Error("This table is no longer available. Reopen it and try again.");
     const title = table.title || key;
     exportWorkbook([tableToSheet(table, title)],
-      `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${localISODate()}`);
+      `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${localISODate()}`, false, format);
   }
 
   // ---------- Push notifications (behind-pace alerts for PSs) ----------

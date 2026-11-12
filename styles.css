@@ -360,9 +360,21 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .sale-summary-row { cursor: pointer; }
 .sale-summary-row:hover { background: #f5f7ff; }
 .sale-summary-row:focus-within { outline: 2px solid var(--blue); outline-offset: -2px; }
-.sale-detail-info { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 0 0 20px; }
-.sale-detail-info dt { font-size: 10px; color: var(--muted); margin-bottom: 5px; }
-.sale-detail-info dd { margin: 0; overflow-wrap: anywhere; }
+.sale-detail-info { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin: 0 0 14px; }
+.sale-detail-info dt { font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+.sale-detail-info dd { margin: 0; overflow-wrap: anywhere; font-size: 14px; }
+.sale-detail-products .connected-table td { font-size: 13px; padding: 9px 10px; line-height: 1.35; }
+.sale-detail-products .product-line { font-size: inherit; line-height: inherit; }
+.sale-detail-products .pl-meta, .sale-detail-products .sale-detail-barcode { font-size: 11px; }
+.sale-customer-picker { position: relative; min-width: 0; }
+.sale-customer-options { position: absolute; z-index: 5; inset: 100% 0 auto; max-height: 15rem; overflow: auto; border: 1px solid var(--border, #dbe3ed); border-radius: 7px; background: white; box-shadow: 0 8px 20px #12254030; }
+.sale-customer-options [role="option"] { padding: 8px 10px; cursor: pointer; color: #162033; font-size: 13px; }
+.sale-customer-options [role="option"]:hover, .sale-customer-options [aria-selected="true"] { background: #eaf1ff; }
+.sale-customer-options small { display: block; color: #526479; font-size: 11px; margin-top: 2px; }
+.export-format-dialog { width: min(390px, calc(100% - 24px)); margin: auto; border: 0; padding: 20px; }
+.export-format-dialog::backdrop { background: #14243b66; }
+.export-format-dialog h2 { font-size: 17px; margin: 0 0 14px; }
+.report-print-frame { position: fixed; width: 1px; height: 1px; border: 0; clip-path: inset(100%); pointer-events: none; }
 .sale-detail-barcode { display: block; color: var(--muted); margin-top: 5px; }
 .sale-detail-products .connected-table td { vertical-align: top; }
 .sale-detail-total { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
