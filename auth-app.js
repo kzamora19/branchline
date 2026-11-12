@@ -3297,13 +3297,16 @@
           const metadata = [...form.querySelectorAll(".sale-detail-info > div")].map(field =>
             [field.querySelector("dt").textContent, field.querySelector("dd").textContent]);
           const products = tableElementSheet(form.querySelector(".sale-detail-products table"), "Products");
-          const totals = [...form.querySelector(".sale-detail-total").children].map(item => [item.textContent]);
           const name = "Transaction " + sale.invoice_number;
           const filename = "branchline-invoice-" + sale.invoice_number.replace(/[^a-z0-9_-]/gi, "-");
-          if (format === "pdf") return downloadReportPdf([products], filename, { name, metadata, totals: totals.flat() });
-          return exportWorkbook([{ name, rows: [["Field", "Value"], ...metadata, ...totals], includeIdentity: false },
-            { ...products, includeIdentity: false }],
-            filename, false, format);
+          if (format === "pdf") {
+            const totals = [...form.querySelector(".sale-detail-total").children].map(item => item.textContent);
+            return downloadReportPdf([products], filename, { name, metadata, totals });
+          }
+          return downloadTransactionExcel(name, metadata, products.rows, {
+            quantity: lines.reduce((sum, line) => sum + Number(line.quantity), 0),
+            amount: saleTotal(sale, "price"),
+          }, filename);
         }));
         if (returnToHistory) form.querySelector("[data-return-customer]").addEventListener("click", returnToHistory);
         form.addEventListener("click", event => {
@@ -7316,23 +7319,27 @@
     dialog.showModal();
   }
 
-  let pdfLibrary;
-  function loadPdfLibrary() {
-    const addScript = (file, integrity) => new Promise((resolve, reject) => {
+  function loadExportScript(url, integrity, label) {
+    return new Promise((resolve, reject) => {
       const script = document.createElement("script");
-      script.src = `https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/${file}`;
+      script.src = url;
       script.integrity = "sha384-" + integrity;
       script.crossOrigin = "anonymous";
       script.onload = resolve;
       script.onerror = () => {
         script.remove();
-        reject(new Error("The PDF library could not load. Check your connection and try again."));
+        reject(new Error(`The ${label} library could not load. Check your connection and try again.`));
       };
       document.head.appendChild(script);
     });
+  }
+
+  let pdfLibrary;
+  function loadPdfLibrary() {
+    const base = "https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/";
     pdfLibrary ??= (async () => {
-      if (!window.pdfMake?.createPdf) await addScript("pdfmake.min.js", "G23ofMOEI98f9UnroUBjDi6Ll55Y5E6bOX4VAMJo0nIbuQRIxzn0g4athUOb58zs");
-      await addScript("vfs_fonts.js", "pv+tpy6KGI5sKXJDf7oGPdvyVNKYXfAmDYpZ3r3PNP0d13PJQ6YMiiAEndd5sU15");
+      if (!window.pdfMake?.createPdf) await loadExportScript(base + "pdfmake.min.js", "G23ofMOEI98f9UnroUBjDi6Ll55Y5E6bOX4VAMJo0nIbuQRIxzn0g4athUOb58zs", "PDF");
+      await loadExportScript(base + "vfs_fonts.js", "pv+tpy6KGI5sKXJDf7oGPdvyVNKYXfAmDYpZ3r3PNP0d13PJQ6YMiiAEndd5sU15", "PDF");
       return window.pdfMake;
     })().catch(error => { pdfLibrary = undefined; throw error; });
     return pdfLibrary;
@@ -7404,6 +7411,87 @@
       if (line.matches(".pl-meta")) line.after("\n");
     });
     return { name, rows: [...copy.querySelectorAll("tr")].map(row => [...row.children].map(cell => cell.textContent.trim())) };
+  }
+
+  let excelReportLibrary;
+  async function downloadTransactionExcel(name, metadata, rows, totals, filename) {
+    const profileId = currentProfile?.id;
+    const exportClient = client;
+    excelReportLibrary ??= loadExportScript("https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js",
+      "Pqp51FUN2/qzfxZxBCtF0stpc9ONI6MYZpVqmo8m20SoaQCzf+arZvACkLkirlPz", "Excel")
+      .catch(error => { excelReportLibrary = undefined; throw error; });
+    await excelReportLibrary;
+    if (currentProfile?.id !== profileId || client !== exportClient) return;
+
+    const workbook = new window.ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Transaction", {
+      views: [{ showGridLines: false }],
+      pageSetup: { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+    });
+    const widths = [56, 34, 8, 18];
+    sheet.columns = widths.map(width => ({ width }));
+    const bodyFont = { name: "Arial", size: 11, color: { argb: "FF16243A" } };
+    const pesoFormat = '"₱"#,##0.00;-"₱"#,##0.00';
+    const lineCount = (text, width) => String(text).split("\n")
+      .reduce((total, line) => total + Math.max(1, Math.ceil(line.length / (width - 6))), 0);
+    const fullWidthLabel = (label, font, height) => {
+      const row = sheet.addRow([label]);
+      sheet.mergeCells(row.number, 1, row.number, 4);
+      row.font = { ...bodyFont, ...font };
+      row.height = height;
+    };
+    fullWidthLabel("BRANCHLINE  /  SALES TRACKER", { color: { argb: "FF264C7F" }, bold: true }, 19);
+    fullWidthLabel(name, { size: 20, bold: true }, 30);
+    sheet.addRow([]);
+
+    const split = Math.ceil(metadata.length / 2);
+    const field = ([label, value]) => ({ richText: [
+      { text: label + "  ", font: { ...bodyFont, bold: true } },
+      { text: value, font: bodyFont },
+    ] });
+    for (let index = 0; index < split; index++) {
+      const left = metadata[index];
+      const right = metadata[index + split];
+      const row = sheet.addRow([field(left), right ? field(right) : ""]);
+      sheet.mergeCells(row.number, 2, row.number, 4);
+      row.alignment = { vertical: "top", wrapText: true };
+      const size = ([label, value]) => label + "  " + value;
+      row.height = Math.max(lineCount(size(left), widths[0]),
+        right ? lineCount(size(right), widths.slice(1).reduce((sum, width) => sum + width, 0)) : 1) * 15 + 3;
+    }
+
+    sheet.addRow([]);
+    fullWidthLabel("Products", { bold: true }, 21);
+    const [headings, ...items] = rows;
+    const header = sheet.addRow(headings);
+    header.height = 21;
+    header.eachCell(cell => {
+      cell.font = { ...bodyFont, bold: true };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8EFF8" } };
+    });
+    for (const [product, serial, quantity, price] of items) {
+      const amount = price == null ? null : parseCurrency(String(price).replace(/[₱\s]/g, ""));
+      const row = sheet.addRow([product, serial, quantity == null ? null : Number(quantity), amount ?? price]);
+      row.font = bodyFont;
+      row.height = Math.max(lineCount(product, widths[0]), lineCount(serial ?? "", widths[1])) * 15 + 5;
+      row.alignment = { vertical: "top", wrapText: true };
+      row.getCell(4).numFmt = pesoFormat;
+      for (let column = 1; column <= 4; column++) {
+        row.getCell(column).border = { bottom: { style: "thin", color: { argb: "FFC2CEDE" } } };
+      }
+    }
+
+    const summary = sheet.addRow([`Total quantity: ${totals.quantity}`, "Transaction total", "", totals.amount]);
+    sheet.mergeCells(summary.number, 2, summary.number, 3);
+    summary.font = { ...bodyFont, bold: true };
+    summary.height = 24;
+    summary.getCell(2).alignment = { horizontal: "right" };
+    summary.getCell(4).numFmt = pesoFormat;
+    sheet.pageSetup.printArea = `A1:D${summary.number}`;
+    const bytes = await workbook.xlsx.writeBuffer();
+    if (currentProfile?.id === profileId && client === exportClient) {
+      downloadFile(filename + ".xlsx", new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    }
   }
 
   function dailyComparisonSheet(name, body, headers = ["Date", "This year", "Last year date", "Last year", "Change"]) {
