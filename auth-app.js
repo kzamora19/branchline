@@ -3098,7 +3098,7 @@
         district: true,
         branch: true,
         period: true,
-        actions: `${isPs ? '<button class="button button-primary record-sale-floating" type="button" data-open="sale">+ Record sale</button>' : ""}${["ps","manager","district_manager","admin"].includes(currentProfile.role) ? '<button class="button button-outline" type="button" data-open="sales-return">&minus; Sales return</button>' : ""}`,
+        actions: `${isPs || currentProfile.role === "admin" ? '<button class="button button-primary record-sale-floating" type="button" data-open="sale">+ Record sale</button>' : ""}${["ps","manager","district_manager","admin"].includes(currentProfile.role) ? '<button class="button button-outline" type="button" data-open="sales-return">&minus; Sales return</button>' : ""}`,
       }),
       () => {
         const ids = scopeBranchIds();
@@ -4088,11 +4088,11 @@
   let saleProductsCache = { source: null, list: [] };
 
   // Suggest only the best few matches instead of putting thousands of options in the page.
-  function productSuggestions(text, available = () => true) {
+  function productSuggestions(text, available = () => true, catalog = saleProducts()) {
     const words = String(text || "").toLowerCase().split(/\s+/).filter(Boolean);
     if (!words.length) return [];
     const out = [];
-    for (const item of saleProducts()) {
+    for (const item of catalog) {
       const haystack = `${item.brand} ${item.model_description} ${item.barcode}`.toLowerCase();
       if (words.every(word => haystack.includes(word)) && available(item)) {
         out.push(item);
@@ -4124,9 +4124,9 @@
     return /^\d+$/.test(indoor.barcode) ? catalog.find(item => item.barcode === next && /outdoor/i.test(item.model_description || "")) || null : null;
   }
 
-  function saleLineRow(line = {}) {
+  function saleLineRow(line = {}, catalog = saleProducts()) {
     const product = line.barcode
-      ? saleProducts().find(item => item.barcode === line.barcode) || { brand: line.brand, model_description: line.model_description, barcode: line.barcode }
+      ? catalog.find(item => item.barcode === line.barcode) || { brand: line.brand, model_description: line.model_description, barcode: line.barcode }
       : null;
     const total = Number(line.selling_price || 0) * Number(line.quantity || 0);
     return `<div class="sale-row" data-srp-for="${escapeHTML(product?.barcode || "")}">
@@ -4624,7 +4624,38 @@
     return `PROMOTION · ${item.barcode} · ${item.description} · ${price} · ${item.source_name}, p. ${item.source_page} · ${item.id}`;
   }
 
-  function openSaleModal(sale, promotion = null) {
+  function openAdminTestSale() {
+    const account = currentProfile;
+    if (account.role !== "admin") return;
+    const branches = [...liveData.branches].sort((a, b) => natural(a.name, b.name));
+    const initial = ui.branch || account.branch_id || (branches.length === 1 ? branches[0].id : "");
+    const lookupClient = client;
+    openModal({
+      title: "Choose a branch for the test sale",
+      body: fieldHTML("Branch", "branch", `<select name="branch" required><option value="">Select a branch…</option>${branches.map(branch =>
+        `<option value="${escapeHTML(branch.id)}" ${branch.id === initial ? "selected" : ""}>${escapeHTML(branch.name)}</option>`).join("")}</select>`),
+      submitLabel: "Continue",
+      onSubmit: async form => {
+        const branch = branches.find(item => item.id === form.elements.branch.value);
+        if (!branch) throw new Error("Select a branch for the test sale.");
+        const response = await fetchAllFrom(lookupClient, "products", "id,branch_id,barcode,model_description,brand,category,sub_category,active,srp",
+          [["model_description", true], ["id", true]], query => query.eq("branch_id", branch.id).eq("active", true));
+        if (client !== lookupClient || currentProfile?.id !== account.id || currentProfile.role !== "admin") {
+          throw new Error("The account changed. Reopen Record Sale.");
+        }
+        if (!form.isConnected) return false;
+        const catalog = normalizeProductRows(checkResult(response, "Unable to load the selected branch's products"))
+          .sort((a, b) => natural(a.brand, b.brand) || natural(a.model_description, b.model_description));
+        openSaleModal(undefined, null, { branch, catalog, accountId: account.id });
+        return false;
+      },
+    });
+  }
+
+  function openSaleModal(sale, promotion = null, test = null) {
+    const catalog = test?.catalog ?? saleProducts();
+    const saleBranch = test?.branch.id ?? sale?.branch_id ?? currentProfile.branch_id;
+    const renderLine = line => saleLineRow(line, catalog);
     const promotionGroups = new Map();
     let nextPromotionGroup = 0;
     const promotionHeader = (item, group) => `<div data-promotion-header="${group}" class="field">
@@ -4639,13 +4670,12 @@
       const quantities = new Map();
       for (const component of promotion.components) quantities.set(component.barcode, (quantities.get(component.barcode) || 0) + component.quantity);
       lines = [...quantities].map(([barcode, quantity]) => {
-        const product = saleProducts().find(item => item.barcode === barcode);
+        const product = catalog.find(item => item.barcode === barcode);
         if (!product) throw new Error(`Promotion product ${barcode} is unavailable in your branch catalog. Ask a manager to review it.`);
         return { barcode, quantity, srp: product.srp, selling_price: 0 };
       });
     }
     const deliveryFee = liveData.deliveryGuaranties.find(item => item.sale_id === sale?.id)?.amount ?? null;
-    const catalog = saleProducts();
     const resolve = text => {
       const value = String(text || "").trim().toLowerCase();
       return catalog.find(item => productLabel(item).toLowerCase() === value)
@@ -4653,9 +4683,9 @@
         || null;
     };
     openModal({
-      title: sale ? `Edit sale · ${sale.invoice_number}` : promotion ? "Record a promotion sale" : "Record a sale",
-      intro: sale ? "Corrections are saved with the previous values kept in the edit history." : promotion ? "The bundle price is counted once. Included products are used for inventory and serial tracking; their prices are allocated for reporting." : "",
-      submitLabel: sale ? "Save changes" : "Save sale",
+      title: test ? "Record a test sale" : sale ? `Edit sale · ${sale.invoice_number}` : promotion ? "Record a promotion sale" : "Record a sale",
+      intro: test ? `${test.branch.name} · Test only` : sale ? "Corrections are saved with the previous values kept in the edit history." : promotion ? "The bundle price is counted once. Included products are used for inventory and serial tracking; their prices are allocated for reporting." : "",
+      submitLabel: test ? "Validate test sale" : sale ? "Save changes" : "Save sale",
       wide: true,
       body: `<div class="dlg-grid">
           ${fieldHTML("Customer", "customer", `<input name="customer" list="sale-customers" autocomplete="off" required value="${escapeHTML(sale?.customer_name || "")}">`)}
@@ -4678,7 +4708,7 @@
         <label class="check-row sale-unlisted-toggle"><input type="checkbox" name="show_unavailable"> Show unavailable products for manual late-sale serial entry</label>
         <p data-sale-promotion-status role="status"></p>
         ${promotion ? promotionHeader(promotion, nextPromotionGroup) : ""}
-        <div id="sale-rows">${lines.map(saleLineRow).join("")}</div>
+        <div id="sale-rows">${lines.map(renderLine).join("")}</div>
         <div class="sale-footer"><span class="sale-footer-actions"><button class="button button-outline button-small" type="button" data-add-line>+ Add product line</button></span><strong>Sale total: <span id="sale-total">${formatMoney(lines.reduce((sum, line) => sum + Number(line.selling_price || 0) * Number(line.quantity || 0), 0))}</span></strong></div>
         ${sale ? '<label class="check-row"><input name="reconcile" type="checkbox"> Apply quantity/serial corrections to current inventory if this sale was included in a replacement snapshot. Prices and customer corrections do not require this.</label>' : ""}`,
       onReady: form => {
@@ -4739,7 +4769,6 @@
           });
           return [...groups.values()];
         };
-        const saleBranch = sale?.branch_id || currentProfile.branch_id;
         for (const [barcode] of serials) {
           if (!inventoryStockFor(saleBranch, barcode)?.serialized) manualModes.add(barcode);
         }
@@ -4919,10 +4948,10 @@
           if (resolve(value)) return [];
           return choices.filter(item => item.barcode === normBarcode(value));
         };
-        if (!sale && !demoStore && currentProfile?.role === "ps") {
-          const lookupClient = client, profileId = currentProfile.id, branch = currentProfile.branch_id;
+        if (!sale && !demoStore && (test || currentProfile?.role === "ps")) {
+          const lookupClient = client, profileId = currentProfile.id;
           fetchAllFrom(lookupClient, "reviewed_promotions", "*", [["reviewed_at", false], ["id", true]],
-            query => query.eq("branch_id", branch).is("revoked_at", null)).then(result => {
+            query => query.eq("branch_id", saleBranch).is("revoked_at", null)).then(result => {
             if (result.error) throw result.error;
             if (client !== lookupClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen the sale.");
             availablePromotions = result.data;
@@ -4948,7 +4977,7 @@
           const group = ++nextPromotionGroup;
           promotionGroups.set(group, item);
           row.dataset.promotionGroup = group;
-          row.insertAdjacentHTML("beforebegin", promotionHeader(item, group) + components.map(saleLineRow).join(""));
+          row.insertAdjacentHTML("beforebegin", promotionHeader(item, group) + components.map(renderLine).join(""));
           const inserted = [];
           let previous = row.previousElementSibling;
           while (previous && !previous.hasAttribute("data-promotion-header")) { inserted.unshift(previous); previous = previous.previousElementSibling; }
@@ -4976,7 +5005,7 @@
           if (!partner || [...form.querySelectorAll('[name="code"]')].some(input => input.value === partner.barcode)) return;
           const id = String(++linkSeq);
           row.dataset.outdoorRow = id;
-          row.insertAdjacentHTML("afterend", saleLineRow({ barcode: partner.barcode, selling_price: 0, srp: partner.srp, quantity: row.querySelector('[name="quantity"]').value || 1 }));
+          row.insertAdjacentHTML("afterend", renderLine({ barcode: partner.barcode, selling_price: 0, srp: partner.srp, quantity: row.querySelector('[name="quantity"]').value || 1 }));
           const added = row.nextElementSibling;
           added.dataset.outdoorOf = id;
           enableCurrencyInput(added);
@@ -4999,7 +5028,7 @@
             const promoOptions = search ? applicablePromotions().filter(item => `${item.barcode} ${item.description}`.toLowerCase().includes(search)
               || item.barcode === normBarcode(search)).slice(0, 30) : [];
             form.querySelector("#sale-products").innerHTML = promoOptions.map(item => `<option value="${escapeHTML(promotionLabel(item))}"></option>`).join("") +
-              productSuggestions(event.target.value, item => form.elements.show_unavailable.checked || !stockState(item, 1).blocked)
+              productSuggestions(event.target.value, item => form.elements.show_unavailable.checked || !stockState(item, 1).blocked, catalog)
                 .map(item => `<option value="${escapeHTML(productLabel(item))}"></option>`).join("");
             const row = event.target.closest(".sale-row");
             const exact = promotionChoices(search);
@@ -5065,7 +5094,7 @@
             promotionGroups.delete(Number(group));
             header.remove();
             if (!form.querySelector(".sale-row")) {
-              form.querySelector("#sale-rows").insertAdjacentHTML("beforeend", saleLineRow());
+              form.querySelector("#sale-rows").insertAdjacentHTML("beforeend", renderLine());
               enableCurrencyInput(form.querySelector(".sale-row:last-child"));
             }
             form.querySelector("[data-sale-promotion-status]").textContent = "";
@@ -5073,7 +5102,7 @@
             return;
           }
           if (event.target.closest("[data-add-line]")) {
-            form.querySelector("#sale-rows").insertAdjacentHTML("beforeend", saleLineRow());
+            form.querySelector("#sale-rows").insertAdjacentHTML("beforeend", renderLine());
             enableCurrencyInput(form.querySelector(".sale-row:last-child"));
             showSerialFields();
           }
@@ -5088,6 +5117,9 @@
         recalc();
       },
       onSubmit: async form => {
+        if (test && (currentProfile?.id !== test.accountId || currentProfile.role !== "admin")) {
+          throw new Error("The account changed. Reopen Record Sale.");
+        }
         if (!form.elements.city.value.trim() || !form.elements.barangay.value.trim()) throw new Error("City / municipality and barangay are required.");
         const method = form.elements.fulfillment.value || null;
         const feeText = form.elements.dg_amount.value.trim();
@@ -5113,16 +5145,22 @@
         const regularLines = rows.filter(row => !row.promotion_component).map(({ promotion_component, ...row }) => row);
         if (new Set(regularLines.map(row => row.barcode)).size !== regularLines.length) throw new Error("Use one item line per barcode and increase its quantity instead of repeating the product.");
         if (liveData.inventoryError) throw new Error(liveData.inventoryError);
-        for (const row of form.saleGroups().map(group => ({ barcode: group.barcode, quantity: group.qty }))) {
-          if (form.manualModes.has(row.barcode)) {
-            const selected = form.serialPayload().filter(unit => unit.barcode === row.barcode);
-            if (selected.length !== row.quantity || new Set(selected.map(unit => unit.serial.toLowerCase())).size !== row.quantity) throw new Error("Enter one different serial number for each unit and confirm adding missing serials.");
-            continue;
+        const serialPayload = form.serialPayload();
+        const groups = form.saleGroups();
+        for (const { barcode, qty } of groups) {
+          const stock = inventoryStockFor(saleBranch, barcode);
+          const manual = form.manualModes.has(barcode);
+          if (manual || stock?.serialized) {
+            const selected = serialPayload.filter(unit => unit.barcode === barcode);
+            if (selected.length !== qty || new Set(selected.map(unit => unit.serial.toLowerCase())).size !== qty) {
+              throw new Error(`${barcode}: Choose one different serial number for each unit.`);
+            }
+            if (manual) continue;
           }
-          const previousQuantity = sale ? lines.filter(line => line.barcode === row.barcode).reduce((sum, line) => sum + Number(line.quantity || 0), 0) : 0;
-          const state = window.BranchlineDelivery.availability(inventoryStockFor(sale?.branch_id || currentProfile.branch_id, row.barcode),
-            inventorySaleUnitsFor(sale?.branch_id || currentProfile.branch_id, row.barcode, sale?.id), row.quantity, previousQuantity);
-          if (state.blocked) throw new Error(`${row.barcode}: ${state.warning}`);
+          const previousQuantity = sale ? lines.filter(line => line.barcode === barcode).reduce((sum, line) => sum + Number(line.quantity || 0), 0) : 0;
+          const state = window.BranchlineDelivery.availability(stock,
+            inventorySaleUnitsFor(saleBranch, barcode, sale?.id), qty, previousQuantity);
+          if (state.blocked) throw new Error(`${barcode}: ${state.warning}`);
         }
         const common = {
           p_fulfillment_method: method,
@@ -5133,16 +5171,25 @@
           p_payment_mode: form.elements.payment.value,
           p_city: uppercaseEntry(form.elements.city.value),
           p_barangay: uppercaseEntry(form.elements.barangay.value),
-          p_serials: form.serialPayload(),
+          p_serials: serialPayload,
         };
-        if (promotionGroups.size) {
-          const bundles = [...form.querySelectorAll("[data-promotion-header]")].map(header => {
-            const item = promotionGroups.get(Number(header.dataset.promotionHeader));
-            const total = parseCurrency(header.querySelector('[name="bundle_price"]').value);
-            if (total === null || total < 0) throw new Error("Enter a valid non-negative selling price for each bundle.");
-            return { promotion: item.id, bundle_total: total,
-              acknowledge_warnings: Boolean(header.querySelector('[name="confirm_promotion_warning"]')?.checked) };
-          });
+        const bundles = [...form.querySelectorAll("[data-promotion-header]")].map(header => {
+          const item = promotionGroups.get(Number(header.dataset.promotionHeader));
+          if ((item.valid_from && common.p_sold_on < item.valid_from) || (item.valid_to && common.p_sold_on > item.valid_to)) {
+            throw new Error(`Promotion ${item.barcode} is unavailable on the sale date.`);
+          }
+          const total = parseCurrency(header.querySelector('[name="bundle_price"]').value);
+          if (total === null || total < 0) throw new Error("Enter a valid non-negative selling price for each bundle.");
+          return { promotion: item.id, bundle_total: total,
+            acknowledge_warnings: Boolean(header.querySelector('[name="confirm_promotion_warning"]')?.checked) };
+        });
+        if (test) {
+          const total = regularLines.reduce((sum, row) => sum + row.selling_price * row.quantity, 0) +
+            bundles.reduce((sum, bundle) => sum + bundle.bundle_total, 0);
+          return `<p role="status"><strong>Test sale validated</strong> · ${escapeHTML(test.branch.name)} · ${formatMoney(total)}</p>
+            <ul>${groups.map(({ product, qty }) => `<li>${qty} × ${escapeHTML(productLabel(product))}</li>`).join("")}</ul>`;
+        }
+        if (bundles.length) {
           if (bundles.length === 1) {
             const [bundle] = bundles;
             mustRpc(await client.rpc("save_promotion_sale", {
@@ -7847,7 +7894,10 @@
     if (exportKey) {
       try { exportTable(exportKey); } catch (error) { exportError(error); }
     }
-    if (open === "sale") openSaleModal();
+    if (open === "sale") {
+      if (currentProfile.role === "admin") openAdminTestSale();
+      else if (currentProfile.role === "ps") openSaleModal();
+    }
     if (open === "promotion-sale") {
       try { openPromotionSaleLookup(); } catch (error) { alert(friendlyError(error)); }
     }
