@@ -3301,7 +3301,8 @@
           const name = "Transaction " + sale.invoice_number;
           const filename = "branchline-invoice-" + sale.invoice_number.replace(/[^a-z0-9_-]/gi, "-");
           if (format === "pdf") return downloadReportPdf([products], filename, { name, metadata, totals: totals.flat() });
-          return exportWorkbook([{ name, rows: [["Field", "Value"], ...metadata, ...totals], includeIdentity: false }, products],
+          return exportWorkbook([{ name, rows: [["Field", "Value"], ...metadata, ...totals], includeIdentity: false },
+            { ...products, includeIdentity: false }],
             filename, false, format);
         }));
         if (returnToHistory) form.querySelector("[data-return-customer]").addEventListener("click", returnToHistory);
@@ -7360,10 +7361,14 @@
       if (!headers?.length) continue;
       if (sheet.name !== title) content.push({ text: sheet.name, bold: true, fontSize: 11, margin: [0, 8, 0, 4] });
       const numericColumn = label => /^(qty|quantity|srp|unit price|price|amount|total)$/i.test(label);
-      const widths = headers.map(label => transaction && numericColumn(label) ? 48 : "*");
-      if (transaction) widths[0] = "42%";
+      const widths = headers.map(label => {
+        if (!transaction || !numericColumn(label)) return "*";
+        return /^(qty|quantity)$/i.test(label) ? 34 : 84;
+      });
+      if (transaction) widths[0] = "44%";
       const rowCells = (row, isHeader) => headers.map((label, index) => ({
         text: String(row[index] ?? ""), bold: isHeader, alignment: numericColumn(label) ? "right" : "left",
+        noWrap: Boolean(transaction && numericColumn(label)),
       }));
       content.push({
         table: { headerRows: 1, widths, body: [rowCells(headers, true), ...rows.map(row => rowCells(row, false))] },
@@ -7381,7 +7386,7 @@
       try {
         pdf.createPdf({
           info: { title, author: "Branchline Sales Tracker" },
-          pageSize: "A4", pageOrientation: maxColumns > 7 ? "landscape" : "portrait",
+          pageSize: maxColumns > 13 ? "A3" : "A4", pageOrientation: maxColumns > 7 ? "landscape" : "portrait",
           pageMargins: [32, 32, 32, 35], content,
           defaultStyle: { fontSize: maxColumns > 13 ? 8 : 10, color: "#16243a" },
           footer: (page, total) => ({ text: `${page} / ${total}`, alignment: "right", fontSize: 8, margin: [32, 7, 32, 0] }),
