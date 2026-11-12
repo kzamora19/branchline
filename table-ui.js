@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const icon = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg>';
+  const icon = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21H5V3h9l4 4v5M14 3v5h4"/><path d="M17 13v8m-3-3 3 3 3-3" stroke="#a7f3c8"/></svg>';
   const sorts = new WeakMap();
   const filters = new WeakMap();
   let openColumnMenu;
@@ -174,7 +174,7 @@
     });
     root.querySelectorAll("[role=dialog], dialog").forEach(dialog => {
       dialog.querySelectorAll(".export-icon").forEach(button => {
-        if (button.closest(".panel-actions, .table-tools, .chart-download, .table-export-tools")) return;
+        if (button.closest(".dlg-head, .panel-actions, .table-tools, .chart-download, .table-export-tools")) return;
         const tables = [...dialog.querySelectorAll("table")];
         if (tables.length !== 1) return;
         const wrap = tables[0].closest(".connected-table-wrap, .table-wrap") || tables[0];

@@ -12,12 +12,24 @@ function harness(role="manager"){
     inventoryCatalog:catalog,inventoryStock:catalog,profiles:[],brandSales:facts.map(row=>({branch_id:row.branchId,barcode:row.barcode,quantity:row.quantity,sold_on:row.date,brand:row.brand}))},
     currentProfile:{role,assigned_brand:"TCL",branch_id:"one"},tableStore:{},branchName:String,formatMoney:value=>`P${value}`,
     escapeHTML:value=>String(value).replace(/[&<>"]/g,""),scopeBranchIds:()=>new Set(["one"]),analyticsFacts:()=>facts,
-    localISODate:()=>"2026-11-05",openModal:options=>{c.modal=options;},exportWorkbook:(sheets,name)=>{c.exported={sheets,name};}});
+    localISODate:()=>"2026-11-05",openModal:options=>{c.modal=options;},exportWorkbook:(sheets,name)=>{c.exported={sheets,name};},
+    columnHeading:(label,_key,_active,attrs)=>`<th><button ${attrs}>${label}</button></th>`,
+    chooseExportFormat:(_button,run)=>run("excel"), filterTableItems:items=>items,
+    openColumnMenu:(_button,_label,_values,_filter,sort)=>{c.nextSort=c.nextSort==="asc"?"desc":"asc";sort(c.nextSort);}});
   vm.runInContext(source.slice(source.indexOf("  function sortedItems("),source.indexOf("  function tableBlock(")),c);
   vm.runInContext(source.slice(source.indexOf("  function exportButton("),source.indexOf("  function chartExport(")),c);
   c.natural=(a,b)=>a.localeCompare(b,undefined,{numeric:true});
   vm.runInContext(source.slice(source.indexOf("  function inventoryMohData("),source.indexOf("  function allTimeAnalyticsPanels(")),c);
   return c;
+}
+function modalControls(c, buttons=[]){
+  const listeners={},nodes={"[data-moh-search]":{addEventListener:(_type,fn)=>{listeners.input=fn;}},
+    "[data-moh-rows]":{innerHTML:""},"[data-moh-empty]":{hidden:true}};
+  const download={addEventListener:(_type,fn)=>{listeners.export=fn;}};
+  const form={querySelector:key=>nodes[key],querySelectorAll:()=>buttons,
+    closest:()=>({querySelector:()=>download}),addEventListener:(type,fn)=>{listeners[type]=fn;}};
+  c.modal.onReady(form);
+  return {listeners,nodes,form};
 }
 test("summary MOH is weighted total stock value divided by monthly sell-out, never averaged brand ratios",()=>{
   const c=harness(),ids=new Set(["one"]),data=c.inventoryMohData(ids,c.analyticsFacts(),"2026-11-05");
@@ -43,13 +55,10 @@ test("PS summary and brand/product drilldown retain assigned brand and authorize
 });
 test("popup click handlers cover whole brand rows, keyboard, back, search and numeric export",()=>{
   const c=harness();c.openInventoryMoh();
-  const listeners={},nodes={"[data-moh-search]":{addEventListener:(type,fn)=>{listeners.input=fn;}},
-    "[data-moh-rows]":{innerHTML:""},"[data-moh-empty]":{hidden:true}};
-  const form={querySelector:key=>nodes[key],addEventListener:(type,fn)=>{listeners[type]=fn;}};
-  c.modal.onReady(form);
+  const {listeners,nodes,form}=modalControls(c);
   listeners.input({target:{value:"TCL"}});
   assert.doesNotMatch(nodes["[data-moh-rows]"].innerHTML,/>LG</);
-  listeners.click({target:{closest:key=>key==="[data-moh-export]"?{}:null}});
+  listeners.export();
   assert.equal(c.exported.sheets[0].rows.length,2);
   assert.equal(c.exported.sheets[0].rows[1][2],42);
   assert.equal(c.exported.sheets[0].rows[1][3],60000);
@@ -69,17 +78,13 @@ test("popup click handlers cover whole brand rows, keyboard, back, search and nu
 test("MOH sorts every column, preserves search sort and exports the sorted raw numeric rows",()=>{
   const c=harness();c.openInventoryMoh(null,0);
   assert.equal((c.modal.body.match(/data-moh-sort=/g)||[]).length,9);
-  assert.match(c.modal.body,/table-export-tools/);
-  assert.match(c.modal.body,/aria-label="Export products"/);
-  const listeners={},nodes={"[data-moh-search]":{addEventListener:(type,fn)=>{listeners.input=fn;}},
-    "[data-moh-rows]":{innerHTML:""},"[data-moh-empty]":{hidden:true}};
+  assert.match(c.modal.headerAction,/aria-label="Export products"/);
   const buttons=Array.from({length:9},(_,index)=>({dataset:{mohSort:String(index)},
-    closest:()=>({setAttribute(){}}),querySelector:()=>({textContent:""})}));
-  const form={querySelector:key=>nodes[key],querySelectorAll:()=>buttons,
-    addEventListener:(type,fn)=>{listeners[type]=fn;}};
-  c.modal.onReady(form);
+    closest:()=>({setAttribute(){}}),querySelector:()=>({textContent:""}),
+    classList:{toggle(){}},setAttribute(){}}));
+  const {listeners}=modalControls(c,buttons);
   const clickSort=col=>listeners.click({target:{closest:key=>key==="[data-moh-sort]"?buttons[col]:null}});
-  const exportRows=()=>{listeners.click({target:{closest:key=>key==="[data-moh-export]"?{}:null}});
+  const exportRows=()=>{listeners.export();
     return c.exported.sheets[0].rows.slice(1);};
   clickSort(2);
   assert.deepEqual(Array.from(exportRows(),row=>row[2]),[2,40]);
@@ -95,10 +100,10 @@ test("summary unavailable and missing-pricing states remain explicit; MOH over t
   const c=harness();c.liveData.inventoryStock=c.liveData.inventoryStock.map(row=>({...row,quantity:1000}));
   assert.match(c.inventoryMohCard(new Set(["one"]),c.analyticsFacts(),"2026-11-05"),/class="an-down"/);
   c.liveData.inventoryError="Stock load failed";
-  assert.match(c.inventoryMohCard(new Set(["one"]),c.analyticsFacts(),"2026-11-05"),/0.00 months/);
+  assert.match(c.inventoryMohCard(new Set(["one"]),c.analyticsFacts(),"2026-11-05"),/Unavailable/);
   assert.match(c.inventoryMohCard(new Set(["one"]),c.analyticsFacts(),"2026-11-05"),/Stock load failed/);
 });
-test("MOH numeric cells and exports use zero placeholders while preserving empty, unsold and unavailable statuses",()=>{
+test("MOH retains valid zero ratios and marks unavailable ratios distinctly",()=>{
   const c=harness("ps");
   c.liveData.inventoryCatalog=[product("EMPTY",0,1000),product("UNKNOWN",5,null)];
   c.liveData.inventoryStock=c.liveData.inventoryCatalog;
@@ -109,21 +114,21 @@ test("MOH numeric cells and exports use zero placeholders while preserving empty
   assert.equal(data.products[1].moh,null);
   c.inventoryMohCard(new Set(["one"]),[],"2026-11-05");
   let exported=c.tableStore["an-inventory-brand-moh"].items[0];
-  for(const index of [2,3,4,5,6,7]) assert.equal(typeof exported[index],"number");
-  assert.equal(exported[7],0);
+  for(const index of [2,3,4,5,6]) assert.equal(typeof exported[index],"number");
+  assert.equal(exported[7],"");
   assert.match(exported[8],/unavailable/);
   c.openInventoryMoh(data,0);
   assert.match(c.modal.body,/>0.00<\/td>/);
   assert.match(c.modal.body,/No stock or sell-out/);
   assert.match(c.modal.body,/Stock \/ SRP unavailable/);
-  assert.match(c.modal.intro,/display as zero only/);
+  assert.match(c.modal.intro,/dash marks an unavailable ratio/);
   c.liveData.inventoryCatalog=[product("UNSOLD",5,1000)];
   c.liveData.inventoryStock=c.liveData.inventoryCatalog;
   data=c.inventoryMohData(new Set(["one"]),[],"2026-11-05");
   assert.equal(data.total.moh,null);
   assert.equal(data.total.mohBad,true);
   c.openInventoryMoh(data);
-  assert.match(c.modal.body,/inventory-stock-alert">0.00/);
+  assert.match(c.modal.body,/inventory-stock-alert">—/);
   assert.match(c.modal.body,/No sell-out/);
 });
 test("card is wired into monthly and all-time metric grids, not the lower inventory table",()=>{

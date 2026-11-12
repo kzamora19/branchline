@@ -561,9 +561,10 @@
         isPsUser ? Promise.resolve({ data: [], error: null }) : fetchAll("branch_daily_history", "branch_id,day,sales,transactions,walkins,remarks,payment_breakdown", [["day", false], ["branch_id", true]]),
                 fetchAll("sale_serials", "sale_id,barcode,position,serial", [["sale_id", true], ["position", true]]),
         demoStore ? Promise.resolve({ data: [], error: null }) : fetchAll("sales_return_lines", "return_line_id,serials", [["return_line_id", true]]),
+        !demoStore && rolePages[profile.role].includes("customers") ? loadCustomerMasterAliases(client) : null,
       ];
       let completed = 0;
-      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, pushSchedules, paymentTargets, importBatches, dailyHistory, saleSerials, returnLines] = await Promise.all(
+      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, pushSchedules, paymentTargets, importBatches, dailyHistory, saleSerials, returnLines, customerMaster] = await Promise.all(
         requests.map(request => Promise.resolve(request).then(result => {
           loading.update(10 + (++completed / requests.length) * 55, "Loading sales and account data...");
           return result;
@@ -617,6 +618,7 @@
         targets: visibleTargets,
         brandTargets: brandTargets.error ? [] : brandTargets.data.map(item => ({ ...item, brand: titleCase(item.brand) })),
         sales: visibleSales.filter(item => !testSaleIds.has(item.id)),
+        customerMaster,
         testSales: visibleSales.filter(item => testSaleIds.has(item.id)),
         testPsIds,
         saleLines: lines.filter(line => !testSaleIds.has(line.sale_id)),
@@ -2647,12 +2649,21 @@
       headers: ["Branch","Brand","Available units","Priced stock (SRP)","Completed sell-out (SRP)","Monthly sell-out (SRP)","3-month target (SRP)","MOH","Status","Stock units missing SRP","Sell-out units missing SRP","Unmatched sell-out units"],
       items: data.brands.map(row => [branchName(row.branch_id),row.brand,row.stockUnits ?? 0,
         row.stockValue ?? 0,row.selloutValue ?? 0,row.monthlySelloutValue ?? 0,
-        row.targetStockValue ?? 0,row.moh ?? 0,row.mohStatus,
+        row.targetStockValue ?? 0,row.moh ?? "",row.mohStatus,
         row.missingStockSrpUnits,row.missingSalesSrpUnits,row.unmatchedSalesUnits]) };
-    const value = `${(data.error ? 0 : total.moh ?? 0).toFixed(2)} months`;
+    const value = data.error || total.moh == null
+      ? (total.mohStatus === "No sell-out" && !data.error ? "No sell-out" : "Unavailable")
+      : `${total.moh.toFixed(2)} months`;
+    const reason = total.missingStockSrpUnits > 0
+      ? `${total.missingStockSrpUnits} stock units need SRP`
+      : total.mohStatus;
+    const context = [
+      total.stockUnits == null ? "Stock count incomplete" : `${total.stockUnits} available units`,
+      total.stockValue == null ? "" : `${formatMoney(total.stockValue)} priced stock`, reason,
+    ].filter(Boolean).join(" · ");
     return `<button type="button" class="connected-metric inventory-moh-card" data-open="inventory-moh" aria-haspopup="dialog">
       <span>Months-on-Hand (MOH)</span><strong${!data.error && total.mohBad ? ' class="an-down"' : ""}>${escapeHTML(value)}</strong>
-      <small>${escapeHTML(data.error || `${total.stockUnits ?? 0} available units · ${formatMoney(total.stockValue ?? 0)} priced stock · ${total.mohStatus}`)}</small>
+      <small>${escapeHTML(data.error || context)}</small>
       <small>Target: 3 months · View brands</small></button>`;
   }
 
@@ -2670,14 +2681,14 @@
       : ["Branch","Brand","Available units","Priced stock (SRP)","Completed sell-out (SRP)","Monthly sell-out (SRP)","3-month target (SRP)","MOH","Status","Stock units missing SRP","Sell-out units missing SRP","Unmatched sell-out units"];
     const values = row => [brand ? row.barcode : branchName(row.branch_id), brand ? row.model_description : row.brand,
       (brand ? row.quantity : row.stockUnits) ?? 0, row.stockValue ?? 0, row.selloutValue ?? 0,
-      row.monthlySelloutValue ?? 0, row.targetStockValue ?? 0, row.moh ?? 0, row.mohStatus,
+      row.monthlySelloutValue ?? 0, row.targetStockValue ?? 0, row.moh ?? "—", row.mohStatus,
       ...(!brand ? [row.missingStockSrpUnits,row.missingSalesSrpUnits,row.unmatchedSalesUnits] : [])];
     const rowHtml = row => `<tr${brand ? "" : ` data-moh-brand="${data.brands.indexOf(row)}" tabindex="0" role="button" aria-label="${escapeHTML(`View ${row.brand} products in ${branchName(row.branch_id)}`)}"`}>${values(row).map((value,index) =>
       `<td${row.mohBad && [7,8].includes(index) ? ' class="inventory-stock-alert"' : ""}>${escapeHTML(typeof value === "number" && index >= 3 && index <= 6 ? formatMoney(value) : index === 7 && typeof value === "number" ? value.toFixed(2) : value)}</td>`).join("")}</tr>`;
     openModal({ title: brand ? `${brand.brand} products · ${branchName(brand.branch_id)}` : "Months-on-Hand · Brands",
       wide: true, readOnly: true,
       headerAction: exportButton("data-moh-export", `Export ${brand ? "products" : "brands"}`),
-      intro: `${data.from} to ${data.to} · ${data.months} completed months. Target: 3 months. SRP values are priced subtotals. Unavailable numbers display as zero only; check Status. Zero MOH with no sell-out or unavailable data is not a valid stock-coverage ratio.`,
+      intro: `${data.from} to ${data.to} · ${data.months} completed months. Target: 3 months. MOH divides the SRP value of available stock by average monthly sell-out at SRP. A dash marks an unavailable ratio. See Status for the reason.`,
       body: `${data.error ? `<p role="alert" class="connected-error">${escapeHTML(data.error)}</p>` : ""}
         ${brand ? '<button type="button" class="button button-outline" data-moh-back>Back to brands</button>' : ""}
         <label class="field"><span>${brand ? "Search products" : "Search brands"}</span><input type="search" data-moh-search></label>
@@ -3287,8 +3298,11 @@
             [field.querySelector("dt").textContent, field.querySelector("dd").textContent]);
           const products = tableElementSheet(form.querySelector(".sale-detail-products table"), "Products");
           const totals = [...form.querySelector(".sale-detail-total").children].map(item => [item.textContent]);
-          exportWorkbook([{ name: "Transaction " + sale.invoice_number, rows: [["Field", "Value"], ...metadata, ...totals] }, products],
-            "branchline-invoice-" + sale.invoice_number.replace(/[^a-z0-9_-]/gi, "-"), false, format);
+          const name = "Transaction " + sale.invoice_number;
+          const filename = "branchline-invoice-" + sale.invoice_number.replace(/[^a-z0-9_-]/gi, "-");
+          if (format === "pdf") return downloadReportPdf([products], filename, { name, metadata, totals: totals.flat() });
+          return exportWorkbook([{ name, rows: [["Field", "Value"], ...metadata, ...totals], includeIdentity: false }, products],
+            filename, false, format);
         }));
         if (returnToHistory) form.querySelector("[data-return-customer]").addEventListener("click", returnToHistory);
         form.addEventListener("click", event => {
@@ -5302,14 +5316,25 @@
     return String(value ?? "").normalize("NFKC").trim().replace(/[’']/g, "").replace(/\s+/g, " ").toLowerCase();
   }
 
+  async function loadCustomerMasterAliases(workspaceClient) {
+    const result = await fetchAllFrom(workspaceClient, "customer_master_aliases",
+      "branch_id,identity_key,customer_master_records(name,barangay,city)",
+      [["branch_id", true], ["identity_key", true]]);
+    if (result.error) return { aliases: new Map(), error: "Could not load Customer Master updates. Refresh to try again." };
+    return { aliases: new Map((result.data || []).map(row =>
+      [JSON.stringify([row.branch_id, ...row.identity_key]), row.customer_master_records])), error: "" };
+  }
+
   function canonicalCustomer(sale) {
     const name = String(sale.customer_name ?? "").trim();
     const branch = liveData.branches.find(item => item.id === sale.branch_id);
     const knownSantiagoAlias = branch?.code === "STG" && [
       "jelos", "jelos airconditioning and refrigeration", "jelos airconditioning and refrigerator",
     ].includes(customerIdentityText(name));
-    if (knownSantiagoAlias) return { name: "Jelo’s Airconditioning and Refrigeration", barangay: "Maligaya", city: "Echague, Isabela" };
-    return { name, barangay: String(sale.barangay ?? "").trim(), city: String(sale.city ?? "").trim() };
+    const base = knownSantiagoAlias ? { name: "Jelo’s Airconditioning and Refrigeration", barangay: "Maligaya", city: "Echague, Isabela" }
+      : { name, barangay: String(sale.barangay ?? "").trim(), city: String(sale.city ?? "").trim() };
+    const key = JSON.stringify([sale.branch_id, ...[base.name, base.barangay, base.city].map(customerIdentityText)]);
+    return liveData.customerMaster?.aliases.get(key) || base;
   }
 
   function wireSaleCustomerPicker(form, branchId) {
@@ -5336,8 +5361,8 @@
       active = -1;
     };
     const close = () => { generation++; clearTimeout(requestTimer); hide(); };
-    const render = search => {
-      const matching = [...customers.values()].filter(item => customerIdentityText(item.name).includes(search));
+    const render = (search, found = null) => {
+      const matching = found ?? [...customers.values()].filter(item => customerIdentityText(item.name).includes(search));
       const hasAddress = new Set(matching.filter(item => item.city || item.barangay).map(item => customerIdentityText(item.name)));
       options = matching.filter(item => item.city || item.barangay || !hasAddress.has(customerIdentityText(item.name)))
         .sort((a, b) => Number(customerIdentityText(b.name) === search) - Number(customerIdentityText(a.name) === search) ||
@@ -5356,15 +5381,15 @@
       const request = ++generation;
       clearTimeout(requestTimer);
       if (!search) return hide();
-      render(search);
-      if (demoStore || currentProfile.role !== "ps" || search.length < 2) return;
+      if (demoStore || currentProfile.role !== "ps" || search.length < 2) return render(search);
+      hide();
       const searchClient = client, user = currentProfile.id;
       requestTimer = setTimeout(async () => {
         const { data, error } = await searchClient.rpc("branch_sale_customer_suggestions", { p_branch: branchId, p_query: search });
-        if (error || request !== generation || !form.isConnected || client !== searchClient || currentProfile?.id !== user) return;
-        for (const row of data ?? []) addCustomer({ ...row, customer_name: titleCase(row.customer_name),
-          barangay: titleCase(row.barangay), city: titleCase(row.city), branch_id: branchId });
-        if (active < 0) render(search);
+        if (request !== generation || !form.isConnected || client !== searchClient || currentProfile?.id !== user) return;
+        if (error) return render(search);
+        render(search, (data || []).map(row => ({ name: titleCase(row.customer_name), barangay: titleCase(row.barangay),
+          city: titleCase(row.city), last: row.sold_on || "", count: 1 })));
       }, 200);
     };
     const select = index => {
@@ -5408,7 +5433,7 @@
       const customer = canonicalCustomer(sale);
       const identity = [customer.name, customer.barangay, customer.city].map(customerIdentityText);
       const key = JSON.stringify([sale.branch_id, ...identity]);
-      const row = customers.get(key) ?? { key, values: [customer.name, customer.barangay || "—",
+      const row = customers.get(key) ?? { key, branchId: sale.branch_id, customer, values: [customer.name, customer.barangay || "—",
         customer.city || "—", branchName(sale.branch_id)], sales: [], hasPurchase: false };
       row.sales.push(sale);
       row.hasPurchase ||= !/^RET-/i.test(sale.invoice_number || "");
@@ -5424,13 +5449,90 @@
       "",
       filterBar({ district: true, branch: true, search: "Customer, barangay, city or branch" }),
       () => {
-        const rows = customerRows().filter(row => matches(searchQuery(), ...row.values));
-        const rowHtml = row => `<tr class="sale-summary-row" data-customer-history="${escapeHTML(row.key)}" tabindex="0" aria-label="View purchase history for ${escapeHTML(row.values[0])}">${row.values.map(value => `<td>${escapeHTML(value)}</td>`).join("")}</tr>`;
+        const search = customerIdentityText(searchQuery());
+        const rows = customerRows().filter(row => matches(search, ...row.values.map(customerIdentityText)) ||
+          row.sales.some(sale => customerIdentityText(sale.customer_name).includes(search)));
+        const rowHtml = row => `<tr class="sale-summary-row" data-customer-history="${escapeHTML(row.key)}" tabindex="0" aria-label="View purchase history for ${escapeHTML(row.values[0])}">${row.values.map(value => `<td>${escapeHTML(value)}</td>`).join("")}${customerEditingEnabled() ? `<td class="customer-master-edit"><button type="button" class="button button-outline button-small" data-customer-edit="${escapeHTML(row.key)}" aria-label="Edit ${escapeHTML(row.values[0])}">Edit</button></td>` : ""}</tr>`;
         const value = (row, col) => row.values[col];
-        const table = tableBlock("customers", customerColumns, rows, rowHtml, "No customers match your search.", PAGE_SIZE, value, value);
-        return panel("Customers", `${tableStore.customers.items.length} matching records. Choose a customer to view their purchase history. Download includes all filtered pages.`, table);
+        const table = tableBlock("customers", customerEditingEnabled() ? [...customerColumns, ""] : customerColumns, rows, rowHtml, "No customers match your search.", PAGE_SIZE, value, value);
+        return panel("Customers", `${tableStore.customers.items.length} matching records. Choose a customer to view their purchase history. Download includes all filtered pages.`,
+          (liveData.customerMaster?.error ? `<p role="alert" class="connected-error">${escapeHTML(liveData.customerMaster.error)}</p>` : "") + table);
       },
     );
+  }
+
+  function customerEditingEnabled() {
+    return Boolean(!demoStore && rolePages[currentProfile?.role]?.includes("customers") && liveData.customerMaster && !liveData.customerMaster.error);
+  }
+
+  function openCustomerEditor(key) {
+    if (activePage !== "customers" || !customerEditingEnabled()) return;
+    const customers = customerRows();
+    const keep = customers.find(row => row.key === key);
+    if (!keep) return;
+    const candidates = customers.filter(row => row.branchId === keep.branchId && row.key !== key);
+    const details = keep.customer;
+    let duplicate = null;
+    const editClient = client, editor = currentProfile.id;
+    openModal({
+      title: `Edit customer · ${details.name}`, intro: `${keep.values[3]} · ${keep.sales.length} transaction(s)`,
+      submitLabel: "Save customer",
+      body: `<div class="dlg-grid">
+        ${fieldHTML("Customer name", "customer_name", `<input name="customer_name" required maxlength="200" value="${escapeHTML(details.name)}">`)}
+        ${fieldHTML("Barangay", "barangay", `<input name="barangay" maxlength="200" value="${escapeHTML(details.barangay)}">`)}
+        ${fieldHTML("City / municipality", "city", `<input name="city" maxlength="200" value="${escapeHTML(details.city)}">`)}
+        </div><details class="customer-combine">
+          <summary>Combine purchase histories</summary>
+          <p>Choose a duplicate to bring its purchase history into this customer record.</p>
+          ${fieldHTML("Find a duplicate in this branch", "duplicate_search", '<input name="duplicate_search" type="search" placeholder="Type a customer name" autocomplete="off">')}
+          ${fieldHTML("Duplicate customer", "duplicate", '<select name="duplicate"><option value="">Choose a duplicate</option></select>')}
+          <p data-customer-combine-preview role="status"></p>
+        </details>`,
+      onReady: form => {
+        const search = form.elements.duplicate_search, select = form.elements.duplicate;
+        const preview = form.querySelector("[data-customer-combine-preview]");
+        const submit = form.querySelector('[type="submit"]');
+        const updatePreview = () => {
+          preview.textContent = duplicate
+            ? `Move ${duplicate.sales.length} transaction(s) from ${duplicate.customer.name} into ${form.elements.customer_name.value.trim() || details.name}. Combined history: ${keep.sales.length + duplicate.sales.length} transaction(s).` : "";
+          submit.textContent = duplicate ? "Combine and save" : "Save customer";
+        };
+        const updateChoices = () => {
+          const query = customerIdentityText(search.value);
+          const shown = candidates.filter(row => query && row.values.slice(0, 3).some(value => customerIdentityText(value).includes(query))).slice(0, 30);
+          select.replaceChildren(new Option(shown.length ? "Choose a duplicate" : query ? "No matching customers" : "Type a customer name", ""),
+            ...shown.map(row => new Option(row.values.slice(0, 3).filter(value => value !== "—").join(" · "), row.key)));
+          duplicate = null;
+          updatePreview();
+        };
+        search.addEventListener("input", updateChoices);
+        select.addEventListener("change", () => {
+          duplicate = candidates.find(row => row.key === select.value) || null;
+          updatePreview();
+        });
+        form.elements.customer_name.addEventListener("input", updatePreview);
+        form.querySelector("details").addEventListener("toggle", event => {
+          if (!event.currentTarget.open) { select.value = ""; duplicate = null; updatePreview(); }
+        });
+      },
+      onSubmit: async form => {
+        if (client !== editClient || currentProfile?.id !== editor) throw new Error("The account changed. Reopen Customer Master.");
+        const combining = duplicate;
+        const { error } = await editClient.rpc("update_customer_master", {
+          p_branch: keep.branchId, p_keep: JSON.parse(keep.key).slice(1),
+          p_combine: combining ? JSON.parse(combining.key).slice(1) : null,
+          p_name: form.elements.customer_name.value.trim(),
+          p_barangay: form.elements.barangay.value.trim(), p_city: form.elements.city.value.trim(),
+        });
+        if (error) throw error;
+        const saved = await loadCustomerMasterAliases(editClient);
+        if (client !== editClient || currentProfile?.id !== editor) return false;
+        liveData.customerMaster = saved;
+        refreshResults();
+        return `<p role="status">${saved.error ? "Customer saved. Refresh Customer Master to see the update."
+          : combining ? "Purchase histories combined and customer details saved." : "Customer details saved."}</p>`;
+      },
+    });
   }
 
   let columnMenu;
@@ -5572,10 +5674,12 @@
       "No transactions match these filters.", PAGE_SIZE, undefined, undefined, { fixedRows: true });
     openModal({ title: `Purchase History · ${name}`, intro: [barangay, city, branch].filter(value => value !== "—").join(" · "),
       readOnly: true, wide: true,
+      headerAction: customerEditingEnabled() ? '<button type="button" class="button button-outline button-small" data-edit-customer-history>Edit customer</button>' : "",
       body: `<div class="sale-detail-total"><span>${purchases.length} recorded transaction${purchases.length === 1 ? "" : "s"}</span>
         <strong>Overall total: ${formatMoney(total)}</strong></div>
         <div class="purchase-history-table">${renderTable()}</div>`,
       onReady: form => {
+        form.closest(".dlg").querySelector("[data-edit-customer-history]")?.addEventListener("click", () => openCustomerEditor(key));
         bindSaleDetailRows(form, () => openCustomerHistory(key, true));
         bindModalTable(form.querySelector(".purchase-history-table"), renderTable);
       },
@@ -7174,7 +7278,7 @@
 
   // ---------- Export ----------
   function exportButton(attributes, label) {
-    return `<button class="button button-outline button-small export-icon" type="button" ${attributes} title="${escapeHTML(label)}" aria-label="${escapeHTML(label)}"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg></button>`;
+    return `<button class="button button-outline button-small export-icon" type="button" ${attributes} title="${escapeHTML(label)}" aria-label="${escapeHTML(label)}"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21H5V3h9l4 4v5M14 3v5h4"/><path d="M17 13v8m-3-3 3 3 3-3" stroke="#a7f3c8"/></svg></button>`;
   }
 
   function chartExport(title, rows) {
@@ -7211,34 +7315,89 @@
     dialog.showModal();
   }
 
-  function printReport(sheets, fileName) {
-    const frame = document.createElement("iframe");
-    frame.className = "report-print-frame";
-    frame.title = "Print report";
-    frame.setAttribute("aria-hidden", "true");
-    document.body.appendChild(frame);
-    const printable = frame.contentWindow;
-    const sections = sheets.map(({ name, rows }) => {
-      const [headers = [], ...body] = rows;
-      const cells = (row, tag) => row.map(cell => `<${tag}>${escapeHTML(cell ?? "")}</${tag}>`).join("");
-      return `<section><h2>${escapeHTML(name)}</h2><table><thead><tr>${cells(headers, "th")}</tr></thead>
-        <tbody>${body.map(row => `<tr>${cells(row, "td")}</tr>`).join("")}</tbody></table></section>`;
-    }).join("");
-    printable.document.open();
-    printable.document.write(`<!doctype html><meta charset="utf-8"><title>${escapeHTML(fileName)}</title><style>
-      @page{size:landscape;margin:12mm}body{font:10pt Arial,sans-serif;color:#18243a}
-      section+section{break-before:page}h2{font-size:15pt}table{width:100%;border-collapse:collapse}
-      th,td{border:1px solid #ccd5e2;text-align:left;padding:4px;overflow-wrap:anywhere}
-      th{background:#eaf1ff}thead{display:table-header-group}tr{break-inside:avoid}
-    </style>${sections}`);
-    printable.document.close();
-    printable.addEventListener("afterprint", () => frame.remove(), { once: true });
-    printable.print();
+  let pdfLibrary;
+  function loadPdfLibrary() {
+    const addScript = (file, integrity) => new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = `https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/${file}`;
+      script.integrity = "sha384-" + integrity;
+      script.crossOrigin = "anonymous";
+      script.onload = resolve;
+      script.onerror = () => {
+        script.remove();
+        reject(new Error("The PDF library could not load. Check your connection and try again."));
+      };
+      document.head.appendChild(script);
+    });
+    pdfLibrary ??= (async () => {
+      if (!window.pdfMake?.createPdf) await addScript("pdfmake.min.js", "G23ofMOEI98f9UnroUBjDi6Ll55Y5E6bOX4VAMJo0nIbuQRIxzn0g4athUOb58zs");
+      await addScript("vfs_fonts.js", "pv+tpy6KGI5sKXJDf7oGPdvyVNKYXfAmDYpZ3r3PNP0d13PJQ6YMiiAEndd5sU15");
+      return window.pdfMake;
+    })().catch(error => { pdfLibrary = undefined; throw error; });
+    return pdfLibrary;
+  }
+
+  async function downloadReportPdf(sheets, fileName, transaction) {
+    const profileId = currentProfile?.id;
+    const exportClient = client;
+    const pdf = await loadPdfLibrary();
+    const maxColumns = Math.max(0, ...sheets.map(sheet => sheet.rows[0]?.length || 0));
+    const title = transaction?.name || (sheets.length === 1 ? sheets[0].name : "Sales Tracker report");
+    const content = [
+      { text: "BRANCHLINE  /  SALES TRACKER", fontSize: 10, bold: true, color: "#264c7f" },
+      { text: title, fontSize: 19, bold: true, margin: [0, 4, 0, 14] },
+    ];
+    if (transaction) {
+      const fields = transaction.metadata.map(([label, value]) => ({
+        text: [{ text: label + "  ", bold: true }, value], margin: [0, 0, 0, 6],
+      }));
+      const split = Math.ceil(fields.length / 2);
+      content.push({ columns: [{ stack: fields.slice(0, split) }, { stack: fields.slice(split) }],
+        columnGap: 16, margin: [0, 0, 0, 8] });
+    }
+    for (const sheet of sheets) {
+      const [headers, ...rows] = sheet.rows;
+      if (!headers?.length) continue;
+      if (sheet.name !== title) content.push({ text: sheet.name, bold: true, fontSize: 11, margin: [0, 8, 0, 4] });
+      const numericColumn = label => /^(qty|quantity|srp|unit price|price|amount|total)$/i.test(label);
+      const widths = headers.map(label => transaction && numericColumn(label) ? 48 : "*");
+      if (transaction) widths[0] = "42%";
+      const rowCells = (row, isHeader) => headers.map((label, index) => ({
+        text: String(row[index] ?? ""), bold: isHeader, alignment: numericColumn(label) ? "right" : "left",
+      }));
+      content.push({
+        table: { headerRows: 1, widths, body: [rowCells(headers, true), ...rows.map(row => rowCells(row, false))] },
+        layout: {
+          fillColor: row => row === 0 ? "#e8eff8" : null,
+          hLineColor: () => "#c2cede", vLineWidth: () => 0,
+          paddingLeft: () => 4, paddingRight: () => 4, paddingTop: () => 4, paddingBottom: () => 4,
+        },
+      });
+    }
+    if (transaction) content.push({ unbreakable: true, columns: transaction.totals.map((value, index) => ({
+      text: value, alignment: index === 0 ? "left" : "right", bold: index > 0,
+    })), margin: [0, 10, 0, 0] });
+    const blob = await new Promise((resolve, reject) => {
+      try {
+        pdf.createPdf({
+          info: { title, author: "Branchline Sales Tracker" },
+          pageSize: "A4", pageOrientation: maxColumns > 7 ? "landscape" : "portrait",
+          pageMargins: [32, 32, 32, 35], content,
+          defaultStyle: { fontSize: maxColumns > 13 ? 8 : 10, color: "#16243a" },
+          footer: (page, total) => ({ text: `${page} / ${total}`, alignment: "right", fontSize: 8, margin: [32, 7, 32, 0] }),
+        }).getBlob(resolve);
+      } catch (error) { reject(error); }
+    });
+    if (currentProfile?.id === profileId && client === exportClient) downloadFile(fileName + ".pdf", blob);
   }
 
   function tableElementSheet(table, name) {
     const copy = table.cloneNode(true);
     copy.querySelectorAll(".sort-arrow").forEach(arrow => arrow.remove());
+    copy.querySelectorAll(".pl-meta, .sale-detail-barcode, .sale-product-serials > div").forEach(line => {
+      if (line.previousSibling) line.before("\n");
+      if (line.matches(".pl-meta")) line.after("\n");
+    });
     return { name, rows: [...copy.querySelectorAll("tr")].map(row => [...row.children].map(cell => cell.textContent.trim())) };
   }
 
@@ -7253,7 +7412,7 @@
     button.addEventListener("click", () => chooseExportFormat(button, format => {
         const table = root.querySelector("table");
         if (!table) throw new Error("The daily table is unavailable.");
-        exportWorkbook([tableElementSheet(table, title)], `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${localISODate()}`, false, format);
+        return exportWorkbook([tableElementSheet(table, title)], `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${localISODate()}`, false, format);
     }));
   }
 
@@ -7408,8 +7567,8 @@
     if (ui.salesBasis === "srp" && !["inventory_controller", "stock_custodian"].includes(currentProfile?.role)) {
       sheets = [{ name: "Comparison basis", rows: [["Sales comparison basis", salesBasisNote()], ["Original records", "Raw unit prices, entry/edit forms, targets and DG fees are unchanged."]] }, ...sheets];
     }
-    sheets = sheets.map(exportIdentitySheet);
-    if (format === "pdf") return printReport(sheets, fileName);
+    sheets = sheets.map(sheet => sheet.includeIdentity === false ? sheet : exportIdentitySheet(sheet));
+    if (format === "pdf") return downloadReportPdf(sheets, fileName);
     if (window.XLSX) {
       const book = window.XLSX.utils.book_new();
       const names = new Set(includeIndex ? ["worksheet index"] : []);
@@ -7457,8 +7616,7 @@
     if (!liveData || !currentProfile) throw new Error("Sign in and wait for your workspace to finish loading.");
     if (liveData.inventoryError) throw new Error(liveData.inventoryError);
     if (["inventory_controller", "stock_custodian"].includes(currentProfile.role)) {
-      exportWorkbook(inventorySheets(), `branchline-inventory-${localISODate()}`, true, format);
-      return;
+      return exportWorkbook(inventorySheets(), `branchline-inventory-${localISODate()}`, true, format);
     }
     if (liveData.exportWarnings?.length) throw new Error(`Some datasets failed to load (${liveData.exportWarnings.join(", ")}). Reload successfully before exporting all tables.`);
     const completeBrandLog = currentProfile.role === "ps" ? await fetchExportBrandLog(client, currentProfile.id) : [];
@@ -7569,7 +7727,7 @@
       walkInDailyCtx = savedWalkContext;
       liveData.brandSales = savedBrandLog;
     }
-    exportWorkbook(sheets, `branchline-export-all-${localISODate()}`, true, format);
+    return exportWorkbook(sheets, `branchline-export-all-${localISODate()}`, true, format);
   }
 
   function psNameOf(psId, fallbackName = "") {
@@ -7601,7 +7759,7 @@
       sheets.push({ name: "By branch", rows: [["Branch", "Sales"], ...[...byBranch].sort((a, b) => b[1] - a[1])] });
       sheets.push({ name: "By brand", rows: [["Brand", "Sales"], ...[...byBrand].sort((a, b) => b[1] - a[1])] });
     }
-    exportWorkbook(sheets, `branchline-sales-${stamp}`, false, format);
+    return exportWorkbook(sheets, `branchline-sales-${stamp}`, false, format);
   }
 
   // Pop-up with one Product Specialist's sales (every brand), filterable and sortable by brand, category and sub-category.
@@ -7775,7 +7933,7 @@
     download.addEventListener("click", () => chooseExportFormat(download, format => {
         const header = ["Sale date", "Invoice", "Customer", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment", "City / town", "Barangay", "Serial numbers", "Sales code", "PS name"];
         const data = itemizedSaleLines(tableStore[linesKey].items).map(({ sale, line, serial }) => [sale.sold_on, sale.invoice_number, sale.customer_name, line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), sale.payment_mode || "", sale.city || "", sale.barangay || "", serial, ...exportPsIdentity(sale)]);
-        exportWorkbook([{ name: sheet, rows: [header, ...data] }], `${fileBase}-${localISODate()}`, false, format);
+        return exportWorkbook([{ name: sheet, rows: [header, ...data] }], `${fileBase}-${localISODate()}`, false, format);
     }));
     bindSaleDetailRows(root);
     render();
@@ -8125,7 +8283,7 @@
     const table = tableStore[key];
     if (!table) throw new Error("This table is no longer available. Reopen it and try again.");
     const title = table.title || key;
-    exportWorkbook([tableToSheet(table, title)],
+    return exportWorkbook([tableToSheet(table, title)],
       `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${localISODate()}`, false, format);
   }
 
@@ -8497,6 +8655,11 @@
   });
 
   connectedContent.addEventListener("click", event => {
+    const customerEdit = event.target.closest("[data-customer-edit]");
+    if (customerEdit) {
+      openCustomerEditor(customerEdit.dataset.customerEdit);
+      return;
+    }
     const customer = event.target.closest("[data-customer-history]");
     if (customer) {
       openCustomerHistory(customer.dataset.customerHistory);
@@ -8544,7 +8707,7 @@
       return;
     }
     const saleRow = event.target.closest("[data-sale-details], [data-delivery-person], [data-brand-sale], [data-daily-sales-table-date], [data-customer-history]");
-    if (saleRow && ["Enter", " "].includes(event.key)) {
+    if (saleRow && !event.target.closest("[data-customer-edit]") && ["Enter", " "].includes(event.key)) {
       event.preventDefault();
       saleRow.click();
       return;
