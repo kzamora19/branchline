@@ -5316,35 +5316,56 @@
     const input = form.elements.customer;
     const list = form.querySelector("#sale-customer-options");
     const customers = new Map();
-    for (const sale of visibleSales()) {
-      if (sale.branch_id !== branchId || !sale.customer_name?.trim() || /^RET-/i.test(sale.invoice_number || "")) continue;
+    function addCustomer(sale) {
+      if (!sale.customer_name?.trim()) return;
       const customer = canonicalCustomer(sale);
       const key = [customer.name, customer.barangay, customer.city].map(customerIdentityText).join("\0");
       const prior = customers.get(key);
       customers.set(key, { ...customer, count: (prior?.count || 0) + 1,
         last: String(sale.sold_on || "") > (prior?.last || "") ? sale.sold_on : prior?.last || "" });
     }
+    for (const sale of visibleSales()) {
+      if (sale.branch_id === branchId && !/^RET-/i.test(sale.invoice_number || "")) addCustomer(sale);
+    }
     let options = [], active = -1;
-    const close = () => {
+    let generation = 0, requestTimer;
+    const hide = () => {
       list.hidden = true;
       input.setAttribute("aria-expanded", "false");
       input.removeAttribute("aria-activedescendant");
       active = -1;
     };
-    const show = () => {
-      const search = customerIdentityText(input.value);
-      if (!search) return close();
-      options = [...customers.values()].filter(item => customerIdentityText(item.name).includes(search))
+    const close = () => { generation++; clearTimeout(requestTimer); hide(); };
+    const render = search => {
+      const matching = [...customers.values()].filter(item => customerIdentityText(item.name).includes(search));
+      const hasAddress = new Set(matching.filter(item => item.city || item.barangay).map(item => customerIdentityText(item.name)));
+      options = matching.filter(item => item.city || item.barangay || !hasAddress.has(customerIdentityText(item.name)))
         .sort((a, b) => Number(customerIdentityText(b.name) === search) - Number(customerIdentityText(a.name) === search) ||
           Number(Boolean(b.city && b.barangay)) - Number(Boolean(a.city && a.barangay)) ||
           b.last.localeCompare(a.last) || b.count - a.count || a.name.localeCompare(b.name))
         .slice(0, 10);
-      if (!options.length) return close();
+      if (!options.length) return hide();
       active = -1;
       input.removeAttribute("aria-activedescendant");
       list.innerHTML = options.map((item, index) => `<div role="option" id="sale-customer-option-${index}" data-customer-option="${index}" aria-selected="false"><strong>${escapeHTML(item.name)}</strong>${item.city || item.barangay ? `<small>${escapeHTML([item.barangay, item.city].filter(Boolean).join(", "))}</small>` : ""}</div>`).join("");
       list.hidden = false;
       input.setAttribute("aria-expanded", "true");
+    };
+    const show = () => {
+      const search = customerIdentityText(input.value);
+      const request = ++generation;
+      clearTimeout(requestTimer);
+      if (!search) return hide();
+      render(search);
+      if (demoStore || currentProfile.role !== "ps" || search.length < 2) return;
+      const searchClient = client, user = currentProfile.id;
+      requestTimer = setTimeout(async () => {
+        const { data, error } = await searchClient.rpc("branch_sale_customer_suggestions", { p_branch: branchId, p_query: search });
+        if (error || request !== generation || !form.isConnected || client !== searchClient || currentProfile?.id !== user) return;
+        for (const row of data ?? []) addCustomer({ ...row, customer_name: titleCase(row.customer_name),
+          barangay: titleCase(row.barangay), city: titleCase(row.city), branch_id: branchId });
+        if (active < 0) render(search);
+      }, 200);
     };
     const select = index => {
       const item = options[index];
