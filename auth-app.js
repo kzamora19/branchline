@@ -3271,13 +3271,15 @@
     }).join("") : '<tr><td colspan="4">No product details recorded.</td></tr>'}</tbody></table></div>`;
   }
 
+  const canCorrectBundleSale = role => ["manager", "district_manager", "admin"].includes(role);
+
   function openSaleDetails(saleId, returnToHistory) {
     const ids = scopeBranchIds();
     const sale = [...visibleSales(), ...liveData.testSales.filter(item => currentProfile.role !== "ps" || item.ps_id === currentProfile.id)]
       .find(item => item.id === saleId && ids.has(item.branch_id));
     if (!sale) throw new Error("This transaction is no longer available in your sales scope. Refresh the sales view.");
     const lines = linesForSale(sale.id);
-    const canEdit = ["ps", "manager", "admin"].includes(currentProfile.role);
+    const canEdit = currentProfile.role === "ps" || canCorrectBundleSale(currentProfile.role);
     const fee = ["manager", "district_manager", "admin"].includes(currentProfile.role)
       ? liveData.deliveryGuaranties.find(item => item.sale_id === sale.id)?.amount : null;
     const detail = (label, value) => `<div><dt>${label}</dt><dd>${escapeHTML(value || "—")}</dd></div>`;
@@ -3327,7 +3329,11 @@
             const target = form.querySelector("[data-sale-promotions]");
             if (result.data.length) {
               target.innerHTML = result.data.map(group => `<p><strong>Promotion ${escapeHTML(group.barcode)} · ${escapeHTML(group.description)}</strong> · Bundle price: ${formatMoney(Number(group.bundle_total))}</p>`).join("") +
-                "<p>Bundle item prices below are allocated for reporting. To correct this transaction, return the complete bundle; bundle sales cannot be edited or deleted.</p>";
+                (canCorrectBundleSale(currentProfile.role)
+                  ? "<p>Bundle item prices below are allocated for reporting. Use Edit to correct this transaction.</p>"
+                  : "<p>Bundle item prices below are allocated for reporting. Ask your manager to correct this transaction.</p>");
+              const edit = form.querySelector("[data-edit-sale]");
+              if (edit && canCorrectBundleSale(currentProfile.role)) edit.disabled = false;
             } else {
               target.textContent = "";
               actions.forEach(button => { button.disabled = false; });
@@ -4676,11 +4682,21 @@
     const lookupClient = client, profileId = currentProfile.id;
     try {
       let catalog = saleProducts();
+      let savedPromotions = [];
+      if (!demoStore) {
+        const result = await lookupClient.from("sale_promotion_groups")
+          .select("id,promotion_id,barcode,description,bundle_total,source_snapshot,sale_promotion_lines(line_id)")
+          .eq("sale_id", sale.id).order("id");
+        savedPromotions = checkResult(result, "Unable to load this sale's bundles");
+        if (savedPromotions.length && !canCorrectBundleSale(currentProfile.role)) {
+          throw new Error("Ask your manager to correct this bundle sale.");
+        }
+      }
       if (!demoStore && (!catalog.length || catalog.some(product => product.branch_id !== sale.branch_id))) {
         catalog = await loadSaleCatalog(lookupClient, sale.branch_id);
       }
       if (button.isConnected && client === lookupClient && currentProfile?.id === profileId) {
-        openSaleModal(sale, null, null, catalog);
+        openSaleModal(sale, null, null, catalog, savedPromotions);
       }
     } catch (error) {
       if (button.isConnected) alert(friendlyError(error));
@@ -4714,7 +4730,7 @@
     });
   }
 
-  function openSaleModal(sale, promotion = null, test = null, catalog = test?.catalog ?? saleProducts()) {
+  function openSaleModal(sale, promotion = null, test = null, catalog = test?.catalog ?? saleProducts(), savedPromotions = []) {
     const saleBranch = test?.branch.id ?? sale?.branch_id ?? currentProfile.branch_id;
     const renderLine = line => saleLineRow(line, catalog);
     const promotionGroups = new Map();
@@ -4722,8 +4738,8 @@
     const promotionHeader = (item, group) => `<div data-promotion-header="${group}" class="field">
       <strong>Promotion barcode ${escapeHTML(item.barcode)} · ${escapeHTML(item.description)}</strong>
       <span>${item.tag_price == null ? "Enter the amount charged." : `Memo offer ${escapeHTML(formatMoney(item.tag_price))}`}</span>
-      <input name="bundle_price" aria-label="Bundle selling price (PHP)" placeholder="Enter bundle selling price (PHP)" type="number" min="0" step="0.01" required>
-      ${!item.valid_from || !item.valid_to || item.price_conflict ? '<label class="check-row"><input type="checkbox" name="confirm_promotion_warning" required> I checked the incomplete dates or conflicting prices against the source.</label>' : ""}
+      <input name="bundle_price" aria-label="Bundle selling price (PHP)" placeholder="Enter bundle selling price (PHP)" type="number" min="0" step="0.01" value="${escapeHTML(item.savedTotal ?? "")}" required>
+      ${!item.savedGroupId && (!item.valid_from || !item.valid_to || item.price_conflict) ? '<label class="check-row"><input type="checkbox" name="confirm_promotion_warning" required> I checked the incomplete dates or conflicting prices against the source.</label>' : ""}
       <button type="button" class="button button-outline button-small" data-remove-promotion>Remove bundle</button></div>`;
     let lines = sale ? linesForSale(sale.id) : [{}];
     if (promotion) {
@@ -4736,6 +4752,25 @@
         return { barcode, quantity, srp: product.srp, selling_price: 0 };
       });
     }
+    const savedLineIds = new Set();
+    const savedBundleRows = savedPromotions.map(saved => {
+      const item = { ...saved.source_snapshot, id: saved.promotion_id, barcode: saved.barcode,
+        description: saved.description, savedGroupId: saved.id, savedTotal: saved.bundle_total };
+      const quantities = new Map();
+      for (const { line_id } of saved.sale_promotion_lines) {
+        const line = lines.find(entry => entry.id === line_id);
+        if (!line || savedLineIds.has(line_id)) throw new Error("This sale changed. Refresh the sales view and reopen it.");
+        savedLineIds.add(line_id);
+        const entry = quantities.get(line.barcode) || { ...line, quantity: 0, selling_price: 0 };
+        entry.quantity += Number(line.quantity);
+        quantities.set(line.barcode, entry);
+      }
+      if (!quantities.size) throw new Error("The bundle's saved items could not be loaded. Refresh and reopen the sale.");
+      const group = ++nextPromotionGroup;
+      promotionGroups.set(group, item);
+      return promotionHeader(item, group) + [...quantities.values()].map(line =>
+        renderLine(line).replace('class="sale-row"', `class="sale-row" data-promotion-group="${group}"`)).join("");
+    });
     const deliveryFee = liveData.deliveryGuaranties.find(item => item.sale_id === sale?.id)?.amount ?? null;
     const resolve = text => {
       const value = String(text || "").trim().toLowerCase();
@@ -4771,7 +4806,7 @@
         <label class="check-row sale-unlisted-toggle"><input type="checkbox" name="show_unavailable"> Show unavailable products for manual late-sale serial entry</label>
         <p data-sale-promotion-status role="status"></p>
         ${promotion ? promotionHeader(promotion, nextPromotionGroup) : ""}
-        <div id="sale-rows">${lines.map(renderLine).join("")}</div>
+        <div id="sale-rows">${lines.filter(line => !savedLineIds.has(line.id)).map(renderLine).join("")}${savedBundleRows.join("")}</div>
         <div class="sale-footer"><span class="sale-footer-actions"><button class="button button-outline button-small" type="button" data-add-line>+ Add product line</button></span><strong>Sale total: <span id="sale-total">${formatMoney(lines.reduce((sum, line) => sum + Number(line.selling_price || 0) * Number(line.quantity || 0), 0))}</span></strong></div>
         ${sale ? '<label class="check-row"><input name="reconcile" type="checkbox"> Apply quantity/serial corrections to current inventory if this sale was included in a replacement snapshot. Prices and customer corrections do not require this.</label>' : ""}`,
       onReady: form => {
@@ -4783,6 +4818,7 @@
           row.querySelector("[data-remove-line]").hidden = true;
         };
         if (promotion) form.querySelectorAll(".sale-row").forEach(row => markPromotionComponent(row, nextPromotionGroup));
+        form.querySelectorAll(".sale-row[data-promotion-group]").forEach(row => markPromotionComponent(row, row.dataset.promotionGroup));
         const syncDelivery = () => {
           const delivery = form.elements.fulfillment.value === "delivery";
           form.querySelector(".delivery-fee-fields").hidden = !delivery;
@@ -5223,7 +5259,7 @@
           }
           const total = parseCurrency(header.querySelector('[name="bundle_price"]').value);
           if (total === null || total < 0) throw new Error("Enter a valid non-negative selling price for each bundle.");
-          return { promotion: item.id, bundle_total: total,
+          return { promotion: item.id, bundle_total: total, ...(item.savedGroupId ? { group_id: item.savedGroupId } : {}),
             acknowledge_warnings: Boolean(header.querySelector('[name="confirm_promotion_warning"]')?.checked) };
         });
         if (test) {
@@ -5232,7 +5268,12 @@
           return `<p role="status"><strong>Test sale validated</strong> · ${escapeHTML(test.branch.name)} · ${formatMoney(total)}</p>
             <ul>${groups.map(({ product, qty }) => `<li>${qty} × ${escapeHTML(productLabel(product))}</li>`).join("")}</ul>`;
         }
-        if (sale && bundles.length) {
+        if (savedPromotions.length) {
+          mustRpc(await client.rpc("update_bundle_sale", {
+            ...common, p_sale_id: sale.id, p_expected_updated_at: sale.updated_at,
+            p_bundles: bundles, p_regular_lines: regularLines, p_reconcile: Boolean(form.elements.reconcile.checked),
+          }));
+        } else if (sale && bundles.length) {
           mustRpc(await client.rpc("edit_sale_with_promotions", {
             ...common, p_sale_id: sale.id, p_bundles: bundles, p_regular_lines: regularLines,
             p_reconcile: Boolean(form.elements.reconcile.checked),
@@ -8433,7 +8474,7 @@
     const editSale = event.target.closest("[data-edit-sale]");
     const deliveryPerson = event.target.closest("[data-delivery-person]");
     if (deliveryPerson) openDeliveryDetails(deliveryPerson.dataset.deliveryPerson);
-    if (editSale && ["ps", "manager", "admin"].includes(currentProfile.role)) {
+    if (editSale && (currentProfile.role === "ps" || canCorrectBundleSale(currentProfile.role))) {
       const sale = [...liveData.sales, ...liveData.testSales].find(item => item.id === editSale.dataset.editSale);
       if (sale) openEditSaleModal(sale, editSale);
     }

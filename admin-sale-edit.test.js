@@ -70,7 +70,7 @@ test("transaction summary stays compact and accessible; details respect visible 
     assert.match(modal.body, /S1[\s\S]*S2[\s\S]*<td>2<\/td><td>PHP 25.00/);
     assert.match(modal.body, /Transaction total: PHP 50.00/);
     assert.doesNotMatch(modal.body, /Line total/);
-    assert.equal(modal.body.includes("data-edit-sale"), ["ps", "manager", "admin"].includes(role));
+    assert.equal(modal.body.includes("data-edit-sale"), ["ps", "manager", "district_manager", "admin"].includes(role));
     assert.equal(modal.body.includes("data-delete-sale"), role === "admin");
     assert.equal(modal.body.includes("Delivery Guarranty: PHP 10.00"), ["manager", "district_manager", "admin"].includes(role));
   }
@@ -94,10 +94,11 @@ test("plain transaction and DG rows support Enter and Space like ranking rows", 
   assert.equal(prevented, 2);
 });
 
-test("sales log offers admin Edit and Delete without granting editing to district or inventory roles", () => {
-  assert.match(source, /const canEdit = \["ps", "manager", "admin"\]\.includes\(currentProfile\.role\)/);
+test("sales log offers Edit to sales roles and keeps Delete restricted to administrators", () => {
+  assert.match(source, /const canCorrectBundleSale = role => \["manager", "district_manager", "admin"\]\.includes\(role\)/);
+  assert.match(source, /const canEdit = currentProfile.role === "ps" \|\| canCorrectBundleSale\(currentProfile.role\)/);
   assert.match(source, /sale-log-actions[\s\S]*data-edit-sale=[\s\S]*currentProfile.role === "admin" \?[\s\S]*data-delete-sale=/);
-  assert.match(source, /if \(editSale && \["ps", "manager", "admin"\]\.includes\(currentProfile\.role\)\)/);
+  assert.match(source, /if \(editSale && \(currentProfile.role === "ps" \|\| canCorrectBundleSale\(currentProfile.role\)\)\)/);
 });
 
 test("demo admin edits preserve PS attribution and cannot create new sales", async () => {

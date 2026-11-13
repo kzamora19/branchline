@@ -24,7 +24,10 @@ test("promotion sales show one price, actual products and stock protection on de
         if (path.basename(filename) === "auth-app.js") body = Buffer.from(body.toString().replace(
           'if (!demoStore && (sale || test || currentProfile?.role === "ps"))',
           'if (sale || test || currentProfile?.role === "ps")'
-        ).replace("  function renderDemoControls() {", `
+        ).replace('if (demoStore) return;\n        const detailClient', 'if (demoStore && !window.savedBundleFixture) return;\n        const detailClient')
+          .replace('if (!demoStore) {\n        const result = await lookupClient.from("sale_promotion_groups")',
+            'if (!demoStore || window.savedBundleFixture) {\n        const result = await lookupClient.from("sale_promotion_groups")')
+          .replace("  function renderDemoControls() {", `
           const fetchFixtureData = fetchAllFrom;
           const refreshFixtureData = refreshData;
           let fixtureRpc;
@@ -92,6 +95,35 @@ test("promotion sales show one price, actual products and stock protection on de
               openSaleModal(sale);
               document.querySelector('form [name="date"]').value = "2026-11-11";
               return product.barcode;
+            },
+            openSavedBundle: () => {
+              const regular = saleProducts().find(item => item.srp != null);
+              const bundleProduct = saleProducts().find(item => item.srp != null && item.barcode !== regular.barcode);
+              const branch = liveData.branches.find(item => item.id === regular.branch_id) || liveData.branches[0];
+              const sale = {id:"saved-bundle-sale",invoice_number:"19636",sold_on:"2026-11-03",
+                customer_name:"Existing customer",payment_mode:"Cash",fulfillment_method:"pickup",
+                city:"Santiago",barangay:"Sample",branch_id:branch.id,ps_id:currentProfile.id,
+                created_at:"2026-11-03T10:00:00Z",updated_at:"2026-11-13T02:09:35Z"};
+              liveData.sales.push(sale);
+              liveData.linesBySale.set(sale.id, [
+                {id:"regular",barcode:regular.barcode,quantity:1,srp:regular.srp,selling_price:5916},
+                {id:"paid",barcode:bundleProduct.barcode,quantity:5,srp:bundleProduct.srp,selling_price:695.80},
+                {id:"free",barcode:bundleProduct.barcode,quantity:1,srp:bundleProduct.srp,selling_price:0}
+              ]);
+              liveData.inventoryError = null;
+              liveData.inventoryStock = [regular,bundleProduct].map(product => ({branch_id:branch.id,barcode:product.barcode,quantity:10,serialized:false}));
+              const from = client.from;
+              window.savedBundleFixture = true;
+              const rows = [{id:"saved-group",promotion_id:"fixture",barcode:"00065433",description:"Buy five get one",
+                bundle_total:3479,source_snapshot:{valid_from:"2026-10-01",valid_to:"2026-12-31",tag_price:3479},
+                sale_promotion_lines:[{line_id:"paid"},{line_id:"free"}]}];
+              client.from = (table, ...args) => {
+                if (table !== "sale_promotion_groups") return from.call(client, table, ...args);
+                return {select() {return this;}, eq() {return this;}, order() {return this;},
+                  then(fulfill,reject) {return Promise.resolve({data:rows,error:null}).then(fulfill,reject);}};
+              };
+              openSaleDetails(sale.id);
+              return () => { client.from = from; window.savedBundleFixture = false; };
             },
           };
           function renderDemoControls() {`));
@@ -232,9 +264,34 @@ test("promotion sales show one price, actual products and stock protection on de
       assert.deepEqual(edited.args.p_bundles, [{promotion:"fixture",bundle_total:3479,acknowledge_warnings:false}]);
       assert.equal(edited.args.p_regular_lines[0].selling_price, 50);
       await page.evaluate(() => window.promotionSaleTest.reset());
+      await page.evaluate(() => { window.restoreSavedBundle = window.promotionSaleTest.openSavedBundle(); });
+      let details = page.getByRole("dialog", { name: "Transaction · 19636" });
+      await details.getByText(/Ask your manager to correct this transaction/).waitFor();
+      assert.equal(await details.getByRole("button", { name: "Edit", exact: true }).isDisabled(), true);
+      await details.getByRole("button", { name: "Close", exact: true }).click();
+      await page.evaluate(() => window.restoreSavedBundle());
       const psRole = await page.locator("#demo-role").elementHandle();
       await page.locator("#demo-role").selectOption("admin");
       await page.waitForFunction(element => !element.isConnected, psRole);
+      await page.evaluate(() => {
+        window.restoreSavedBundle = window.promotionSaleTest.openSavedBundle();
+        window.promotionSaleTest.capture();
+      });
+      details = page.getByRole("dialog", { name: "Transaction · 19636" });
+      await details.getByRole("button", { name: "Edit", exact: true }).click();
+      dialog = page.getByRole("dialog", { name: "Edit sale · 19636" });
+      assert.equal(await dialog.locator('[name="bundle_price"]').inputValue(), "3479");
+      assert.equal(await dialog.locator('.sale-row [name="quantity"]').last().inputValue(), "6");
+      assert.match(await dialog.locator("#sale-total").textContent(), /9,395/);
+      await dialog.locator('[name="bundle_price"]').fill("3500.01");
+      await dialog.getByRole("button", { name: "Save changes" }).click();
+      await page.waitForFunction(() => window.promotionSaleCalls.length > 0);
+      const [corrected] = await page.evaluate(() => window.promotionSaleCalls);
+      assert.equal(corrected.name, "update_bundle_sale");
+      assert.equal(corrected.args.p_expected_updated_at, "2026-11-13T02:09:35Z");
+      assert.equal(corrected.args.p_regular_lines.length, 1);
+      assert.deepEqual(corrected.args.p_bundles, [{group_id:"saved-group",promotion:"fixture",bundle_total:3500.01,acknowledge_warnings:false}]);
+      await page.evaluate(() => { window.restoreSavedBundle(); window.promotionSaleTest.reset(); });
       await page.locator('[data-live-page="sales"]').evaluate(button => button.click());
       await page.locator('[data-open="sale"]').waitFor();
       const branch = await page.evaluate(() => window.promotionSaleTest.setupAdmin());
