@@ -2652,12 +2652,14 @@
         row.stockValue ?? 0,row.selloutValue ?? 0,row.monthlySelloutValue ?? 0,
         row.targetStockValue ?? 0,row.moh ?? "",row.mohStatus,
         row.missingStockSrpUnits,row.missingSalesSrpUnits,row.unmatchedSalesUnits]) };
-    const value = data.error || total.moh == null
+    const estimatedMoh = !data.error && total.moh == null && !total.unknownStockProducts && total.monthlySelloutValue > 0
+      ? total.stockValue / total.monthlySelloutValue : null;
+    const value = estimatedMoh != null ? `${estimatedMoh.toFixed(2)} months (estimated)` : data.error || total.moh == null
       ? (total.mohStatus === "No sell-out" && !data.error ? "No sell-out" : "Unavailable")
       : `${total.moh.toFixed(2)} months`;
-    const reason = total.missingStockSrpUnits > 0
-      ? `${total.missingStockSrpUnits} stock units need SRP`
-      : total.mohStatus;
+    const reason = [total.missingStockSrpUnits ? `${total.missingStockSrpUnits} stock units need SRP` : "",
+      total.missingSalesSrpUnits ? `${total.missingSalesSrpUnits} sold units need SRP` : "",
+      total.unmatchedSalesUnits ? `${total.unmatchedSalesUnits} sold units unmatched` : ""].filter(Boolean).join(" · ") || total.mohStatus;
     const context = [
       total.stockUnits == null ? "Stock count incomplete" : `${total.stockUnits} available units`,
       total.stockValue == null ? "" : `${formatMoney(total.stockValue)} priced stock`, reason,
@@ -2908,9 +2910,8 @@
           ${dailyNeededCard}
           <article class="connected-metric"><span>Remaining gap</span><strong>${gapText}</strong><small>${escapeHTML(gapSmall)}</small></article>
           <article class="connected-metric an-forecast-card"><span>${forecast.status === "final" ? "Month-end result" : `Forecast month-end <em class="an-badge">Forecast</em>`}</span><strong>${forecastText}</strong><small>${escapeHTML(forecastSmall)}</small></article>
-          <article class="connected-metric"><span>Transactions</span><strong>${transactions}</strong><small>Average value ${transactions ? formatMoney(A.average(actual, transactions)) : "n/a"}</small><button class="button button-outline button-small wk-daily-btn" type="button" data-open="transactions-daily">View daily</button></article>
+          <article class="connected-metric"><span>Transactions</span><strong>${transactions}</strong><span>${isPs ? "Clients assisted" : "Walk-in traffic"}</span><strong>${walk.coveredDays ? walk.visitors : "No data"}</strong><small>${escapeHTML(walkSource)}</small><button class="button button-outline button-small wk-daily-btn" type="button" data-open="walkin-daily">View daily</button></article>
           ${isPs ? "" : `<article class="connected-metric"><span>Sales per PS</span><strong>${sharePerPs === null ? "n/a" : formatMoney(sharePerPs)}</strong><small>${psProfiles.length} active PS${psProfiles.length === 1 ? "" : "s"} in view</small></article>`}
-          <article class="connected-metric"><span>${isPs ? "Clients assisted" : "Walk-in traffic"}</span><strong>${walk.coveredDays ? walk.visitors : "No data"}</strong><small>${escapeHTML(walkSource)}</small><button class="button button-outline button-small wk-daily-btn" type="button" data-open="walkin-daily">View daily</button></article>
           <article class="connected-metric"><span>Conversion rate</span><strong>${walk.conversion === null ? "n/a" : `${(walk.conversion * 100).toFixed(1)}%`}</strong><small>${walk.conversion === null ? "Needs recorded walk-in counts" : `${walk.transactions} sale${walk.transactions === 1 ? "" : "s"} ÷ ${walk.visitors} on counted days`}</small></article>
           ${inventoryMohCard(ids, facts, today)}
         </div>`;
@@ -6278,7 +6279,7 @@
       const weekday = new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
       return `<tr><td>${escapeHTML(day)}</td><td>${escapeHTML(weekday)}</td>${showAssistedComparison ? `<td>${assistedByDay.has(day) ? assistedByDay.get(day) : "—"}</td>` : ""}<td>${value(now)}</td><td>${value(before)}</td><td>${transactionsByDay.get(day)?.size || 0}</td><td>${transactionsByDay.get(prior)?.size || 0}</td><td>${rate(now)}</td><td>${rate(before)}</td></tr>`;
     }).reverse().join("");
-    const headers = ["Date", "Day", ...(showAssistedComparison ? ["Clients assisted (PS)"] : []), "Visitors this year", "Visitors last year", "Transactions this year", "Transactions last year", "Conversion this year", "Conversion last year"];
+    const headers = ["Date", "Day", ...(showAssistedComparison ? ["PS inputs"] : []), "FT TY", "FT LY", "TR# TY", "TR# LY", "Conv. rate TY", "Conv. rate LY"];
     if (collectingExports) return dailyComparisonSheet("Traffic and transactions by day", body, headers);
     closeModal();
     modalRoot = document.createElement("div");
@@ -7632,7 +7633,9 @@
     button.addEventListener("click", () => chooseExportFormat(button, format => {
         const table = root.querySelector("table");
         if (!table) throw new Error("The daily table is unavailable.");
-        return exportWorkbook([tableElementSheet(table, title)], `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${localISODate()}`, false, format);
+        const sheet = tableElementSheet(table, title);
+        if (title === "Traffic and transactions by day") sheet.includeIdentity = false;
+        return exportWorkbook([sheet], `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${localISODate()}`, false, format);
     }));
   }
 
