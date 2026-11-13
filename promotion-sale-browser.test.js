@@ -22,8 +22,8 @@ test("promotion sales show one price, actual products and stock protection on de
         const contentType = ({ ".js": "text/javascript", ".mjs": "text/javascript", ".html": "text/html", ".css": "text/css" })[path.extname(filename)] || "application/octet-stream";
         let body = fs.readFileSync(filename);
         if (path.basename(filename) === "auth-app.js") body = Buffer.from(body.toString().replace(
-          'if (!sale && !demoStore && (test || currentProfile?.role === "ps"))',
-          'if (!sale && (test || currentProfile?.role === "ps"))'
+          'if (!demoStore && (sale || test || currentProfile?.role === "ps"))',
+          'if (sale || test || currentProfile?.role === "ps")'
         ).replace("  function renderDemoControls() {", `
           const fetchFixtureData = fetchAllFrom;
           const refreshFixtureData = refreshData;
@@ -69,7 +69,7 @@ test("promotion sales show one price, actual products and stock protection on de
                 components:[{barcode:product.barcode,quantity:5,free:false},{barcode:product.barcode,quantity:1,free:true}]});
               return product.barcode;
             },
-            openRegular: (missingPrice = false) => {
+            openRegular: (missingPrice = false, editing = false) => {
               const product = saleProducts().find(item => item.srp != null);
               const other = saleProducts().find(item => item.srp != null && item.barcode !== product?.barcode);
               liveData.inventoryStock = [{branch_id:currentProfile.branch_id,barcode:product.barcode,quantity:10,serialized:false},
@@ -85,7 +85,11 @@ test("promotion sales show one price, actual products and stock protection on de
                 tag_price:1749,source_name:"fixture.pdf",source_page:2,source_excerpt:"Mixed bundle",
                 valid_from:"2026-01-01",valid_to:"2026-12-31",price_conflict:false,
                 components:[{barcode:product.barcode,quantity:1,free:false},{barcode:other.barcode,quantity:1,free:false}]}]});
-              openSaleModal();
+              const sale = editing ? {id:"edit-fixture",invoice_number:"19636",sold_on:"2026-11-11",
+                customer_name:"Existing customer",payment_mode:"Cash",fulfillment_method:"pickup",
+                city:"Santiago",barangay:"Sample",branch_id:currentProfile.branch_id} : undefined;
+              if (sale) liveData.linesBySale.set(sale.id, [{barcode:other.barcode,quantity:1,srp:other.srp,selling_price:50}]);
+              openSaleModal(sale);
               document.querySelector('form [name="date"]').value = "2026-11-11";
               return product.barcode;
             },
@@ -202,6 +206,31 @@ test("promotion sales show one price, actual products and stock protection on de
       await dialog.locator('[name="bundle_price"]').fill("3479");
       assert.match(await dialog.locator("#sale-total").textContent(), /3,479/);
       await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      await page.evaluate(() => {
+        window.promotionSaleTest.openRegular(false, true);
+        window.promotionSaleTest.capture();
+      });
+      dialog = page.getByRole("dialog", { name: "Edit sale · 19636" });
+      await dialog.locator("[data-add-line]").click();
+      const editProduct = dialog.locator('.sale-row [name="product"]').last();
+      await editProduct.fill("65433");
+      await dialog.locator('#sale-products option[value*="Buy five get one"]').waitFor({ state: "attached" });
+      await editProduct.press("Enter");
+      await dialog.locator("[data-promotion-header]").waitFor();
+      assert.equal(await dialog.locator('[name="invoice"]').inputValue(), "19636");
+      assert.equal(await dialog.locator('[name="customer"]').inputValue(), "Existing customer");
+      assert.equal(await dialog.locator('.sale-row [name="quantity"]').last().inputValue(), "6");
+      await dialog.locator('[name="bundle_price"]').fill("3479");
+      assert.match(await dialog.locator("#sale-total").textContent(), /3,529/);
+      await dialog.locator('[name="reconcile"]').check();
+      await dialog.getByRole("button", { name: "Save changes" }).click();
+      await page.waitForFunction(() => window.promotionSaleCalls.length > 0);
+      const [edited] = await page.evaluate(() => window.promotionSaleCalls);
+      assert.equal(edited.name, "edit_sale_with_promotions");
+      assert.equal(edited.args.p_sale_id, "edit-fixture");
+      assert.equal(edited.args.p_reconcile, true);
+      assert.deepEqual(edited.args.p_bundles, [{promotion:"fixture",bundle_total:3479,acknowledge_warnings:false}]);
+      assert.equal(edited.args.p_regular_lines[0].selling_price, 50);
       await page.evaluate(() => window.promotionSaleTest.reset());
       const psRole = await page.locator("#demo-role").elementHandle();
       await page.locator("#demo-role").selectOption("admin");

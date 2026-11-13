@@ -3311,7 +3311,8 @@
         }));
         if (returnToHistory) form.querySelector("[data-return-customer]").addEventListener("click", returnToHistory);
         form.addEventListener("click", event => {
-          if (canEdit && event.target.closest("[data-edit-sale]")) openSaleModal(sale);
+          const editButton = event.target.closest("[data-edit-sale]");
+          if (canEdit && editButton) openEditSaleModal(sale, editButton);
           else if (currentProfile.role === "admin" && event.target.closest("[data-delete-sale]")) openDeleteSaleModal(sale);
         });
         if (demoStore) return;
@@ -4662,6 +4663,32 @@
     return `PROMOTION · ${item.barcode} · ${item.description} · ${price} · ${item.source_name}, p. ${item.source_page} · ${item.id}`;
   }
 
+  async function loadSaleCatalog(lookupClient, branchId) {
+    const response = await fetchAllFrom(lookupClient, "products", "id,branch_id,barcode,model_description,brand,category,sub_category,active,srp",
+      [["model_description", true], ["id", true]], query => query.eq("branch_id", branchId).eq("active", true));
+    return normalizeProductRows(checkResult(response, "Unable to load the selected branch's products"))
+      .sort((a, b) => natural(a.brand, b.brand) || natural(a.model_description, b.model_description));
+  }
+
+  async function openEditSaleModal(sale, button) {
+    if (button.disabled) return;
+    button.disabled = true;
+    const lookupClient = client, profileId = currentProfile.id;
+    try {
+      let catalog = saleProducts();
+      if (!demoStore && (!catalog.length || catalog.some(product => product.branch_id !== sale.branch_id))) {
+        catalog = await loadSaleCatalog(lookupClient, sale.branch_id);
+      }
+      if (button.isConnected && client === lookupClient && currentProfile?.id === profileId) {
+        openSaleModal(sale, null, null, catalog);
+      }
+    } catch (error) {
+      if (button.isConnected) alert(friendlyError(error));
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   function openAdminTestSale() {
     const account = currentProfile;
     if (account.role !== "admin") return;
@@ -4676,22 +4703,18 @@
       onSubmit: async form => {
         const branch = branches.find(item => item.id === form.elements.branch.value);
         if (!branch) throw new Error("Select a branch for the test sale.");
-        const response = await fetchAllFrom(lookupClient, "products", "id,branch_id,barcode,model_description,brand,category,sub_category,active,srp",
-          [["model_description", true], ["id", true]], query => query.eq("branch_id", branch.id).eq("active", true));
+        const catalog = await loadSaleCatalog(lookupClient, branch.id);
         if (client !== lookupClient || currentProfile?.id !== account.id || currentProfile.role !== "admin") {
           throw new Error("The account changed. Reopen Record Sale.");
         }
         if (!form.isConnected) return false;
-        const catalog = normalizeProductRows(checkResult(response, "Unable to load the selected branch's products"))
-          .sort((a, b) => natural(a.brand, b.brand) || natural(a.model_description, b.model_description));
         openSaleModal(undefined, null, { branch, catalog, accountId: account.id });
         return false;
       },
     });
   }
 
-  function openSaleModal(sale, promotion = null, test = null) {
-    const catalog = test?.catalog ?? saleProducts();
+  function openSaleModal(sale, promotion = null, test = null, catalog = test?.catalog ?? saleProducts()) {
     const saleBranch = test?.branch.id ?? sale?.branch_id ?? currentProfile.branch_id;
     const renderLine = line => saleLineRow(line, catalog);
     const promotionGroups = new Map();
@@ -4966,16 +4989,18 @@
           if (resolve(value)) return [];
           return choices.filter(item => item.barcode === normBarcode(value));
         };
-        if (!sale && !demoStore && (test || currentProfile?.role === "ps")) {
+        if (!demoStore && (sale || test || currentProfile?.role === "ps")) {
           const lookupClient = client, profileId = currentProfile.id;
           fetchAllFrom(lookupClient, "reviewed_promotions", "*", [["reviewed_at", false], ["id", true]],
             query => query.eq("branch_id", saleBranch).is("revoked_at", null)).then(result => {
+            if (!form.isConnected) return;
             if (result.error) throw result.error;
             if (client !== lookupClient || currentProfile?.id !== profileId) throw new Error("The account changed. Reopen the sale.");
             availablePromotions = result.data;
             const activeInput = form.ownerDocument.activeElement;
             if (form.contains(activeInput) && activeInput.name === "product") activeInput.dispatchEvent(new Event("input", { bubbles: true }));
           }).catch(error => {
+            if (!form.isConnected) return;
             console.error("Promotion search failed.", error);
             form.querySelector("[data-sale-promotion-status]").textContent = `Unable to load promotion barcodes: ${friendlyError(error)}`;
           });
@@ -5068,7 +5093,7 @@
           recalc();
         });
         form.addEventListener("change", event => {
-          if (event.target.name === "product" && !sale) {
+          if (event.target.name === "product") {
             const row = event.target.closest(".sale-row");
             if (!row || row.dataset.promotionGroup) return;
             const value = event.target.value.trim();
@@ -5091,7 +5116,7 @@
           if (["product", "quantity"].includes(event.target.name)) notifyAvailability(event.target.closest(".sale-row"));
         });
         form.addEventListener("keydown", event => {
-          if (event.key !== "Enter" || event.target.name !== "product" || sale) return;
+          if (event.key !== "Enter" || event.target.name !== "product" || event.target.readOnly) return;
           const value = event.target.value.trim();
           if (promotionChoices(value).length) {
             event.preventDefault();
@@ -5207,7 +5232,12 @@
           return `<p role="status"><strong>Test sale validated</strong> · ${escapeHTML(test.branch.name)} · ${formatMoney(total)}</p>
             <ul>${groups.map(({ product, qty }) => `<li>${qty} × ${escapeHTML(productLabel(product))}</li>`).join("")}</ul>`;
         }
-        if (bundles.length) {
+        if (sale && bundles.length) {
+          mustRpc(await client.rpc("edit_sale_with_promotions", {
+            ...common, p_sale_id: sale.id, p_bundles: bundles, p_regular_lines: regularLines,
+            p_reconcile: Boolean(form.elements.reconcile.checked),
+          }));
+        } else if (bundles.length) {
           if (bundles.length === 1) {
             const [bundle] = bundles;
             mustRpc(await client.rpc("save_promotion_sale", {
@@ -8405,7 +8435,7 @@
     if (deliveryPerson) openDeliveryDetails(deliveryPerson.dataset.deliveryPerson);
     if (editSale && ["ps", "manager", "admin"].includes(currentProfile.role)) {
       const sale = [...liveData.sales, ...liveData.testSales].find(item => item.id === editSale.dataset.editSale);
-      if (sale) openSaleModal(sale);
+      if (sale) openEditSaleModal(sale, editSale);
     }
     const deleteSale = event.target.closest("[data-delete-sale]");
     if (deleteSale && currentProfile.role === "admin") {
