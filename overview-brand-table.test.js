@@ -6,13 +6,40 @@ const vm = require("node:vm");
 const source = fs.readFileSync(path.join(__dirname, "auth-app.js"), "utf8");
 const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
 
+test("sales chart legends show brand shares for PSs and add amounts for management", () => {
+  for (const role of ["ps", "manager", "district_manager", "admin"]) {
+    const context = vm.createContext({
+      currentProfile: { role }, escapeHTML: String, PERCENT_DECIMALS: 4,
+      PIE_COLORS: ["#355ee8", "#16a34a"], chartExport: () => "",
+      formatMoney: value => "₱" + Number(value).toFixed(2),
+    });
+    vm.runInContext(section("  function pieChart(", "  // Share of the target"), context);
+    vm.runInContext(section("  function brandPie(", "  const tableStore"), context);
+    const html = vm.runInContext('brandPie("Sales by brand", "November", [{label:"Midea / Toshiba",value:80},{label:"TCL",value:20}])', context);
+    const legend = html.match(/<ul class="pie-legend">.*?<\/ul>/s)?.[0];
+    assert.ok(legend, role);
+    assert.match(legend, /Midea \/ Toshiba/);
+    assert.match(legend, /TCL/);
+    assert.match(legend, /80\.0000%/);
+    assert.match(legend, /20\.0000%/);
+    if (role === "ps") {
+      assert.doesNotMatch(legend, /₱/);
+      const sharedChart = vm.runInContext('pieChart("Payment modes", "November", [{label:"Cash",value:80}])', context);
+      assert.doesNotMatch(sharedChart.match(/<ul class="pie-legend">.*?<\/ul>/s)[0], /₱/);
+    } else {
+      assert.match(legend, /₱80\.00 · 80\.0000%/);
+      assert.match(legend, /₱20\.00 · 20\.0000%/);
+    }
+  }
+});
+
 test("Overview retains brand charts but does not render the duplicate brand table for any sales role", () => {
   for (const role of ["ps", "manager", "district_manager", "admin"]) {
     for (const brands of [[], [{ brand: "TCL", actual: 100 }]]) {
       const context = vm.createContext({
         currentProfile: { role }, demoStore: null, ui: { month: "2026-11" },
         mountPage: (_heading, _actions, _filters, draw) => draw(),
-        pageHeading() {}, filterBar() {}, monthLabel: String, anchorMonth: () => "2026-11",
+        pageHeading() {}, filterBar() {}, exportButton: () => "", monthLabel: String, anchorMonth: () => "2026-11",
         statusLabel: () => "MTD", scopeBranchIds: () => new Set(["allowed"]),
         panelIds: (_key, ids) => ids, brandRows: () => brands,
         branchRows: () => [{ actual: 100, target: 200, ytd: 1000, ytdTarget: 2000 }],

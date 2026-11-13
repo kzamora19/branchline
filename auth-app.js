@@ -1070,6 +1070,7 @@
     const pieAction = `role="button" tabindex="0" data-pie-table="${escapeHTML(tableKey)}" aria-label="${escapeHTML(`View table for ${title}`)}"`;
     const showLegend = options.legend !== false;
     const showAmounts = options.amounts !== false;
+    const legendAmounts = showAmounts && currentProfile.role !== "ps";
     const data = entries.filter(entry => entry.value > 0);
     if (!entries.some(entry => entry.color)) data.sort((a, b) => b.value - a.value);
     const shown = data.slice(0, 6);
@@ -1113,7 +1114,7 @@
       return { shape, label, color, entry, fraction };
     });
     const legend = showLegend ? `<ul class="pie-legend">${slices.filter(slice => !slice.entry.muted).map(slice =>
-      `<li><i style="background:${slice.color}"></i><span>${escapeHTML(slice.entry.label)}</span><strong>${showAmounts ? `${formatMoney(slice.entry.value)} · ` : ""}${slice.entry.percentText || `${(slice.fraction * 100).toFixed(2)}%`}</strong></li>`
+      `<li><i style="background:${slice.color}"></i><span>${escapeHTML(slice.entry.label)}</span><strong>${legendAmounts ? `${formatMoney(slice.entry.value)} · ` : ""}${slice.entry.percentText || `${(slice.fraction * 100).toFixed(2)}%`}</strong></li>`
     ).join("")}</ul>` : "";
     const description = shown.filter(entry => !entry.muted).map(entry => showAmounts ? `${entry.label} ${formatMoney(entry.value)}` : `${entry.label} ${entry.percentText}`).join("; ");
     return `<section class="connected-panel pie-card">${heading}
@@ -1178,7 +1179,7 @@
   // Product Specialists see brand shares as percentages only, never amounts.
   function brandPie(title, subtitle, entries) {
     return currentProfile.role === "ps"
-      ? pieChart(title, subtitle, entries, { legend: false, amounts: false, names: true })
+      ? pieChart(title, subtitle, entries, { amounts: false, names: true })
       : pieChart(title, subtitle, entries);
   }
 
@@ -3364,8 +3365,8 @@
     const controls = "";
     const missing = srp ? sum("missing_srp") : 0;
     const footer = `<ul class="pie-legend contribution-legend">
-      <li><i style="background:#355ee8"></i><span>Sold by you</span><strong>${formatMoney(own)} · ${percent(own, total, 2)}</strong></li>
-      <li><i style="background:#16a34a"></i><span>Sold by other PS</span><strong>${percent(other, total, 2)} · amount hidden</strong></li>
+      <li><i style="background:#355ee8"></i><span>Sold by you</span><strong>${percent(own, total, 2)}</strong></li>
+      <li><i style="background:#16a34a"></i><span>Sold by other PS</span><strong>${percent(other, total, 2)}</strong></li>
       </ul><p class="an-note">Your assigned-brand sales divided by all sales of that brand in your branch. Branch-wide amounts are hidden.${missing ? ` Mixed basis: ${missing} unit(s) have no recorded SRP and use selling price instead.` : ""}</p>`;
     return pieChart(title, `${scope} · ${srp ? "SRP" : "Price"} × quantity`, [
       { label: "Sold by you", value: own, color: "#355ee8" },
