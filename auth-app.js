@@ -6260,56 +6260,48 @@
       assistedByDay.set(date, assistedByDay.get(date) + Math.max(0, Math.trunc(Number(row.clients_assisted) || 0)));
     });
     const transactions = withHistoryTransactions(analyticsFacts(ids), ids, isPs);
+    const transactionsByDay = new Map();
+    transactions.forEach(fact => {
+      if (!transactionsByDay.has(fact.date)) transactionsByDay.set(fact.date, new Set());
+      transactionsByDay.get(fact.date).add(fact.saleId);
+    });
     const summarize = (from, to) => A.walkInSummary({ from, to, storeCounts, psCounts: showAssistedComparison ? [] : psCounts, transactions });
     const label = isPs ? "Clients assisted" : "Walk-in traffic";
-    const total = summarize(monthStart, through);
-    const priorFrom = A.sameDayPriorYear(monthStart);
-    const priorTo = A.sameDayPriorYear(through);
-    const priorTotal = summarize(priorFrom, priorTo);
     const rate = summary => (summary.conversion === null ? "n/a" : `${(summary.conversion * 100).toFixed(1)}%`);
     const value = summary => (summary.coveredDays ? summary.visitors : "—");
-    const change = (now, before) => {
-      if (!now.coveredDays || !before.coveredDays) return '<span class="an-muted">n/a</span>';
-      const diff = now.visitors - before.visitors;
-      const pct = before.visitors ? ` (${diff > 0 ? "+" : ""}${((diff / before.visitors) * 100).toFixed(1)}%)` : "";
-      return `<span class="${diff < 0 ? "an-down" : "an-up"}">${diff > 0 ? "+" : ""}${diff}${pct}</span>`;
-    };
     const days = [];
     for (let day = monthStart; day <= through; day = A.addDays(day, 1)) days.push(day);
     const body = days.map(day => {
       const now = summarize(day, day);
       const before = summarize(A.sameDayPriorYear(day), A.sameDayPriorYear(day));
-      return `<tr><td>${escapeHTML(day)}</td>${showAssistedComparison ? `<td>${assistedByDay.has(day) ? assistedByDay.get(day) : "—"}</td>` : ""}<td>${value(now)}</td><td>${escapeHTML(A.sameDayPriorYear(day))}</td><td>${value(before)}</td><td>${change(now, before)}</td></tr>`;
+      const prior = A.sameDayPriorYear(day);
+      const weekday = new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+      return `<tr><td>${escapeHTML(day)}</td><td>${escapeHTML(weekday)}</td>${showAssistedComparison ? `<td>${assistedByDay.has(day) ? assistedByDay.get(day) : "—"}</td>` : ""}<td>${value(now)}</td><td>${value(before)}</td><td>${transactionsByDay.get(day)?.size || 0}</td><td>${transactionsByDay.get(prior)?.size || 0}</td><td>${rate(now)}</td><td>${rate(before)}</td></tr>`;
     }).reverse().join("");
-    const headers = ["Date", ...(showAssistedComparison ? ["Clients assisted"] : []), "This year", "Last year date", "Last year", "Change"];
-    if (collectingExports) return dailyComparisonSheet(`${label} by day`, body, headers);
+    const headers = ["Date", "Day", ...(showAssistedComparison ? ["Clients assisted (PS)"] : []), "Visitors this year", "Visitors last year", "Transactions this year", "Transactions last year", "Conversion this year", "Conversion last year"];
+    if (collectingExports) return dailyComparisonSheet("Traffic and transactions by day", body, headers);
     closeModal();
     modalRoot = document.createElement("div");
     modalRoot.className = "dlg-backdrop";
     const root = modalRoot;
     root.innerHTML = `<div class="dlg dlg-xwide" role="dialog" aria-modal="true" aria-label="${escapeHTML(label)} by day">
-      <div class="dlg-head"><h2>${escapeHTML(label)} · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><div class="dlg-head-actions">${exportButton('data-download-dialog', `Download ${label} by day`)}<button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div></div>
+      <div class="dlg-head"><h2>Traffic and transactions · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><div class="dlg-head-actions">${exportButton('data-download-dialog', "Download traffic and transactions by day")}<button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div></div>
       <div class="dlg-form"><div class="dlg-head-actions walkin-actions">
         <label class="field"><span>From</span><input type="date" data-walkin-from value="${escapeHTML(monthStart)}" required></label>
         <label class="field"><span>To</span><input type="date" data-walkin-to value="${escapeHTML(through)}" required></label>
-        ${isPs ? "" : '<button class="button button-outline button-small" type="button" data-walkin-entry>Record store visitors</button>'}</div>
-        <div class="connected-metrics wk-totals">
-          <article class="connected-metric"><span>Selected period</span><strong>${value(total)}</strong><small>${total.coveredDays} day(s) counted · conversion ${rate(total)}</small></article>
-          <article class="connected-metric"><span>Same days last year</span><strong>${value(priorTotal)}</strong><small>${priorTotal.coveredDays} day(s) counted · conversion ${rate(priorTotal)}</small></article>
-          <article class="connected-metric"><span>Change</span><strong>${change(total, priorTotal)}</strong><small>Only days with a recorded count are included</small></article>
-        </div>
-        ${showAssistedComparison ? '<p class="an-note">Clients assisted is the sum of available PS entries, which may be incomplete. This year and last year use recorded store visitors or imported store history, not PS assistance. Other traffic totals may differ because they can use PS counts as a fallback. A dash means no count was recorded.</p>' : ""}
+        <button class="button button-outline button-small" type="button" data-walkin-entry>${isPs ? "Log clients assisted" : "Record store visitors"}</button></div>
+        <p class="an-note">${showAssistedComparison ? "PS inputs are shown separately from store visitors. " : "Visitors reflect your clients assisted. "}A dash means no count was recorded. Conversion is unavailable when the visitor count is missing or zero.</p>
         <div class="ps-lines"><table class="connected-table"><thead><tr>${headers.map(header => `<th>${escapeHTML(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
       </div></div>`;
     document.body.appendChild(root);
-    wireDialogExport(root, `${label} by day`);
+    wireDialogExport(root, "Traffic and transactions by day");
     root.querySelector(".dlg-close").addEventListener("click", closeModal);
     root.addEventListener("pointerdown", event => {
       if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
     });
     root.querySelector("[data-walkin-entry]")?.addEventListener("click", () => {
       closeModal();
-      openWalkInModal("store");
+      openWalkInModal(isPs ? "ps" : "store");
     });
     const fromInput = root.querySelector("[data-walkin-from]");
     const toInput = root.querySelector("[data-walkin-to]");
@@ -7935,7 +7927,7 @@
         }
         appendRegistered(month);
         if (walkInDailyCtx) {
-          [openWalkInDailyModal(), openTransactionsDailyModal()].forEach(sheet => {
+          [openWalkInDailyModal()].forEach(sheet => {
             sheets.push({ ...sheet, name: `${month} ${sheet.name}` });
           });
         }
@@ -8378,7 +8370,7 @@
     else if (open === "walkin-ps") openWalkInModal("ps");
     else if (open === "walkin-store") openWalkInModal("store");
     else if (open === "walkin-daily") openWalkInDailyModal();
-    else if (open === "transactions-daily") openTransactionsDailyModal();
+    else if (open === "transactions-daily") openWalkInDailyModal();
     else if (open === "inventory-moh") openInventoryMoh();
     else if (open === "push-message") openPushMessageModal(event.target.closest("[data-open]").dataset.status);
     else if (open === "push-schedule") {
