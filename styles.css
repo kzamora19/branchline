@@ -33,6 +33,10 @@
   box-shadow: 0 5px 20px rgba(35,72,199,.3);
 }
 .connected-content:has(.record-sale-floating) { padding-bottom: 90px; }
+@media (max-width: 700px) {
+  .button.record-sale-floating { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+  .connected-content:has(.record-sale-floating) { padding-bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
+}
 .sale-stock-quantity { display: block; margin-top: 8px; }
 .delivery-fee-fields { align-self: end; min-width: 0; display: grid; gap: 5px; }
 .delivery-fee-fields .check-row { margin: 0; font-size: 11px; }
