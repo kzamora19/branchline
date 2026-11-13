@@ -444,7 +444,7 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .dlg-head:has([data-walkin-from]) { flex-wrap: wrap; gap: 12px; }
 .dlg-head:has([data-walkin-from]) .dlg-head-actions { flex-wrap: wrap; }
 .dlg-head-actions .field { margin: 0; }
-.dlg-head-actions.walkin-actions { align-items: flex-end; flex-shrink: 0; width: max-content; max-width: 100%; }
+.dlg-head-actions.walkin-actions { align-items: flex-end; flex-wrap: wrap; width: 100%; margin-bottom: 12px; }
 .walkin-actions .field { flex: 0 0 135px; min-width: 125px; }
 .walkin-actions input, .walkin-actions .button, .walkin-actions .dlg-close { min-height: 35px; height: 35px; }
 .demo-workspace-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 24px; background: #fff7df; border-bottom: 1px solid #e7c66c; font-size: 12px; }
