@@ -26,12 +26,13 @@ test("export controls are accessible icon-only buttons and chart data is safely 
   const ctx = context();
   const button = vm.runInContext('exportButton(\'data-export-table="sales"\', "Download sales")', ctx);
   assert.match(button, /title="Download sales" aria-label="Download sales"/);
-  assert.match(button, /<svg[^>]*aria-hidden="true"/);
+  assert.match(button, /aria-haspopup="menu" aria-expanded="false"/);
+  assert.match(button, /class="export-glyph" aria-hidden="true"/);
   assert.doesNotMatch(button, />Export</);
   const chart = vm.runInContext('chartExport(\'Brand "A"\', [["Brand", "Value"], ["<private>", 20]])', ctx);
   assert.match(chart, /data-chart-download="Brand &quot;A&quot;"/);
   assert.match(chart, /&lt;private&gt;/);
-  assert.match(chart, /as PNG image/);
+  assert.match(chart, /aria-label="Download Brand &quot;A&quot;"/);
   assert.doesNotMatch(chart, /Excel/);
   assert.doesNotMatch(chart, /<private>/);
   assert.equal((source.match(/>Export<\/button>/g) || []).length, 0);

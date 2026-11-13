@@ -6327,6 +6327,7 @@
 
   function closeModal() {
     closeColumnMenu();
+    closeExportMenu();
     const popup = pieTablePopup;
     pieTablePopup = null;
     modalRoot?.remove();
@@ -7282,12 +7283,12 @@
 
   // ---------- Export ----------
   function exportButton(attributes, label) {
-    return `<button class="button button-outline button-small export-icon" type="button" ${attributes} title="${escapeHTML(label)}" aria-label="${escapeHTML(label)}"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21H5V3h9l4 4v5M14 3v5h4"/><path d="M17 13v8m-3-3 3 3 3-3" stroke="#a7f3c8"/></svg></button>`;
+    return `<button class="button button-outline button-small export-icon" type="button" ${attributes} title="${escapeHTML(label)}" aria-label="${escapeHTML(label)}" aria-haspopup="menu" aria-expanded="false"><span class="export-glyph" aria-hidden="true"></span></button>`;
   }
 
   function chartExport(title, rows) {
     if (ui.salesBasis === "srp") rows = [...rows, ["Comparison basis", salesBasisNote()]];
-    return `<div class="chart-download">${exportButton(`data-chart-download="${escapeHTML(title)}" data-chart-rows="${escapeHTML(JSON.stringify(rows))}"`, `Download ${title} as PNG image`)}</div>`;
+    return `<div class="chart-download">${exportButton(`data-chart-download="${escapeHTML(title)}" data-chart-rows="${escapeHTML(JSON.stringify(rows))}"`, `Download ${title}`)}</div>`;
   }
 
   function exportError(error) {
@@ -7295,28 +7296,90 @@
     alert(`Download failed: ${error.message || "Please try again."}`);
   }
 
+  let exportMenu;
+
+  function closeExportMenu(restoreFocus = false) {
+    if (!exportMenu) return;
+    const { menu, trigger, events } = exportMenu;
+    exportMenu = null;
+    events.abort();
+    menu.remove();
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.removeAttribute("aria-controls");
+    if (restoreFocus && trigger.isConnected) trigger.focus({ preventScroll: true });
+  }
+
   function chooseExportFormat(trigger, run, includeImage = false) {
+    const sameButton = exportMenu?.trigger === trigger;
+    closeExportMenu(sameButton);
+    if (sameButton) return;
+
     const profileId = currentProfile?.id;
     const exportClient = client;
-    const dialog = document.createElement("dialog");
-    dialog.className = "dlg export-format-dialog";
-    dialog.setAttribute("aria-label", "Download format");
-    dialog.innerHTML = `<form method="dialog"><h2>Download format</h2><div class="dlg-actions">
-      <button type="submit" class="button button-primary" value="pdf">PDF</button>
-      <button type="submit" class="button button-primary" value="excel">Excel</button>
-      ${includeImage ? '<button type="submit" class="button button-outline" value="png">PNG</button>' : ""}
-      <button type="submit" class="button button-outline" value="">Cancel</button></div></form>`;
-    dialog.addEventListener("keydown", event => { if (event.key === "Escape") event.stopPropagation(); });
-    dialog.addEventListener("close", async () => {
-      dialog.remove();
-      const format = dialog.returnValue;
-      if (!format || currentProfile?.id !== profileId || client !== exportClient || !trigger.isConnected) return;
+    const menu = document.createElement("div");
+    const events = new AbortController();
+    exportMenu = { menu, trigger, events };
+    menu.id = "branchline-export-formats";
+    menu.className = "export-format-menu";
+    menu.setAttribute("popover", "manual");
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", "Export formats");
+    menu.innerHTML = `<button type="button" role="menuitem" tabindex="-1" value="excel">Excel</button>
+      <button type="button" role="menuitem" tabindex="-1" value="pdf">PDF</button>
+      ${includeImage ? '<button type="button" role="menuitem" tabindex="-1" value="png">PNG</button>' : ""}`;
+    const options = [...menu.querySelectorAll("button")];
+
+    menu.addEventListener("click", async event => {
+      const option = event.target.closest("[role=menuitem]");
+      if (!option) return;
+      event.stopPropagation();
+      closeExportMenu(true);
+      if (currentProfile?.id !== profileId || client !== exportClient || !trigger.isConnected) return;
       trigger.disabled = true;
-      try { await run(format); } catch (error) { exportError(error); }
-      finally { trigger.disabled = false; }
-    }, { once: true });
-    document.body.appendChild(dialog);
-    dialog.showModal();
+      try { await run(option.value); } catch (error) { exportError(error); }
+      finally {
+        trigger.disabled = false;
+        if (trigger.isConnected && document.activeElement === document.body) trigger.focus({ preventScroll: true });
+      }
+    });
+    menu.addEventListener("keydown", event => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeExportMenu(true);
+      } else if (event.key === "Tab") {
+        closeExportMenu(true);
+      } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        event.preventDefault();
+        const index = options.indexOf(document.activeElement);
+        if (event.key === "Home") options[0].focus();
+        else if (event.key === "End") options.at(-1).focus();
+        else options[(index + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length].focus();
+      }
+    });
+    const position = () => {
+      const rect = trigger.getBoundingClientRect();
+      if (!trigger.isConnected || !rect.width || rect.bottom < 0 || rect.top > innerHeight) {
+        closeExportMenu();
+        return;
+      }
+      const edge = 8, gap = 4;
+      menu.style.left = Math.max(edge, Math.min(rect.right - menu.offsetWidth, innerWidth - menu.offsetWidth - edge)) + "px";
+      const below = rect.bottom + gap;
+      const top = below + menu.offsetHeight <= innerHeight - edge ? below : rect.top - menu.offsetHeight - gap;
+      menu.style.top = Math.max(edge, top) + "px";
+    };
+    document.addEventListener("pointerdown", event => {
+      if (!menu.contains(event.target) && !trigger.contains(event.target)) closeExportMenu();
+    }, { capture: true, signal: events.signal });
+    window.addEventListener("resize", position, { signal: events.signal });
+    window.addEventListener("scroll", position, { capture: true, signal: events.signal });
+    trigger.after(menu);
+    menu.showPopover();
+    trigger.setAttribute("aria-controls", menu.id);
+    trigger.setAttribute("aria-expanded", "true");
+    position();
+    if (menu.isConnected) options[0].focus({ preventScroll: true });
   }
 
   function loadExportScript(url, integrity, label) {

@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const icon = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21H5V3h9l4 4v5M14 3v5h4"/><path d="M17 13v8m-3-3 3 3 3-3" stroke="#a7f3c8"/></svg>';
+  const icon = '<span class="export-glyph" aria-hidden="true"></span>';
   const sorts = new WeakMap();
   const filters = new WeakMap();
   let openColumnMenu;

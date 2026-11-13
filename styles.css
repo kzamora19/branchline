@@ -376,9 +376,16 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .customer-combine summary { font-weight: 700; cursor: pointer; }
 .customer-combine .field { margin: 8px 0; }
 .customer-combine [data-customer-combine-preview]:empty { display: none; }
-.export-format-dialog { width: min(390px, calc(100% - 24px)); margin: auto; border: 0; padding: 20px; }
-.export-format-dialog::backdrop { background: #14243b66; }
-.export-format-dialog h2 { font-size: 17px; margin: 0 0 14px; }
+.export-format-menu {
+  position: fixed; inset: auto; width: min(148px, calc(100vw - 16px)); margin: 0; padding: 3px;
+  max-height: calc(100vh - 16px); overflow: auto;
+  background: #fff; border: 1px solid #a9bbd2; border-radius: 5px; box-shadow: 0 4px 14px #14243826;
+}
+.export-format-menu button {
+  display: block; width: 100%; min-height: 34px; padding: 6px 12px; text-align: left;
+  font: inherit; font-size: 13px; text-transform: none; color: #244574; background: transparent; border: 0; border-radius: 3px; cursor: pointer;
+}
+.export-format-menu button:hover, .export-format-menu button:focus-visible { background: #e5effb; }
 .sale-detail-barcode { display: block; color: var(--muted); margin-top: 5px; }
 .sale-detail-products .connected-table td { vertical-align: top; }
 .sale-detail-total { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
@@ -391,10 +398,21 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .panel-actions { display: flex; align-items: flex-end; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; max-width: 100%; }
 .panel-actions .an-inline { min-width: 120px; width: 140px; }
 .panel-actions .button { white-space: nowrap; }
-.export-icon { display: inline-flex; align-items: center; justify-content: center; width: 35px; min-width: 35px; height: 35px; padding: 7px; flex: 0 0 auto; }
-.export-icon svg { pointer-events: none; }
+.export-icon.export-icon {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  width: 35px; min-width: 35px; height: 35px; padding: 5px; flex: 0 0 auto;
+  background: #f8fafc; color: #24354f; border: 1px solid #b7c6d9; box-shadow: none;
+}
+.export-icon.export-icon[aria-haspopup="menu"] { width: 43px; }
+.export-icon:not(:disabled):is(:hover, [aria-expanded="true"]) { background: #e7f0fa; border-color: #7192b8; }
+.export-icon[aria-haspopup="menu"]::after {
+  content: ""; border: 3px solid transparent; border-top-color: currentColor; border-bottom: 0;
+}
+.export-glyph {
+  display: inline-block; flex: 0 0 21px; width: 21px; height: 20px; pointer-events: none;
+  background: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 20'%3E%3Cpath fill='%234c65a8' stroke='%232a3d77' stroke-linejoin='round' d='M1.5 2h12l3 3v12h-15z'/%3E%3Cpath fill='%23e9eff8' d='M4 2.5h8.5v5H4zM4 11h9v5.5H4z'/%3E%3Cpath fill='%23374f92' d='M9.5 3h1.7v3.8H9.5z'/%3E%3Cpath fill='%23218744' stroke='%23f8fafc' stroke-width='.8' stroke-linejoin='round' d='M10 15c0-3 1.6-4.7 5-4.7h1.2V7.7l5.1 4.8-5.1 4.7v-2.8h-1.9c-1.9 0-3 .7-4.3 2z'/%3E%3C/svg%3E");
+}
 .table-export-tools { display: flex; justify-content: flex-end; gap: 8px; margin: 8px 0; }
-.export-icon.export-icon { width: 35px; min-width: 35px; max-width: 35px; height: 35px; padding: 7px; flex: 0 0 35px; }
 .export-icon[hidden] { display: none !important; }
 .sort-btn .sort-arrow:empty::after { content: "\2195"; opacity: .6; }
 .chart-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
@@ -521,13 +539,13 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .select-cell { width: 34px; text-align: center; }
 .button.danger:not(:disabled) { color: var(--red); border-color: #f0caca; }
 .button:disabled { opacity: .5; cursor: not-allowed; }
-:is(.button, .mini-button):not([aria-pressed]):not([aria-selected]):not([role="switch"]):not(.danger):not(.button-danger) {
+:is(.button, .mini-button):not([aria-pressed]):not([aria-selected]):not([role="switch"]):not(.danger):not(.button-danger):not(.export-icon) {
   color: #fff;
   background: var(--blue);
   border-color: var(--blue);
   box-shadow: 0 3px 8px #355ee82a;
 }
-:is(.button, .mini-button):not([aria-pressed]):not([aria-selected]):not([role="switch"]):not(.danger):not(.button-danger):hover:not(:disabled) {
+:is(.button, .mini-button):not([aria-pressed]):not([aria-selected]):not([role="switch"]):not(.danger):not(.button-danger):not(.export-icon):hover:not(:disabled) {
   color: #fff;
   background: var(--blue-dark);
   border-color: var(--blue-dark);
