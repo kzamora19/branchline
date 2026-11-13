@@ -6288,11 +6288,11 @@
     modalRoot.className = "dlg-backdrop";
     const root = modalRoot;
     root.innerHTML = `<div class="dlg dlg-xwide" role="dialog" aria-modal="true" aria-label="${escapeHTML(label)} by day">
-      <div class="dlg-head"><h2>${escapeHTML(label)} · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><div class="dlg-head-actions walkin-actions">
+      <div class="dlg-head"><h2>${escapeHTML(label)} · ${escapeHTML(monthStart)} to ${escapeHTML(through)}</h2><div class="dlg-head-actions">${exportButton('data-download-dialog', `Download ${label} by day`)}<button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div></div>
+      <div class="dlg-form"><div class="dlg-head-actions walkin-actions">
         <label class="field"><span>From</span><input type="date" data-walkin-from value="${escapeHTML(monthStart)}" required></label>
         <label class="field"><span>To</span><input type="date" data-walkin-to value="${escapeHTML(through)}" required></label>
-        ${isPs ? "" : '<button class="button button-outline button-small" type="button" data-walkin-entry>Record store visitors</button>'}${exportButton('data-download-dialog', `Download ${label} by day`)}<button class="dlg-close" type="button" aria-label="Close" data-modal-close>×</button></div></div>
-      <div class="dlg-form">
+        ${isPs ? "" : '<button class="button button-outline button-small" type="button" data-walkin-entry>Record store visitors</button>'}</div>
         <div class="connected-metrics wk-totals">
           <article class="connected-metric"><span>Selected period</span><strong>${value(total)}</strong><small>${total.coveredDays} day(s) counted · conversion ${rate(total)}</small></article>
           <article class="connected-metric"><span>Same days last year</span><strong>${value(priorTotal)}</strong><small>${priorTotal.coveredDays} day(s) counted · conversion ${rate(priorTotal)}</small></article>
