@@ -132,6 +132,68 @@ Deno.serve(async (request) => {
 
     const input = await request.json();
 
+    if (["unified_attestation", "unified_link", "unified_finalize"].includes(String(input.action))) {
+      const userId = String(input.user_id ?? "");
+      if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(userId)) return reply(400, { error: "Invalid unified invitation ID." });
+      const { data: target } = await admin.from("profiles")
+        .select("id,full_name,login_id,email,role,branch_id,active,dealer_id")
+        .eq("id", userId).eq("dealer_id", callerProfile.dealer_id).maybeSingle();
+      const { data: grant } = await admin.from("unified_app_grants")
+        .select("ptg_access,ptg_user_id,status,sales_role")
+        .eq("sales_user_id", userId).eq("dealer_id", callerProfile.dealer_id).maybeSingle();
+      if (!target || !grant || !target.active || grant.status === "REVOKED" || target.role !== grant.sales_role)
+        return reply(404, { error: "No eligible new unified invitation was found." });
+      const { data: branch } = await admin.from("branches")
+        .select("id,code,district_id,dealer_id").eq("id", target.branch_id)
+        .eq("dealer_id", callerProfile.dealer_id).maybeSingle();
+      if (!branch) return reply(409, { error: "Invitation branch is unavailable." });
+      if (input.action === "unified_attestation") return reply(200, {
+        ok: true, user_id: target.id, full_name: target.full_name,
+        login_id: target.login_id, email: target.email, sales_role: target.role,
+        dealer_id: target.dealer_id, sales_branch_id: branch.id,
+        branch_code: branch.code, sales_district_id: branch.district_id,
+        ptg_access: grant.ptg_access, ptg_user_id: grant.ptg_user_id,
+        invitation_status: grant.status,
+      });
+      if (input.action === "unified_link") {
+        if (grant.ptg_access === "NONE" || !["PREPARED", "LINKED"].includes(grant.status))
+          return reply(409, { error: "There is no pending PTG grant to link." });
+        const ptgUser = String(input.ptg_user_id ?? "");
+        if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(ptgUser) || (grant.ptg_user_id && grant.ptg_user_id !== ptgUser))
+          return reply(409, { error: "PTG identity link conflicts with the existing invitation." });
+        const { error } = await admin.from("unified_app_grants").update({
+          ptg_user_id: ptgUser, status: "LINKED", linked_at: new Date().toISOString(),
+        }).eq("sales_user_id", userId).eq("dealer_id", callerProfile.dealer_id)
+          .in("status", ["PREPARED", "LINKED"]);
+        if (error) return reply(503, { error: "Unable to record PTG grant." });
+        return reply(200, { ok: true, invitation_status: "LINKED" });
+      }
+      if (!target.email || (grant.ptg_access !== "NONE" && (!grant.ptg_user_id || grant.status !== "LINKED")))
+        return reply(409, { error: "PTG linkage or invitation contact is missing. No invitation was sent." });
+      if (!["PREPARED", "LINKED"].includes(grant.status)) return reply(409, { error: "Invitation already finalized." });
+      const invitation = newInvitation();
+      const temporary = temporaryPassword();
+      const { error: resetError } = await admin.auth.admin.updateUserById(userId, { password: temporary });
+      if (resetError) return reply(503, { error: "Unable to prepare account credentials." });
+      const { error: stageError } = await admin.from("sales_account_invitations").update({
+        token_hash: await hashInvitation(invitation.token),
+        expires_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      }).eq("user_id", userId).is("accepted_at", null);
+      if (stageError) return reply(503, { error: "Unable to prepare invitation expiry." });
+      const emailStatus = await sendInvite({
+        to: target.email, name: target.full_name, loginId: target.login_id,
+        password: temporary, invitationUrl: invitation.url,
+      });
+      if (emailStatus !== "sent") return reply(503, {
+        error: "Invitation delivery failed; it remains pending. Retry after checking email configuration.",
+      });
+      const { error: sentError } = await admin.from("unified_app_grants").update({
+        status: "SENT", sent_at: new Date().toISOString(),
+      }).eq("sales_user_id", userId).eq("dealer_id", callerProfile.dealer_id);
+      if (sentError) return reply(503, { error: "Email sent, but the invitation status could not be saved. Review before resending." });
+      return reply(200, { ok: true, invitation_status: "SENT" });
+    }
+
     if (input.action === "resend_invitation") {
       const targetId = String(input.user_id ?? "");
       const { data: target, error: targetError } = await admin.from("profiles")
