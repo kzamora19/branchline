@@ -1,0 +1,15 @@
+name: Validate Unified Invitation Backend
+on:
+  push:
+    branches: [feature/unified-invitations]
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check invitation preparation and finalize actions
+        run: deno check supabase/functions/admin-create-user/index.ts
