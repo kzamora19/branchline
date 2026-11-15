@@ -70,8 +70,8 @@ create policy unified_drafts_insert on public.unified_invitation_drafts
         and me.role='admin' and me.dealer_id=unified_invitation_drafts.dealer_id)
     and not exists (select 1 from public.profiles target
       where target.dealer_id=unified_invitation_drafts.dealer_id
-      and (lower(coalesce(target.email,''))=email
-        or lower(coalesce(target.login_id,''))=lower(login_id)))
+      and (lower(coalesce(target.email,''))=unified_invitation_drafts.email
+        or lower(coalesce(target.login_id,''))=lower(unified_invitation_drafts.login_id)))
     and (branch_id is null or exists (
       select 1 from public.branches b where b.id=unified_invitation_drafts.branch_id and b.dealer_id=unified_invitation_drafts.dealer_id))
   );
