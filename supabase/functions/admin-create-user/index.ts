@@ -143,8 +143,18 @@ Deno.serve(async (request) => {
         .eq("sales_user_id", userId).eq("dealer_id", callerProfile.dealer_id).maybeSingle();
       if (!target || !grant || !target.active || grant.status === "REVOKED" || target.role !== grant.sales_role)
         return reply(404, { error: "No eligible new unified invitation was found." });
+      // Manager profiles deliberately have branch_id=NULL; their branch
+      // scope lives in manager_branches. A PS uses profiles.branch_id.
+      const { data: managerAssignments } = target.role === "manager"
+        ? await admin.from("manager_branches").select("branch_id")
+            .eq("manager_id", userId).eq("dealer_id", callerProfile.dealer_id)
+        : { data: null };
+      if (target.role === "manager" && managerAssignments?.length !== 1)
+        return reply(409, { error: "Manager must have exactly one linked branch for initial unified onboarding." });
+      const scopedBranchId = target.role === "manager"
+        ? managerAssignments![0].branch_id : target.branch_id;
       const { data: branch } = await admin.from("branches")
-        .select("id,code,district_id,dealer_id").eq("id", target.branch_id)
+        .select("id,code,district_id,dealer_id").eq("id", scopedBranchId)
         .eq("dealer_id", callerProfile.dealer_id).maybeSingle();
       if (!branch) return reply(409, { error: "Invitation branch is unavailable." });
       if (input.action === "unified_attestation") return reply(200, {
