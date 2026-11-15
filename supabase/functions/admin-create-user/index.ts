@@ -231,6 +231,8 @@ Deno.serve(async (request) => {
       return reply(200, { ok: true });
     }
 
+    const unified = input.unified === true;
+    const ptgAccess = String(input.ptg_access ?? "NONE");
     const role = String(input.role ?? "");
     const fullName = String(input.full_name ?? "").trim();
     const salespersonCode = String(input.salesperson_code ?? "").trim() || null;
@@ -245,6 +247,10 @@ Deno.serve(async (request) => {
     const inventoryBranches = Array.isArray(input.branch_ids) ? [...new Set(input.branch_ids.map(String))] : [];
 
     if (!["ps", "manager", "district_manager", "inventory_controller", "stock_custodian"].includes(role)) return reply(400, { error: "Choose a valid staff role." });
+    if (unified && (!["manager", "ps"].includes(role) ||
+      !((role === "manager" && ["NONE", "BRANCH_MANAGER"].includes(ptgAccess)) ||
+        (role === "ps" && ["NONE", "TEAM_LEADER"].includes(ptgAccess))) ||
+      !contactEmail)) return reply(400, { error: "Unified invitation needs an employee email, supported sales role, and compatible PTG grant." });
     if (!fullName) return reply(400, { error: "Full name is required." });
     if (role === "ps" && !salespersonCode && !testAccount) return reply(400, { error: "Salesperson Code is required for a Product Specialist unless marked as a test account." });
     if (!email) return reply(400, { error: "Enter a username (letters, numbers, . _ -), a mobile number or an email as the login ID." });
@@ -350,6 +356,18 @@ Deno.serve(async (request) => {
         assigned_by: callerProfile.id,
       });
       if (assignmentError) return await rollback(assignmentError.message);
+    }
+
+    if (unified) {
+      const { error: grantError } = await admin.from("unified_app_grants").insert({
+        sales_user_id: userId, dealer_id: callerProfile.dealer_id,
+        sales_role: role, ptg_access: ptgAccess, created_by: caller.user.id,
+        status: "PREPARED",
+      });
+      if (grantError) return await rollback("Unable to prepare the unified invitation.");
+      // Do not send the single invitation until PTG has been provisioned.
+      return reply(201, { ok: true, user_id: userId, login_id: loginId,
+        ptg_access: ptgAccess, invitation_status: "PREPARED", email_status: "not_sent" });
     }
 
     let emailStatus = "not_configured";
