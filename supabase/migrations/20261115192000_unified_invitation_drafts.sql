@@ -60,27 +60,27 @@ create policy unified_drafts_read on public.unified_invitation_drafts
   for select to authenticated using (
     exists (select 1 from public.profiles me
       where me.id=(select auth.uid()) and me.active=true
-        and me.role='admin' and me.dealer_id=dealer_id)
+        and me.role='admin' and me.dealer_id=unified_invitation_drafts.dealer_id)
   );
 create policy unified_drafts_insert on public.unified_invitation_drafts
   for insert to authenticated with check (
     created_by=(select auth.uid()) and
     exists (select 1 from public.profiles me
       where me.id=(select auth.uid()) and me.active=true
-        and me.role='admin' and me.dealer_id=dealer_id)
+        and me.role='admin' and me.dealer_id=unified_invitation_drafts.dealer_id)
     and not exists (select 1 from public.profiles target
-      where target.dealer_id=dealer_id
+      where target.dealer_id=unified_invitation_drafts.dealer_id
       and (lower(coalesce(target.email,''))=email
         or lower(coalesce(target.login_id,''))=lower(login_id)))
     and (branch_id is null or exists (
-      select 1 from public.branches b where b.id=branch_id and b.dealer_id=dealer_id))
+      select 1 from public.branches b where b.id=unified_invitation_drafts.branch_id and b.dealer_id=unified_invitation_drafts.dealer_id))
   );
 create policy unified_drafts_delete on public.unified_invitation_drafts
   for delete to authenticated using (
     created_by=(select auth.uid()) and
     exists (select 1 from public.profiles me
       where me.id=(select auth.uid()) and me.active=true
-        and me.role='admin' and me.dealer_id=dealer_id)
+        and me.role='admin' and me.dealer_id=unified_invitation_drafts.dealer_id)
   );
 
 comment on table public.unified_invitation_drafts is
