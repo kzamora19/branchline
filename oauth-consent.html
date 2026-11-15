@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#102d50">
+  <title>Branchline · Authorize app access</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="auth-screen">
+    <section class="auth-card" aria-labelledby="consent-title">
+      <span class="eyebrow">BRANCHLINE · UNIFIED SIGN-IN</span>
+      <h1 id="consent-title">Authorize application access</h1>
+      <p class="auth-intro" id="oauth-desc">Checking your Branchline identity and the requesting application…</p>
+      <div id="oauth-details" hidden>
+        <p><strong>Application:</strong> <span id="oauth-app"></span></p>
+        <p><strong>Destination:</strong> <span id="oauth-destination"></span></p>
+        <p><strong>Requested access:</strong> <span id="oauth-scopes"></span></p>
+        <p class="auth-intro">Your existing Branchline login will be used. This does not grant PTG access unless your account has a separately approved PTG permission.</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:20px">
+          <button type="button" id="oauth-approve" class="button button-primary">Continue to application</button>
+          <button type="button" id="oauth-deny" class="button button-outline">Cancel</button>
+        </div>
+      </div>
+      <p class="auth-message" role="status" id="oauth-status" aria-live="polite"></p>
+      <p><a href="./index.html">Return to Sales Tracker</a></p>
+    </section>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./supabase-config.js"></script>
+  <script type="module" src="./oauth-consent.js"></script>
+</body>
+</html>
