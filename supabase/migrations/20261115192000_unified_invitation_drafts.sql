@@ -47,6 +47,11 @@ create table if not exists public.unified_invitation_drafts (
 );
 create unique index if not exists unified_invite_email_drafts
   on public.unified_invitation_drafts (dealer_id, lower(email));
+create unique index if not exists unified_invite_login_drafts
+  on public.unified_invitation_drafts (dealer_id, lower(login_id));
+create unique index if not exists unified_invite_salesperson_drafts
+  on public.unified_invitation_drafts (dealer_id, lower(salesperson_code))
+  where salesperson_code is not null;
 create index if not exists unified_invitation_creator
   on public.unified_invitation_drafts (created_by, created_at desc);
 alter table public.unified_invitation_drafts enable row level security;
@@ -71,7 +76,9 @@ create policy unified_drafts_insert on public.unified_invitation_drafts
     and not exists (select 1 from public.profiles target
       where target.dealer_id=unified_invitation_drafts.dealer_id
       and (lower(coalesce(target.email,''))=unified_invitation_drafts.email
-        or lower(coalesce(target.login_id,''))=lower(unified_invitation_drafts.login_id)))
+        or lower(coalesce(target.login_id,''))=lower(unified_invitation_drafts.login_id)
+        or (unified_invitation_drafts.salesperson_code is not null and
+          lower(coalesce(target.salesperson_code,'')) = lower(unified_invitation_drafts.salesperson_code))))
     and (branch_id is null or exists (
       select 1 from public.branches b where b.id=unified_invitation_drafts.branch_id and b.dealer_id=unified_invitation_drafts.dealer_id))
   );
