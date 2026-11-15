@@ -1,3 +1,5 @@
+import { validatedPtgOAuthCallback } from "./oauth-redirect-policy.mjs";
+
 (() => {
   "use strict";
 
@@ -8,22 +10,8 @@
   const deny = document.querySelector("#oauth-deny");
   const authId = new URLSearchParams(location.search).get("authorization_id") || "";
   const pendingKey = "branchline-oauth-pending";
-  const expectedCallback = new URL("https://agknxlowackphvwyvxge.supabase.co/auth/v1/callback");
-
   function message(text) {
     status.textContent = text;
-  }
-  function validatedRedirect(url) {
-    const parsed = new URL(url);
-    // Only the known PTG Supabase Auth callback may receive the OAuth code.
-    // A malicious registered client is not automatically trusted by this
-    // first-party Branchline consent page.
-    if (parsed.protocol !== "https:" ||
-        parsed.origin !== expectedCallback.origin ||
-        parsed.pathname !== expectedCallback.pathname) {
-      throw Error("Unrecognized application callback. Contact the administrator.");
-    }
-    return parsed.href;
   }
   function redirectToLogin() {
     const url = new URL("./oauth-consent.html", location.href);
@@ -81,10 +69,10 @@
         await client.auth.oauth.getAuthorizationDetails(authId);
       if (authError || !authorization) throw Error(authError?.message || "Authorization request expired.");
       if (!("authorization_id" in authorization)) {
-        location.replace(validatedRedirect(authorization.redirect_url));
+        location.replace(validatedPtgOAuthCallback(authorization.redirect_url));
         return;
       }
-      validatedRedirect(authorization.redirect_uri);
+      validatedPtgOAuthCallback(authorization.redirect_uri);
       document.querySelector("#oauth-app").textContent = authorization.client?.name || "PTG";
       document.querySelector("#oauth-destination").textContent = authorization.redirect_uri;
       document.querySelector("#oauth-scopes").textContent = authorization.scope || "openid";
@@ -101,7 +89,7 @@
             : client.auth.oauth.denyAuthorization(authId));
           if (error || !data?.redirect_url) throw Error(error?.message || "Authorization request failed.");
           sessionStorage.removeItem(pendingKey);
-          location.replace(validatedRedirect(data.redirect_url));
+          location.replace(validatedPtgOAuthCallback(data.redirect_url));
         } catch (error) {
           message(error instanceof Error ? error.message : "Could not complete authorization.");
           approve.disabled = deny.disabled = false;
