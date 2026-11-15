@@ -466,6 +466,28 @@
     };
   }
 
+  // When a future OAuth client redirects the user to the Branchline consent
+  // page, finish their normal Sales Tracker sign-in first. Only return to our
+  // own consent page after the active Sales profile has been verified.
+  function resumeVerifiedOauthConsent() {
+    const key = "branchline-oauth-pending";
+    const pending = sessionStorage.getItem(key);
+    if (!pending) return false;
+    sessionStorage.removeItem(key);
+    try {
+      const target = new URL(pending);
+      const expected = new URL("./oauth-consent.html", location.href);
+      const authorizationId = target.searchParams.get("authorization_id") || "";
+      if (target.origin !== location.origin ||
+          target.pathname !== expected.pathname ||
+          !/^[A-Za-z0-9_-]{8,200}$/.test(authorizationId)) return false;
+      location.assign(target.href);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function loadLiveWorkspace(session) {
     parkAccountControls();
     const client = demoStore ? demoStore.client : liveClient;
@@ -495,6 +517,7 @@
       }
 
       currentProfile = { ...profile, full_name: titleCase(profile.full_name), assigned_brand: titleCase(profile.assigned_brand) };
+      if (!isDemoLoad && resumeVerifiedOauthConsent()) return;
       restoreAccountFilters();
       loading.update(10, "Loading your workspace...");
       if (inventoryOnly()) {
