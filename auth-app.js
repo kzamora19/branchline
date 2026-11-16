@@ -6297,7 +6297,7 @@
       const values = [
         ...(showAssistedComparison ? [assisted] : []),
         ftTy, ftLy, change(ftTy, ftLy), trTy, trLy, change(trTy, trLy),
-        rate(conversionTy), rate(conversionLy),
+        rate(conversionTy), rate(conversionLy), change(conversionTy, conversionLy),
       ];
       return values.map(value => `<td>${value ?? "—"}</td>`).join("");
     };
@@ -6324,7 +6324,8 @@
     const body = rows.reverse().join("");
     const footer = `<tfoot><tr><th scope="row">Total</th><td></td>${metricCells(totals, ftTy > 0 ? trTy / ftTy : null, ftLy > 0 ? trLy / ftLy : null)}</tr></tfoot>`;
     const headers = ["Date", "Day", ...(showAssistedComparison ? ["PS inputs"] : []),
-      "FT TY", "FT LY", "FT +/-% (TY vs LY)", "TR# TY", "TR# LY", "TR# +/-% (TY vs LY)", "Conv. rate TY", "Conv. rate LY"];
+      "FT TY", "FT LY", "FT +/-% (TY vs LY)", "TR# TY", "TR# LY", "TR# +/-% (TY vs LY)",
+      "Conv. rate TY", "Conv. rate LY", "Conv. rate +/-% (TY vs LY)"];
     if (collectingExports) return dailyComparisonSheet("Traffic and transactions by day", body, headers, footer);
     closeModal();
     modalRoot = document.createElement("div");
@@ -6336,7 +6337,7 @@
         <label class="field"><span>From</span><input type="date" data-walkin-from value="${escapeHTML(monthStart)}" required></label>
         <label class="field"><span>To</span><input type="date" data-walkin-to value="${escapeHTML(through)}" required></label>
         <button class="button button-outline button-small" type="button" data-walkin-entry>${isPs ? "Log clients assisted" : "Record store visitors"}</button></div>
-        <p class="an-note">${showAssistedComparison ? "PS inputs are shown separately from store visitors. " : "Visitors reflect your clients assisted. "}A dash indicates a missing count. N/A indicates a zero LY baseline or missing or zero traffic for conversion. Totals use recorded counts across the selected dates.</p>
+        <p class="an-note">${showAssistedComparison ? "PS inputs are shown separately from store visitors. " : "Visitors reflect your clients assisted. "}A dash indicates a missing count. N/A indicates a zero LY baseline or missing or zero traffic for conversion. Percentage changes compare TY with LY, including conversion rates. Totals use recorded counts across the selected dates.</p>
         <div class="ps-lines traffic-table-wrap"><table class="connected-table"><thead><tr>${headers.map(header => `<th>${escapeHTML(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody>${footer}</table></div>
       </div></div>`;
     document.body.appendChild(root);

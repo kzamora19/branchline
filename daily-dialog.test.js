@@ -121,7 +121,8 @@ test("downloaded manager comparison exports the additional column in the same po
   const exported = f.context.openWalkInDailyModal();
   assert.equal(exported.name, "Traffic and transactions by day");
   assert.deepEqual(Array.from(exported.headers), ["Date", "Day", "PS inputs",
-    "FT TY", "FT LY", "FT +/-% (TY vs LY)", "TR# TY", "TR# LY", "TR# +/-% (TY vs LY)", "Conv. rate TY", "Conv. rate LY"]);
+    "FT TY", "FT LY", "FT +/-% (TY vs LY)", "TR# TY", "TR# LY", "TR# +/-% (TY vs LY)",
+    "Conv. rate TY", "Conv. rate LY", "Conv. rate +/-% (TY vs LY)"]);
   assert.match(exported.footer, /<tfoot><tr><th scope="row">Total<\/th><td><\/td><td>8<\/td>/);
 });
 
@@ -163,11 +164,11 @@ test("range totals use summed counts and distinguish missing and zero baselines"
   const cells = row => [...row.matchAll(/<t[dh](?: scope="row")?>([\s\S]*?)<\/t[dh]>/g)]
     .map(([, value]) => value.replace(/<[^>]+>/g, ""));
   const rows = [...html.match(/<tbody>(.*?)<\/tbody>/s)[1].matchAll(/<tr>(.*?)<\/tr>/g)].map(([, row]) => cells(row));
-  assert.deepEqual(rows[0], ["2026-11-03", "Tue", "8", "—", "5", "—", "1", "1", "0.0%", "n/a", "20.0%"]);
-  assert.deepEqual(rows[1], ["2026-11-02", "Mon", "—", "10", "0", "n/a", "1", "0", "n/a", "10.0%", "n/a"]);
+  assert.deepEqual(rows[0], ["2026-11-03", "Tue", "8", "—", "5", "—", "1", "1", "0.0%", "n/a", "20.0%", "—"]);
+  assert.deepEqual(rows[1], ["2026-11-02", "Mon", "—", "10", "0", "n/a", "1", "0", "n/a", "10.0%", "n/a", "—"]);
   assert.deepEqual(cells(html.match(/<tfoot>(.*?)<\/tfoot>/s)[1]),
-    ["Total", "", "8", "40", "25", "+60.0%", "4", "2", "+100.0%", "10.0%", "8.0%"]);
+    ["Total", "", "8", "40", "25", "+60.0%", "4", "2", "+100.0%", "10.0%", "8.0%", "+25.0%"]);
   f.context.openWalkInDailyModal({ from: "2026-11-03", to: "2026-11-03" });
   assert.deepEqual(cells(f.roots.at(-1).innerHTML.match(/<tfoot>(.*?)<\/tfoot>/s)[1]),
-    ["Total", "", "8", "—", "5", "—", "1", "1", "0.0%", "n/a", "20.0%"]);
+    ["Total", "", "8", "—", "5", "—", "1", "1", "0.0%", "n/a", "20.0%", "—"]);
 });
