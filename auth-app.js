@@ -6291,19 +6291,41 @@
     });
     const summarize = (from, to) => A.walkInSummary({ from, to, storeCounts, psCounts: showAssistedComparison ? [] : psCounts, transactions });
     const label = isPs ? "Clients assisted" : "Walk-in traffic";
-    const rate = summary => (summary.conversion === null ? "n/a" : `${(summary.conversion * 100).toFixed(1)}%`);
-    const value = summary => (summary.coveredDays ? summary.visitors : "—");
-    const days = [];
-    for (let day = monthStart; day <= through; day = A.addDays(day, 1)) days.push(day);
-    const body = days.map(day => {
-      const now = summarize(day, day);
-      const before = summarize(A.sameDayPriorYear(day), A.sameDayPriorYear(day));
+    const rate = value => value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
+    const change = (ty, ly) => ty === null || ly === null ? "—" : growthCell(A.growth(ty, ly));
+    const metricCells = ([assisted, ftTy, ftLy, trTy, trLy], conversionTy, conversionLy) => {
+      const values = [
+        ...(showAssistedComparison ? [assisted] : []),
+        ftTy, ftLy, change(ftTy, ftLy), trTy, trLy, change(trTy, trLy),
+        rate(conversionTy), rate(conversionLy),
+      ];
+      return values.map(value => `<td>${value ?? "—"}</td>`).join("");
+    };
+    const totals = [null, null, null, null, null];
+    const rows = [];
+    for (let day = monthStart; day <= through; day = A.addDays(day, 1)) {
       const prior = A.sameDayPriorYear(day);
+      const now = summarize(day, day);
+      const before = summarize(prior, prior);
       const weekday = new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
-      return `<tr><td>${escapeHTML(day)}</td><td>${escapeHTML(weekday)}</td>${showAssistedComparison ? `<td>${assistedByDay.has(day) ? assistedByDay.get(day) : "—"}</td>` : ""}<td>${value(now)}</td><td>${value(before)}</td><td>${transactionsByDay.get(day)?.size || 0}</td><td>${transactionsByDay.get(prior)?.size || 0}</td><td>${rate(now)}</td><td>${rate(before)}</td></tr>`;
-    }).reverse().join("");
-    const headers = ["Date", "Day", ...(showAssistedComparison ? ["PS inputs"] : []), "FT TY", "FT LY", "TR# TY", "TR# LY", "Conv. rate TY", "Conv. rate LY"];
-    if (collectingExports) return dailyComparisonSheet("Traffic and transactions by day", body, headers);
+      const counts = [
+        assistedByDay.get(day) ?? null,
+        now.coveredDays ? now.visitors : null,
+        before.coveredDays ? before.visitors : null,
+        transactionsByDay.get(day)?.size ?? 0,
+        transactionsByDay.get(prior)?.size ?? 0,
+      ];
+      counts.forEach((count, index) => {
+        if (count !== null) totals[index] = (totals[index] ?? 0) + count;
+      });
+      rows.push(`<tr><td>${escapeHTML(day)}</td><td>${escapeHTML(weekday)}</td>${metricCells(counts, now.conversion, before.conversion)}</tr>`);
+    }
+    const [, ftTy, ftLy, trTy, trLy] = totals;
+    const body = rows.reverse().join("");
+    const footer = `<tfoot><tr><th scope="row">Total</th><td></td>${metricCells(totals, ftTy > 0 ? trTy / ftTy : null, ftLy > 0 ? trLy / ftLy : null)}</tr></tfoot>`;
+    const headers = ["Date", "Day", ...(showAssistedComparison ? ["PS inputs"] : []),
+      "FT TY", "FT LY", "FT +/-% (TY vs LY)", "TR# TY", "TR# LY", "TR# +/-% (TY vs LY)", "Conv. rate TY", "Conv. rate LY"];
+    if (collectingExports) return dailyComparisonSheet("Traffic and transactions by day", body, headers, footer);
     closeModal();
     modalRoot = document.createElement("div");
     modalRoot.className = "dlg-backdrop";
@@ -6314,8 +6336,8 @@
         <label class="field"><span>From</span><input type="date" data-walkin-from value="${escapeHTML(monthStart)}" required></label>
         <label class="field"><span>To</span><input type="date" data-walkin-to value="${escapeHTML(through)}" required></label>
         <button class="button button-outline button-small" type="button" data-walkin-entry>${isPs ? "Log clients assisted" : "Record store visitors"}</button></div>
-        <p class="an-note">${showAssistedComparison ? "PS inputs are shown separately from store visitors. " : "Visitors reflect your clients assisted. "}A dash means no count was recorded. Conversion is unavailable when the visitor count is missing or zero.</p>
-        <div class="ps-lines"><table class="connected-table"><thead><tr>${headers.map(header => `<th>${escapeHTML(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
+        <p class="an-note">${showAssistedComparison ? "PS inputs are shown separately from store visitors. " : "Visitors reflect your clients assisted. "}A dash indicates a missing count. N/A indicates a zero LY baseline or missing or zero traffic for conversion. Totals use recorded counts across the selected dates.</p>
+        <div class="ps-lines traffic-table-wrap"><table class="connected-table"><thead><tr>${headers.map(header => `<th>${escapeHTML(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody>${footer}</table></div>
       </div></div>`;
     document.body.appendChild(root);
     wireDialogExport(root, "Traffic and transactions by day");
@@ -7645,9 +7667,9 @@
     }
   }
 
-  function dailyComparisonSheet(name, body, headers = ["Date", "This year", "Last year date", "Last year", "Change"]) {
+  function dailyComparisonSheet(name, body, headers = ["Date", "This year", "Last year date", "Last year", "Change"], footer = "") {
     const template = document.createElement("template");
-    template.innerHTML = `<table><thead><tr>${headers.map(header => `<th>${escapeHTML(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table>`;
+    template.innerHTML = `<table><thead><tr>${headers.map(header => `<th>${escapeHTML(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody>${footer}</table>`;
     return tableElementSheet(template.content.querySelector("table"), name);
   }
 
