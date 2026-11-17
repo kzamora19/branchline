@@ -633,9 +633,10 @@ below the charts. Click **Sales by brand** to open that table, including sort,
 pagination, product drilldowns and download. Empty charts also open the table.
 Export All still includes brand performance; Targets' brand table is unchanged.
 
-Spreadsheet/CSV exports include separate Sales code and PS name columns.
-Unattributed stock, target and summary rows leave them blank; they never use the
-downloading account as the seller. Imported sale codes are preserved as text,
+Itemized sales exports include Sales code and PS name once, at the end of each row.
+Summary, brand, payment, branch, daily and report-index tables keep only their
+meaningful columns instead of blank identity fields. Unattributed rows never use
+the downloading account as the seller. Imported sale codes are preserved as text,
 including leading zeroes, with linked profile codes used only when absent.
 Sales downloads, PS/brand breakdown downloads and Export All itemize recorded
 serials into separate rows (quantity 1 each), repeating transaction/product
