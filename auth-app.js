@@ -7793,31 +7793,9 @@
     });
   }
 
-  function exportIdentitySheet(sheet) {
-    const [originalHeaders, ...rows] = sheet.rows;
-    if (!originalHeaders) return sheet;
-    const headers = originalHeaders.map(label => /^salesperson code$/i.test(label) ? "Sales code" : label);
-    const codeAt = headers.findIndex(label => /^(sales code|salesperson code)$/i.test(label));
-    const nameAt = headers.findIndex(label => /^ps name$/i.test(label));
-    if (codeAt >= 0 && nameAt >= 0) return { ...sheet, rows: [headers, ...rows] };
-    const idAt = headers.findIndex(label => /^ps id$/i.test(label));
-    const psAt = headers.findIndex(label => /^(ps|product specialist|ps name)$/i.test(label));
-    const branchAt = headers.findIndex(label => /^branch( id)?$/i.test(label));
-    const roleAt = headers.findIndex(label => /^role$/i.test(label));
-    const personAt = headers.findIndex(label => /^name$/i.test(label));
-    const additions = [...(codeAt < 0 ? ["Sales code"] : []), ...(nameAt < 0 ? ["PS name"] : [])];
-    return { ...sheet, rows: [[...headers, ...additions], ...rows.map(row => {
-      const branch = branchAt < 0 ? null : liveData.branches?.find(item => item.id === row[branchAt] || item.name === row[branchAt]);
-      const personName = roleAt >= 0 && /^(ps|product specialist)/i.test(row[roleAt] || "") && personAt >= 0 ? row[personAt] : "";
-      const identity = exportPsIdentity({ ps_id: idAt < 0 ? null : row[idAt], ps_name: psAt < 0 ? personName : row[psAt],
-        salesperson_code: codeAt < 0 ? "" : row[codeAt], branch_id: branch?.id });
-      return [...row, ...(codeAt < 0 ? [identity[0]] : []), ...(nameAt < 0 ? [identity[1]] : [])];
-    })] };
-  }
-
   function brandLogExportSheet(items, name = "Brand branch-wide") {
     return { name, rows: [
-      ["Date", "Invoice", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Qty", "Barcode", "Serial number", "Sales code", "PS name"],
+      ["Date", "Invoice", "Brand", "Category", "Sub-category", "Product", "Qty", "Barcode", "Serial number", "Sales code", "PS name"],
       ...items.flatMap(row => {
         const quantity = Number(row.quantity);
         if (!Number.isSafeInteger(quantity) || quantity === 0) throw new Error(`Invoice ${row.invoice_number}: product quantity is invalid.`);
@@ -7826,7 +7804,7 @@
         const sign = Math.sign(quantity);
         const units = [...serials.map(serial => ({ serial, quantity: sign })),
           ...(Math.abs(quantity) > serials.length ? [{ serial: "", quantity: sign * (Math.abs(quantity) - serials.length) }] : [])];
-        return units.map(unit => [row.sold_on, row.invoice_number, row.ps_name, row.brand, row.category, row.sub_category,
+        return units.map(unit => [row.sold_on, row.invoice_number, row.brand, row.category, row.sub_category,
           row.model_description, unit.quantity, row.barcode || "", unit.serial, ...exportPsIdentity(row)]);
       }),
     ] };
@@ -7836,7 +7814,7 @@
     if (ui.salesBasis === "srp" && !["inventory_controller", "stock_custodian"].includes(currentProfile?.role)) {
       sheets = [{ name: "Comparison basis", rows: [["Sales comparison basis", salesBasisNote()], ["Original records", "Raw unit prices, entry/edit forms, targets and DG fees are unchanged."]] }, ...sheets];
     }
-    sheets = sheets.map(sheet => sheet.includeIdentity === false ? sheet : exportIdentitySheet(sheet));
+    // Preserve the columns authored by each report. PS identity appears only in itemized sales exports.
     if (format === "pdf") return downloadReportPdf(sheets, fileName);
     if (window.XLSX) {
       const book = window.XLSX.utils.book_new();
@@ -7855,8 +7833,8 @@
         window.XLSX.utils.book_append_sheet(book, worksheet, name);
       });
       if (includeIndex) {
-        const worksheet = window.XLSX.utils.aoa_to_sheet(exportIdentitySheet({ rows: index }).rows);
-        worksheet["!cols"] = [{ wch: 33 }, { wch: 90 }, { wch: 16 }, { wch: 30 }];
+        const worksheet = window.XLSX.utils.aoa_to_sheet(index);
+        worksheet["!cols"] = [{ wch: 33 }, { wch: 90 }];
         window.XLSX.utils.book_append_sheet(book, worksheet, "Worksheet index");
       }
       window.XLSX.writeFile(book, `${fileName}.xlsx`);
@@ -7910,9 +7888,9 @@
     records("Branches", liveData.branches, [["Branch ID", "id"], ["Branch", "name"], ["District ID", "district_id"]]);
     const districtIds = new Set(liveData.branches.map(branch => branch.district_id));
     records("Districts", liveData.districts.filter(district => districtIds.has(district.id)), [["District ID", "id"], ["District", "name"]]);
-    add(isPs ? "My sales" : "Sales", ["Date", "Invoice", "Customer", "Branch", "PS", "Payment", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "City", "Barangay", "Serials", "Test", "Delivery / Pick up", "Comparison amount", "Sales code", "PS name"],
+    add(isPs ? "My sales" : "Sales", ["Date", "Invoice", "Customer", "Branch", "Payment", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "City", "Barangay", "Serials", "Test", "Delivery / Pick up", "Comparison amount", "Sales code", "PS name"],
       itemizedSaleLines(sales.flatMap(sale => linesForSale(sale.id).map(line => ({ sale, line })))).map(({ sale, line, serial }) => [
-        sale.sold_on, sale.invoice_number, sale.customer_name, branchName(sale.branch_id), psNameOf(sale.ps_id, sale.ps_name), sale.payment_mode,
+        sale.sold_on, sale.invoice_number, sale.customer_name, branchName(sale.branch_id), sale.payment_mode,
         line.brand, line.category, line.sub_category, line.model_description, line.barcode, Number(line.quantity), line.srp ?? "",
         Number(line.selling_price), Number(line.quantity) * Number(line.selling_price), sale.city || "", sale.barangay || "",
         serial, isTestSale(sale, liveData.testPsIds) ? "Yes" : "No", fulfillmentLabel(sale), window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), ...exportPsIdentity(sale),
@@ -8007,7 +7985,7 @@
     if (currentProfile.role === "ps" && liveData.brandSalesError) throw new Error(liveData.brandSalesError);
     const stamp = localISODate();
     const sales = visibleSales().filter(sale => !salesLogExport || salesLogExport.has(sale.id));
-    const detail = [["Sale date", "Invoice", "Customer", "District", "Branch", "Product Specialist", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment", "City / town", "Barangay", "Serial numbers", "Delivery / Pick up", "Sales code", "PS name"]];
+    const detail = [["Sale date", "Invoice", "Customer", "District", "Branch", "Brand", "Category", "Sub-category", "Product", "Barcode", "Qty", "SRP", "Unit price", "Amount", "Mode of payment", "City / town", "Barangay", "Serial numbers", "Delivery / Pick up", "Sales code", "PS name"]];
     const byBranch = new Map();
     const byBrand = new Map();
     sales.forEach(sale => {
@@ -8018,7 +7996,7 @@
       });
     });
     itemizedSaleLines(sales.flatMap(sale => linesForSale(sale.id).map(line => ({ sale, line })))).forEach(({ sale, line, serial }) => {
-      detail.push([sale.sold_on, sale.invoice_number, sale.customer_name, branchDistrictName(sale.branch_id), branchName(sale.branch_id), psNameOf(sale.ps_id, sale.ps_name), line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), sale.payment_mode || "", sale.city || "", sale.barangay || "", serial, fulfillmentLabel(sale), ...exportPsIdentity(sale)]);
+      detail.push([sale.sold_on, sale.invoice_number, sale.customer_name, branchDistrictName(sale.branch_id), branchName(sale.branch_id), line.brand, line.category || "", line.sub_category || "", line.model_description, line.barcode, Number(line.quantity), line.srp == null ? "" : Number(line.srp), Number(line.selling_price), window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), sale.payment_mode || "", sale.city || "", sale.barangay || "", serial, fulfillmentLabel(sale), ...exportPsIdentity(sale)]);
     });
     const sheets = [{ name: currentProfile.role === "ps" ? "My sales" : "Sales", rows: detail }];
     if (["manager", "district_manager", "admin"].includes(currentProfile.role)) sheets.push(deliveryExport(sales));
