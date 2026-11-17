@@ -39,6 +39,54 @@ test("export controls are accessible icon-only buttons and chart data is safely 
   assert.match(source, /exportButton\("data-export-all", "Export all tables"\)/);
 });
 
+test("table, PDF and Excel exports keep only their explicitly meaningful columns", () => {
+  const worksheets = [];
+  const ctx = context({
+    window: { XLSX: { utils: {
+      book_new: () => ({}), aoa_to_sheet: rows => ({ rows }),
+      book_append_sheet: (_book, sheet, name) => worksheets.push({ name, rows: sheet.rows }),
+    }, writeFile: () => {} } },
+  });
+  const summaries = [
+    ["Comparison basis", ["Sales comparison basis", "Value"]],
+    ["Brand performance", ["Brand", "Sales", "Target", "Progress"]],
+    ["Sales by payment mode", ["Label", "Amount", "Share (%)"]],
+    ["Payment mix", ["Payment mode", "Transactions", "Sales", "Actual mix", "Status"]],
+    ["Accessible branch performance", ["Branch", "District", "Sales", "Target", "Progress"]],
+    ["Delivery Guarranty", ["PS name", "Qty of sales with DG", "Total amount"]],
+    ["Daily sales", ["Date", "Day", "No. of sales", "Total sales"]],
+    ["Product Specialist ranking", ["Rank", "Product Specialist", "Brand", "Branch", "Total sales"]],
+  ];
+  ctx.sheets = [...summaries.map(([name, headers]) => ({ name, rows: [headers, headers.map(() => "")] })),
+    { name: "Sales", rows: [["Date", "Invoice", "Sales code", "PS name"], ["2026-11-17", "INV-1", "00193", "Sample PS"]] }];
+  vm.runInContext('exportWorkbook(sheets, "report", true)', ctx);
+  summaries.forEach(([name, headers]) => {
+    const result = worksheets.find(sheet => sheet.name === name);
+    assert.ok(result, name);
+    assert.deepEqual([...result.rows[0]], headers);
+    assert.equal(result.rows[1].length, headers.length);
+  });
+  assert.deepEqual([...worksheets.find(sheet => sheet.name === "Sales").rows[0]], ["Date", "Invoice", "Sales code", "PS name"]);
+  assert.equal(worksheets.find(sheet => sheet.name === "Sales").rows[1][2], "00193");
+  assert.deepEqual([...worksheets.find(sheet => sheet.name === "Worksheet index").rows[0]], ["Worksheet", "Full report name"]);
+});
+
+test("Sales and Brand Log downloads keep one PS name at the end and aligned row values", () => {
+  const fixture = allFixture("manager");
+  vm.runInContext("exportSales()", fixture.ctx);
+  const detail = fixture.ctx.output.sheets.find(sheet => sheet.name === "Sales").rows;
+  const headers = [...detail[0]];
+  assert.equal(headers.filter(label => label === "PS name").length, 1);
+  assert.ok(!headers.includes("Product Specialist"));
+  assert.deepEqual(headers.slice(-2), ["Sales code", "PS name"]);
+  assert.equal(detail[1].length, headers.length);
+  assert.equal(detail[1][headers.indexOf("Brand")], "TCL");
+  const brand = vm.runInContext('brandLogExportSheet([{ sold_on: "2026-11-17", invoice_number: "A-1", ps_name: "Fictional PS", brand: "TCL", quantity: 1, serial_numbers: [] }])', fixture.ctx);
+  assert.deepEqual([...brand.rows[0]].slice(-2), ["Sales code", "PS name"]);
+  assert.equal(brand.rows[0].filter(label => label === "Product Specialist").length, 0);
+  assert.equal(brand.rows[1].length, brand.rows[0].length);
+});
+
 test("workbook worksheet labels are valid, case-insensitively unique and <=31 characters", () => {
   const books = [];
   const ctx = context({
@@ -274,6 +322,9 @@ test("Export All ignores display filters, labels sheets by month, respects PS/ac
     const sheets = Array.from(output.sheets);
     const saleRows = sheets.find(sheet => sheet.name === (role === "ps" ? "My sales" : "Sales")).rows;
     assert.equal(saleRows.length, role === "ps" ? 2 : 4);
+    assert.deepEqual([...saleRows[0]].slice(-2), ["Sales code", "PS name"]);
+    assert.ok(!saleRows[0].includes("PS"), "early duplicate PS column must be removed");
+    assert.ok(saleRows.slice(1).every(row => row.length === saleRows[0].length));
     assert.ok(sheets.some(sheet => sheet.name.startsWith("2026-08 ")));
     assert.ok(sheets.some(sheet => sheet.name.startsWith("2026-09 ")));
     assert.ok(sheets.some(sheet => sheet.name.startsWith("2026-10 ")));
@@ -284,6 +335,9 @@ test("Export All ignores display filters, labels sheets by month, respects PS/ac
       const brandSheet = sheets.find(sheet => sheet.name === "Brand branch-wide");
       assert.equal(brandSheet.rows[1][1], "BRAND");
       assert.ok(!brandSheet.rows[0].some(header => /amount|price|srp/i.test(header)));
+      assert.ok(!brandSheet.rows[0].includes("Product Specialist"), "duplicate Brand Log PS column");
+      assert.deepEqual([...brandSheet.rows[0]].slice(-2), ["Sales code", "PS name"]);
+      assert.ok(brandSheet.rows.slice(1).every(row => row.length === brandSheet.rows[0].length));
       assert.ok(sheets.some(sheet => sheet.name.startsWith("2026-01 ")));
     }
     assert.deepEqual(fixture.ui, fixture.original);
