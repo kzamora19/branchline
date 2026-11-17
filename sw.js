@@ -1,13 +1,13 @@
 "use strict";
 
-const CACHE_NAME = "branchline-shell-v177";
+const CACHE_NAME = "branchline-shell-v178";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
   "./install.html",
   "./styles.css",
   "./auth-app.js",
-  "./auth-app.js?v=conversion-change-20261116",
+  "./auth-app.js?v=export-column-cleanup-20261117",
   "./table-ui.js",
   "./promotion-review-ui.mjs",
   "./unified-import.mjs",
