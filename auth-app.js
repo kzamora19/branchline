@@ -2850,7 +2850,8 @@
       : "";
     const allTime = ui.anRange === "all";
     const rangeSelect = `<label class="field"><span>Analysis period</span><select data-filter="anRange"><option value="month" ${!allTime ? "selected" : ""}>Monthly analysis</option><option value="all" ${allTime ? "selected" : ""}>All-time (all recorded dates)</option></select></label>`;
-    const filters = filterBar({ district: true, branch: true, extra: rangeSelect + (allTime ? "" : monthSelect + basisSelect), actions: walkInButton });
+    const snapshotAction = isPs ? "" : '<button class="button button-outline" type="button" data-export-ptg-snapshot>Export PTG read-only snapshot</button>';
+    const filters = filterBar({ district: true, branch: true, extra: rangeSelect + (allTime ? "" : monthSelect + basisSelect), actions: walkInButton + snapshotAction });
 
     mountPage(
       pageHeading("Analytics", "Sales, traffic and inventory analysis. Current stock is separate from historical activity; forecasts are labelled projections."),
@@ -2996,6 +2997,47 @@
           });
           psEntries = entries.map(entry => ({ ...entry, achievement: A.achievement(entry.actual, entry.target) }));
           const expectedMtd = A.expectedFraction({ month, refDate, rules, partialDay: isCurrent });
+          const management = window.BranchlineManagement;
+          const performanceCards = management.psCards({
+            profiles: psProfiles, facts,
+            assisted: liveData.psWalkins.filter(row => ids.has(row.branch_id)),
+            targetsByBranch: Object.fromEntries(branchTargets), from: monthStart,
+            through, expectedFraction: expectedMtd, remainingDays: remainingSellingDays,
+          });
+          const performanceTable = tableBlock("an-ps-cards",
+            ["Product Specialist", "Sales", "Allocated target", "Achievement", "Transactions",
+              "Avg. transaction", "Clients assisted", "Conversion", "Daily needed", "7-day change"],
+            performanceCards,
+            row => `<tr class="rank-row" data-ps-detail="${escapeHTML(row.id)}" tabindex="0">
+              <td>${escapeHTML(row.name)}<br><small>${escapeHTML(branchName(row.branchId))}</small></td>
+              <td>${formatMoney(row.sales)}</td>
+              <td>${row.target ? formatMoney(row.target) : "No target"}</td>
+              <td>${row.achievement === null ? "n/a" : (row.achievement * 100).toFixed(2) + "%"}</td>
+              <td>${row.transactions}</td>
+              <td>${row.averageTransaction === null ? "n/a" : formatMoney(row.averageTransaction)}</td>
+              <td>${row.clientsAssisted === null ? "Not recorded" : row.clientsAssisted}</td>
+              <td>${row.conversion === null ? "n/a" : (row.conversion * 100).toFixed(2) + "%"}</td>
+              <td>${row.dailyRequired === null ? "n/a" : formatMoney(row.dailyRequired)}</td>
+              <td>${row.recentChange === null ? "No comparison" : (row.recentChange * 100).toFixed(2) + "%"}</td>
+            </tr>`,
+            "No Product Specialists in the selected branches.");
+          const performancePanel = panel("Product Specialist performance cards",
+            "Target is the existing equal share of each branch's monthly target. Conversion uses transactions only on days with recorded PS assistance. All figures are display-only.",
+            performanceTable);
+          const activeBarcodes = new Set(facts.filter(f => f.date >= A.addDays(through, -29) && f.date <= through)
+            .map(f => f.branchId + "|" + f.barcode));
+          const managementAlerts = management.actionableAlerts({
+            cards: performanceCards, expectedFraction: expectedMtd, today: through,
+            stock: (liveData.inventoryStock || []).filter(item => ids.has(item.branch_id) && activeBarcodes.has(item.branch_id + "|" + item.barcode)),
+            sales: liveData.sales.filter(sale => ids.has(sale.branch_id) && sale.sold_on.slice(0, 10) >= monthStart
+              && sale.sold_on.slice(0, 10) <= through),
+          });
+          const alertsPanel = panel("Actionable performance alerts",
+            "Advisory only: visible when conditions are met, no duplicate notifications or scheduled push messages.",
+            managementAlerts.length
+              ? `<div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Issue</th><th>Next action</th></tr></thead>
+                <tbody>${managementAlerts.map(item => `<tr><td><strong>${escapeHTML(item.title)}</strong></td><td>${escapeHTML(item.message)}</td></tr>`).join("")}</tbody></table></div>`
+              : '<p class="an-note">No actionable alerts detected in the selected scope and date range.</p>');
           const entriesFor = p => (p.mode === "mtd" && !p.custom ? entries : psProfiles.map(profile => {
             const count = psCountByBranch.get(profile.branch_id) || 0;
             const own = facts.filter(f => f.psId === profile.id && f.branchId === profile.branch_id && f.date >= p.from && f.date <= p.to)
@@ -3027,7 +3069,7 @@
             const shown = pick(result);
             return panel(title, `${p.label}. ${detail}${notes}${p.mode === "day" ? " Daily target = monthly target ÷ days in the month." : ""}`, table(shown, expected, key), `${periodControl(key, through)}${manualExport(`an-${title.toLowerCase().replace(/\W+/g, "-")}`, title, exportHead, shown, exportRow(expected))}`);
           };
-          psPanel = `${rankPanel("Top performers", topP, "pdTop", result => result.top, "Individual target = branch target ÷ active PSs in the branch.")}
+          psPanel = `${performancePanel}${alertsPanel}${rankPanel("Top performers", topP, "pdTop", result => result.top, "Individual target = branch target ÷ active PSs in the branch.")}
             ${rankPanel("Needs attention", attnP, "pdAttn", result => result.bottom, "Lowest target achievement.")}`;
         }
 
@@ -6747,6 +6789,28 @@
     return rows.map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
   }
 
+  function exportPtgSnapshot() {
+    if (!currentProfile || currentProfile.role === "ps" || !window.BranchlineManagement) return;
+    const ids = scopeBranchIds();
+    const today = localISODate();
+    const rows = window.BranchlineManagement.productSnapshot({
+      catalog: liveData.inventoryCatalog || [],
+      stock: liveData.inventoryStock || [],
+      facts: analyticsFacts(ids),
+      branchIds: ids,
+      today,
+    });
+    if (!rows.length) {
+      alert("No branch inventory catalog records are available for this snapshot.");
+      return;
+    }
+    const cols = ["source", "branch_id", "barcode", "model", "brand",
+      "available_units", "last_sale_date", "units_30d", "units_90d", "exported_at"];
+    downloadFile("branchline-ptg-snapshot-" + today + ".csv",
+      new Blob([csvText([cols, ...rows.map(row => cols.map(col => row[col] ?? ""))])],
+        { type: "text/csv;charset=utf-8" }));
+  }
+
   function downloadTemplate() {
     downloadFile("products-template.csv", new Blob([csvText([["Brand", "Category", "Sub-category", "Description", "Barcode", "SRP"], ["Sample Brand", "Aircon", "Split Type", "Sample Model 1.0HP", "00012345", "24999.00"]])], { type: "text/csv" }));
   }
@@ -9068,6 +9132,12 @@
       document.querySelector("#reset-saved-demo").hidden = true;
       await startDemo();
     } catch (error) { setAuthMessage(error.message, true); }
+  });
+
+  document.addEventListener("click", event => {
+    const target = event.target;
+    if (!(target instanceof Element) || !target.closest("[data-export-ptg-snapshot]")) return;
+    exportPtgSnapshot();
   });
 
   document.querySelector("#connected-menu").addEventListener("click", () => {
