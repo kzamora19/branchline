@@ -7,6 +7,8 @@ on:
       - 'auth-app.js'
       - 'ps-certificates.mjs'
       - 'management-reports.mjs'
+      - 'manager-attention.js'
+      - 'manager-attention.test.cjs'
       - 'management-reports.test.cjs'
       - 'ps-certificates.test.cjs'
       - 'styles.css'
@@ -27,4 +29,4 @@ jobs:
         with:
           node-version: '22'
       - name: Test awards and existing report exports
-        run: node --test ps-certificates.test.cjs management-reports.test.cjs exports.test.js
+        run: node --test ps-certificates.test.cjs management-reports.test.cjs manager-attention.test.cjs exports.test.js
