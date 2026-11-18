@@ -39,6 +39,73 @@ test("export controls are accessible icon-only buttons and chart data is safely 
   assert.match(source, /exportButton\("data-export-all", "Export all tables"\)/);
 });
 
+test("wide PDF tables use 13 x 8.5-inch landscape pages, wrap all headings and fit all columns", async () => {
+  let definition, filename;
+  const ctx = context({
+    currentProfile: { id: "owner", role: "manager" }, client: {},
+    downloadFile: name => { filename = name; },
+  });
+  ctx.fakePdf = { createPdf(doc) {
+    definition = doc;
+    return { getBlob: callback => callback({ type: "application/pdf" }) };
+  } };
+  vm.runInContext("pdfLibrary = fakePdf", ctx);
+  ctx.testSheets = [{ name: "Brands", rows: [
+    ["Branch", "Brand", "Available units", "Priced stock (SRP)", "Completed sell-out (SRP)",
+      "Monthly sell-out (SRP)", "3-month target (SRP)", "MOH"],
+    ["Santiago", "KYOWA", 7, 21148, 643, 64.3, "192.89999999999998", "328.857142857"],
+  ] }];
+  await vm.runInContext('downloadReportPdf(testSheets, "brands-report")', ctx);
+  assert.equal(definition.pageSize.width, 936);
+  assert.equal(definition.pageSize.height, 612);
+  assert.equal(definition.pageOrientation, "landscape");
+  const grid = definition.content.find(block => block.table).table;
+  assert.equal(grid.widths.length, 8);
+  const printable = 936 - definition.pageMargins[0] - definition.pageMargins[2];
+  assert.ok(grid.widths.reduce((sum, n) => sum + n, 0) + 8 * 6 <= printable);
+  assert.ok(grid.body[0].every(cell => cell.noWrap === false));
+  assert.equal(grid.body[1][6].text, "192.90");
+  assert.equal(grid.body[1][7].text, "328.86");
+  assert.equal(filename, "brands-report.pdf");
+});
+
+test("PDF limits fractions to two decimals without modifying identifiers or spreadsheet values", () => {
+  const ctx = context();
+  for (const [source, header, expected] of [
+    ["4724.924999999998", "Target (SRP)", "4,724.92"],
+    ["149.4820%", "Progress", "149.48%"],
+    ["₱1,234.5678", "Total sales", "₱1,234.57"],
+    ["001.12345", "Sales code", "001.12345"],
+    ["2026-11-18", "Date", "2026-11-18"],
+    ["₱955,365.00", "Sales", "₱955,365.00"],
+  ]) {
+    ctx.sourceValue = source;
+    ctx.fieldHeading = header;
+    assert.equal(vm.runInContext("pdfReportCellText(sourceValue, fieldHeading)", ctx), expected);
+  }
+});
+
+test("dense PDF exports preserve all columns by using fitted A3 landscape", async () => {
+  let definition;
+  const ctx = context({ currentProfile: { id: "one" }, client: {}, downloadFile() {} });
+  ctx.fakePdf = { createPdf(doc) {
+    definition = doc;
+    return { getBlob: cb => cb({ type: "application/pdf" }) };
+  } };
+  vm.runInContext("pdfLibrary = fakePdf", ctx);
+  ctx.denseSheets = [{ name: "Sales detail", rows: [
+    Array.from({ length: 20 }, (_, i) => "Metric " + i),
+    Array.from({ length: 20 }, (_, i) => i + 0.1234567),
+  ] }];
+  await vm.runInContext('downloadReportPdf(denseSheets, "sales-detail")', ctx);
+  assert.equal(definition.pageSize, "A3");
+  assert.equal(definition.pageOrientation, "landscape");
+  const table = definition.content.find(block => block.table).table;
+  assert.equal(table.widths.length, 20);
+  assert.ok(table.widths.reduce((sum, width) => sum + width, 0) + 20 * 4 <= 1190.55 - 56);
+  assert.equal(table.body[1][2].text, "2.12");
+});
+
 test("table, PDF and Excel exports keep only their explicitly meaningful columns", () => {
   const worksheets = [];
   const ctx = context({
