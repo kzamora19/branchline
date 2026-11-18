@@ -30,9 +30,8 @@ export function certificateDocument(awardees, options = {}) {
   if (!Array.isArray(awardees) || !awardees.length) throw new Error("There are no eligible Product Specialists to award.");
   if (awardees.length > 10) throw new Error("Certificates are limited to the top 10 Product Specialists.");
   const period = String(options.period || "Selected reporting period");
-  const scope = String(options.scope || "Authorized branch scope");
-  const basis = String(options.basis || "Selling price");
-  const filters = String(options.filters || "All brands and categories");
+  const branchManagerName = String(options.branchManagerName ?? "").trim().slice(0, 80);
+  const districtManagerName = String(options.districtManagerName ?? "").trim().slice(0, 80);
   const date = String(options.issuedOn || "");
   const color = { ink: "#132A4C", navy: "#142E53", gold: "#B58B3D", gray: "#526175" };
   const pages = awardees.map((person, index) => {
@@ -50,15 +49,17 @@ export function certificateDocument(awardees, options = {}) {
         { text: period, fontSize: 12, bold: true, color: color.navy, margin: [0, 0, 0, 5] },
         { text: "Branch: " + person.branch + "   •   Brand assignment: " + person.brand, fontSize: 9.5, color: color.gray, margin: [0, 0, 0, 38] },
         { columns: [
-          { stack: [
-            { text: "____________________________", fontSize: 10, color: color.navy },
-            { text: "Branch Manager / Authorized Signatory", fontSize: 9, color: color.gray },
+          { width: "*", stack: [
+            { text: "____________________________", fontSize: 10, color: color.navy, alignment: "center" },
+            { text: branchManagerName || " ", fontSize: branchManagerName.length > 33 ? 9 : 11, bold: true, color: color.navy, alignment: "center", margin: [0, 5, 0, 2] },
+            { text: "Branch Manager / Authorized Signatory", fontSize: 9, color: color.gray, alignment: "center" },
           ], alignment: "center" },
-          { stack: [
-            { text: "____________________________", fontSize: 10, color: color.navy },
-            { text: "District / Management Representative", fontSize: 9, color: color.gray },
+          { width: "*", stack: [
+            { text: "____________________________", fontSize: 10, color: color.navy, alignment: "center" },
+            { text: districtManagerName || " ", fontSize: districtManagerName.length > 33 ? 9 : 11, bold: true, color: color.navy, alignment: "center", margin: [0, 5, 0, 2] },
+            { text: "District / Management Representative", fontSize: 9, color: color.gray, alignment: "center" },
           ], alignment: "center" },
-        ], columnGap: 80 },
+        ], columnGap: 48 },
         { text: date ? "Issued: " + date : "", fontSize: 8, color: color.gray, margin: [0, 30, 0, 0] },
       ],
       alignment: "center",
