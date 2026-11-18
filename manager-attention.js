@@ -18,7 +18,7 @@ function managerAttention({ rows = [], expectedByBranch = {}, unassignedCount = 
     if (!Number.isFinite(expected) || expected <= 0) continue;
     const progress = actual / target;
     const gap = expected - progress;
-    if (gap < 0.08) continue;
+    if (gap + 1e-9 < 0.08) continue; // Include thresholds exactly at 8 percentage points despite floating-point rounding.
     notices.push({
       id: "pace:" + row.branch?.id, level: gap >= 0.2 ? "high" : "medium",
       title: name + " is behind sales pace",
