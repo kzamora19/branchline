@@ -43,4 +43,14 @@ assert.equal(snapshot.length,1);
 assert.equal(snapshot[0].barcode,"00042");
 assert.equal(snapshot[0].units_30d,13); // Branch scope includes both Product Specialists.
 assert.equal(snapshot[0].available_units,7);
-console.log("PASS: management metrics, advisory alerts, stock snapshot");
+const drop = actionableAlerts({ recentSales: 100, previousSales: 500 });
+assert.ok(drop.some(item => item.code === "SALES_DROP"));
+const quiet = actionableAlerts({ recentSales: 100, previousSales: 0 });
+assert.ok(!quiet.some(item => item.code === "SALES_DROP"));
+const scoped = productSnapshot({
+  catalog: [{ branch_id: "b", barcode: "00042" }, { branch_id: "other", barcode: "00043" }],
+  stock: [], facts: [], branchIds: new Set(["b"]), today: "2026-11-19"
+});
+assert.equal(scoped.length, 1);
+assert.equal(scoped[0].available_units, null);
+console.log("PASS: management metrics, alerts, scoping and read-only snapshots");
