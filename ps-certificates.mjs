@@ -43,14 +43,12 @@ export function certificateDocument(awardees, options = {}) {
         { text: "BRANCHLINE  |  SALES TRACKER", fontSize: 11, bold: true, color: color.navy, characterSpacing: 3, margin: [0, 38, 0, 8] },
         { text: "EXCELLENCE IN SALES PERFORMANCE", fontSize: 11, color: color.gold, bold: true, characterSpacing: 2, margin: [0, 1, 0, 12] },
         { text: "CERTIFICATE OF RECOGNITION", fontSize: 27, bold: true, color: color.ink, margin: [0, 0, 0, 12] },
-        { text: "Presented with appreciation to", fontSize: 12, color: color.gray, margin: [0, 0, 0, 7] },
+        { text: "This certificate is proudly presented to", fontSize: 12, color: color.gray, margin: [0, 0, 0, 7] },
         { text: person.name, fontSize: person.name.length > 38 ? 23 : 32, bold: true, color: color.navy, margin: [0, 0, 0, 8] },
         { text: "RANK #" + person.rank + "  •  TOP 10 PRODUCT SPECIALISTS", fontSize: 14, bold: true, color: color.gold, margin: [0, 3, 0, 13] },
-        { text: "For outstanding sales results, dedication, and contribution to branch performance.", fontSize: 12, color: color.ink, margin: [0, 0, 0, 11] },
+        { text: "In grateful recognition of your outstanding sales performance, unwavering dedication, and valuable contributions to the continued success of 1st Megasaver.", fontSize: 11, color: color.ink, margin: [0, 4, 0, 13] },
         { text: period, fontSize: 12, bold: true, color: color.navy, margin: [0, 0, 0, 5] },
-        { text: "Credited sales: " + money(person.total) + "   |   " + basis, fontSize: 11, color: color.ink, margin: [0, 0, 0, 5] },
-        { text: "Branch: " + person.branch + "   •   Brand assignment: " + person.brand, fontSize: 9.5, color: color.gray, margin: [0, 0, 0, 5] },
-        { text: "Award scope: " + scope + "   •   Filters: " + filters, fontSize: 8.5, color: color.gray, margin: [0, 0, 0, 46] },
+        { text: "Branch: " + person.branch + "   •   Brand assignment: " + person.brand, fontSize: 9.5, color: color.gray, margin: [0, 0, 0, 38] },
         { columns: [
           { stack: [
             { text: "____________________________", fontSize: 10, color: color.navy },
