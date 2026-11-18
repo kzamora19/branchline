@@ -561,6 +561,7 @@
         fetchAll("branches", "id,name,district_id,code,transfer_sequence", [["name", true], ["id", true]]),
         fetchAll("districts", "id,name", [["name", true], ["id", true]]),
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
+        fetchAll("ps_monthly_targets", "ps_id,branch_id,month,amount", [["month", false], ["ps_id", true]]),
         fetchAll("sales",         "id,branch_id,ps_id,ps_name,salesperson_code,customer_name,invoice_number,sold_on,payment_mode,city,barangay,fulfillment_method,created_at,updated_at", [["sold_on", false], ["id", true]]),
                 fetchAll("products", "id,branch_id,barcode,model_description,brand,category,sub_category,active,srp", [["model_description", true], ["id", true]], query => (catalogBranch ? query.eq("branch_id", catalogBranch) : query).eq("active", true)),
         fetchAll("profiles", "id,full_name,role,branch_id,district_id,assigned_brand,active,login_id,email,salesperson_code", [["id", true]]),
@@ -587,7 +588,7 @@
         !demoStore && rolePages[profile.role].includes("customers") ? loadCustomerMasterAliases(client) : null,
       ];
       let completed = 0;
-      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, pushSchedules, paymentTargets, importBatches, dailyHistory, saleSerials, returnLines, customerMaster] = await Promise.all(
+      const [branches, districts, targets, psTargets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, pushSchedules, paymentTargets, importBatches, dailyHistory, saleSerials, returnLines, customerMaster] = await Promise.all(
         requests.map(request => Promise.resolve(request).then(result => {
           loading.update(10 + (++completed / requests.length) * 55, "Loading sales and account data...");
           return result;
@@ -639,6 +640,8 @@
         branches: visibleBranches,
         districts: visibleDistricts,
         targets: visibleTargets,
+        psTargets: psTargets.error ? [] : psTargets.data.map(row => ({...row, month:String(row.month).slice(0,10), amount:Number(row.amount)})),
+        psTargetsAvailable: !psTargets.error,
         brandTargets: brandTargets.error ? [] : brandTargets.data.map(item => ({ ...item, brand: titleCase(item.brand) })),
         sales: visibleSales.filter(item => !testSaleIds.has(item.id)),
         customerMaster,
@@ -2850,7 +2853,8 @@
       : "";
     const allTime = ui.anRange === "all";
     const rangeSelect = `<label class="field"><span>Analysis period</span><select data-filter="anRange"><option value="month" ${!allTime ? "selected" : ""}>Monthly analysis</option><option value="all" ${allTime ? "selected" : ""}>All-time (all recorded dates)</option></select></label>`;
-    const filters = filterBar({ district: true, branch: true, extra: rangeSelect + (allTime ? "" : monthSelect + basisSelect), actions: walkInButton });
+    const snapshotAction = isPs ? "" : '<button class="button button-outline" type="button" data-export-ptg-snapshot>Export PTG read-only snapshot</button>';
+    const filters = filterBar({ district: true, branch: true, extra: rangeSelect + (allTime ? "" : monthSelect + basisSelect), actions: walkInButton + snapshotAction });
 
     mountPage(
       pageHeading("Analytics", "Sales, traffic and inventory analysis. Current stock is separate from historical activity; forecasts are labelled projections."),
@@ -2883,8 +2887,11 @@
         if (isPs) {
           const count = Number(liveData.psDashboard?.ps_count) || 0;
           const store = branchTargets.get(currentProfile.branch_id) || 0;
-          target = count ? store / count : 0;
-          targetNote = `Your share: store target ${formatMoney(store)} ÷ ${count} PS${count === 1 ? "" : "s"}`;
+          const ownTarget = (liveData.psTargets || []).find(row => row.ps_id === currentProfile.id && row.branch_id === currentProfile.branch_id && row.month.slice(0,7) === month);
+          target = ownTarget ? Number(ownTarget.amount) : count ? store / count : 0;
+          targetNote = ownTarget
+            ? "Your individual monthly target was assigned by management."
+            : `Your allocated share: store target ${formatMoney(store)} ÷ ${count} PS${count === 1 ? "" : "s"}`;
         } else {
           target = [...branchTargets.values()].reduce((sum, value) => sum + value, 0);
           targetNote = `${branchTargets.size} branch target${branchTargets.size === 1 ? "" : "s"} for ${monthLabel(month)}`;
@@ -2992,10 +2999,61 @@
             const share = count ? (branchTargets.get(profile.branch_id) || 0) / count : 0;
             const own = facts.filter(f => f.psId === profile.id && f.branchId === profile.branch_id && f.date >= monthStart && f.date <= through)
               .reduce((total, f) => total + f.amount, 0);
-            return { id: profile.id, name: profile.full_name || "Staff member", branch: branchName(profile.branch_id), actual: own, target: share };
+            return { id: profile.id, name: profile.full_name || "Staff member", branch: branchName(profile.branch_id), actual: own, target: Object.prototype.hasOwnProperty.call(targetsByPs, profile.id) ? targetsByPs[profile.id] : share };
           });
           psEntries = entries.map(entry => ({ ...entry, achievement: A.achievement(entry.actual, entry.target) }));
           const expectedMtd = A.expectedFraction({ month, refDate, rules, partialDay: isCurrent });
+          const management = window.BranchlineManagement;
+          const targetsByPs = Object.fromEntries((liveData.psTargets || [])
+            .filter(row => ids.has(row.branch_id) && row.month.slice(0,7) === month && psProfiles.some(profile => profile.id === row.ps_id && profile.branch_id === row.branch_id))
+            .map(row => [row.ps_id,Number(row.amount)]));
+          const performanceCards = management.psCards({
+            profiles: psProfiles, facts,
+            assisted: liveData.psWalkins.filter(row => ids.has(row.branch_id)),
+            targetsByBranch: Object.fromEntries(branchTargets), targetsByPs, from: monthStart,
+            through, expectedFraction: expectedMtd, remainingDays: remainingSellingDays,
+          });
+          const performanceTable = tableBlock("an-ps-cards",
+            ["Product Specialist", "Sales", "Allocated target", "Achievement", "Transactions",
+              "Avg. transaction", "Clients assisted", "Conversion", "Daily needed", "7-day change"],
+            performanceCards,
+            row => `<tr class="rank-row" data-ps-detail="${escapeHTML(row.id)}" tabindex="0">
+              <td>${escapeHTML(row.name)}<br><small>${escapeHTML(branchName(row.branchId))}</small></td>
+              <td>${formatMoney(row.sales)}</td>
+              <td>${row.target ? formatMoney(row.target) : "No target"}</td>
+              <td>${row.achievement === null ? "n/a" : (row.achievement * 100).toFixed(2) + "%"}</td>
+              <td>${row.transactions}</td>
+              <td>${row.averageTransaction === null ? "n/a" : formatMoney(row.averageTransaction)}</td>
+              <td>${row.clientsAssisted === null ? "Not recorded" : row.clientsAssisted}</td>
+              <td>${row.conversion === null ? "n/a" : (row.conversion * 100).toFixed(2) + "%"}</td>
+              <td>${row.dailyRequired === null ? "n/a" : formatMoney(row.dailyRequired)}</td>
+              <td>${row.recentChange === null ? "No comparison" : (row.recentChange * 100).toFixed(2) + "%"}</td>
+            </tr>`,
+            "No Product Specialists in the selected branches.");
+          const performancePanel = panel("Product Specialist performance cards",
+            "Uses saved individual PS targets when assigned; otherwise the branch target is shared equally. Conversion uses transactions only on days with recorded PS assistance.",
+            performanceTable, liveData.psTargetsAvailable
+              ? '<button class="button button-outline" type="button" data-edit-ps-target>Set PS target</button>'
+              : '<span class="an-muted">Individual target editor requires its new database migration.</span>');
+          const activeBarcodes = new Set(facts.filter(f => f.date >= A.addDays(through, -29) && f.date <= through)
+            .map(f => f.branchId + "|" + f.barcode));
+          const managementAlerts = management.actionableAlerts({
+            cards: performanceCards, expectedFraction: expectedMtd, today: through,
+            brands: brandRows(ids).map(row => ({ ...row, name: row.brand })),
+            recentSales: isCurrent ? facts.filter(f => f.date >= A.addDays(through, -6) && f.date <= through)
+              .reduce((total, fact) => total + fact.amount, 0) : null,
+            previousSales: isCurrent ? facts.filter(f => f.date >= A.addDays(through, -13) && f.date <= A.addDays(through, -7))
+              .reduce((total, fact) => total + fact.amount, 0) : null,
+            stock: (liveData.inventoryStock || []).filter(item => ids.has(item.branch_id) && activeBarcodes.has(item.branch_id + "|" + item.barcode)),
+            sales: liveData.sales.filter(sale => ids.has(sale.branch_id) && sale.sold_on.slice(0, 10) >= monthStart
+              && sale.sold_on.slice(0, 10) <= through),
+          });
+          const alertsPanel = panel("Actionable performance alerts",
+            "Advisory only: visible when conditions are met, no duplicate notifications or scheduled push messages.",
+            managementAlerts.length
+              ? `<div class="connected-table-wrap"><table class="connected-table"><thead><tr><th>Issue</th><th>Next action</th></tr></thead>
+                <tbody>${managementAlerts.map(item => `<tr><td><strong>${escapeHTML(item.title)}</strong></td><td>${escapeHTML(item.message)}</td></tr>`).join("")}</tbody></table></div>`
+              : '<p class="an-note">No actionable alerts detected in the selected scope and date range.</p>');
           const entriesFor = p => (p.mode === "mtd" && !p.custom ? entries : psProfiles.map(profile => {
             const count = psCountByBranch.get(profile.branch_id) || 0;
             const own = facts.filter(f => f.psId === profile.id && f.branchId === profile.branch_id && f.date >= p.from && f.date <= p.to)
@@ -3027,7 +3085,7 @@
             const shown = pick(result);
             return panel(title, `${p.label}. ${detail}${notes}${p.mode === "day" ? " Daily target = monthly target ÷ days in the month." : ""}`, table(shown, expected, key), `${periodControl(key, through)}${manualExport(`an-${title.toLowerCase().replace(/\W+/g, "-")}`, title, exportHead, shown, exportRow(expected))}`);
           };
-          psPanel = `${rankPanel("Top performers", topP, "pdTop", result => result.top, "Individual target = branch target ÷ active PSs in the branch.")}
+          psPanel = `${performancePanel}${alertsPanel}${rankPanel("Top performers", topP, "pdTop", result => result.top, "Individual target = branch target ÷ active PSs in the branch.")}
             ${rankPanel("Needs attention", attnP, "pdAttn", result => result.bottom, "Lowest target achievement.")}`;
         }
 
@@ -3063,7 +3121,7 @@
         });
 
         const missing = `<p class="an-note">Walk-in traffic and conversion use only days with a recorded count. A store count entered by a manager overrides the sum of PS counts. Nothing is estimated.</p>`;
-        return `${warning}${cards}${insightsPanel(insights)}${panel("Period comparison", "Growth compares like-for-like elapsed days.", comparisonTable, manualExport("an-compare", "Period comparison", ["Period", "Comparison", "Dates", "Actual", "Prior", "Growth"], comparisons,
+        return `${warning}${cards}${insightsPanel(insights)}${panel("Management Report Center · Daily / Weekly / Monthly / YTD", "Four ready-made period comparisons with consistent two-decimal figures. Use Download to export the complete report; periods overlap and must not be summed.", comparisonTable, manualExport("an-compare", "Management Report Center", ["Period", "Comparison", "Dates", "Actual", "Prior", "Growth"], comparisons,
           ([name, dates, current, prior, note]) => { const g = A.growth(current, prior); return `<tr><td>${escapeHTML(name)}</td><td>${escapeHTML(note)}</td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${g === null ? "n/a" : (g * 100).toFixed(1) + "%"}</td></tr>`; }))}${traffic.compare}${traffic.trend}${paymentMixPanels(month, mixView, mixLabel, `${panelBranchSelect("bpMix", ids)}${periodControl("pdMix", through)}`)          }${trendPanel}${psPanel}${missing}${inventoryAnalyticsPanels(ids, facts, monthStart, through, today)}`;
       },
     );
@@ -6747,6 +6805,58 @@
     return rows.map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
   }
 
+  function openPsTargetEditor() {
+    if (!currentProfile || !["manager","district_manager","admin"].includes(currentProfile.role)
+      || !liveData.psTargetsAvailable) return;
+    const ids = scopeBranchIds();
+    const month = ui.month || currentMonth();
+    const people = liveData.profiles
+      .filter(p => p.role === "ps" && p.active && !isTestProfile(p) && ids.has(p.branch_id))
+      .sort((a,b) => (a.full_name || "").localeCompare(b.full_name || ""));
+    if (!people.length) return alert("No active Product Specialists are available in the selected branch scope.");
+    openModal({
+      title: "Set an individual Product Specialist target",
+      intro: "Monthly targets are saved per PS and branch, with an audit trail. Other PS targets remain unchanged.",
+      submitLabel: "Save individual target",
+      body: `<label class="field"><span>Product Specialist</span><select name="ps_id" required>
+        ${people.map(p => `<option value="${escapeHTML(p.id)}">${escapeHTML(p.full_name)} · ${escapeHTML(branchName(p.branch_id))}</option>`).join("")}
+      </select></label>
+      <label class="field"><span>Month</span><input name="month" type="month" value="${escapeHTML(month)}" required></label>
+      <label class="field"><span>Individual target (₱)</span><input name="amount" type="number" min="0" max="1000000000000" step="0.01" required></label>
+      <p class="an-note">Only an assigned manager, district manager or administrator may save the target. Zero is a valid explicitly set target.</p>`,
+      onSubmit: async form => {
+        mustRpc(await client.rpc("set_ps_monthly_target", {
+          p_ps_id: form.elements.ps_id.value,
+          p_month: form.elements.month.value + "-01",
+          p_amount: Number(form.elements.amount.value),
+        }));
+        await refreshData();
+      },
+    });
+  }
+
+  function exportPtgSnapshot() {
+    if (!currentProfile || currentProfile.role === "ps" || !window.BranchlineManagement) return;
+    const ids = scopeBranchIds();
+    const today = localISODate();
+    const rows = window.BranchlineManagement.productSnapshot({
+      catalog: liveData.inventoryCatalog || [],
+      stock: liveData.inventoryStock || [],
+      facts: analyticsFacts(ids),
+      branchIds: ids,
+      today,
+    });
+    if (!rows.length) {
+      alert("No branch inventory catalog records are available for this snapshot.");
+      return;
+    }
+    const cols = ["source", "branch_id", "barcode", "model", "brand",
+      "available_units", "last_sale_date", "units_30d", "units_90d", "exported_at"];
+    downloadFile("branchline-ptg-snapshot-" + today + ".csv",
+      new Blob([csvText([cols, ...rows.map(row => cols.map(col => row[col] ?? ""))])],
+        { type: "text/csv;charset=utf-8" }));
+  }
+
   function downloadTemplate() {
     downloadFile("products-template.csv", new Blob([csvText([["Brand", "Category", "Sub-category", "Description", "Barcode", "SRP"], ["Sample Brand", "Aircon", "Split Type", "Sample Model 1.0HP", "00012345", "24999.00"]])], { type: "text/csv" }));
   }
@@ -9068,6 +9178,13 @@
       document.querySelector("#reset-saved-demo").hidden = true;
       await startDemo();
     } catch (error) { setAuthMessage(error.message, true); }
+  });
+
+  document.addEventListener("click", event => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest("[data-edit-ps-target]")) { openPsTargetEditor(); return; }
+    if (target.closest("[data-export-ptg-snapshot]")) { exportPtgSnapshot(); return; }
   });
 
   document.querySelector("#connected-menu").addEventListener("click", () => {
