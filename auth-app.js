@@ -1136,6 +1136,31 @@
     });
   }
 
+  function managementAttentionPanel(branches) {
+    if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return "";
+    const scoped = scopeBranchIds();
+    const expectedByBranch = Object.fromEntries(branches.map(row => [
+      row.branch.id, paceFraction(new Set([row.branch.id])),
+    ]));
+    const unassignedCount = liveData.sales.filter(sale =>
+      scoped.has(sale.branch_id) && inPeriod(sale.sold_on)
+      && !sale.ps_id && !isTestSale(sale, liveData.testPsIds)).length;
+    const notices = window.BranchlineManagerAttention?.managerAttention({
+      rows: branches, expectedByBranch, unassignedCount,
+    }) || [];
+    const contents = notices.length
+      ? '<div class="manager-attention-grid">' + notices.map(notice =>
+        '<article class="manager-attention-item manager-attention-' + notice.level + '">'
+          + '<strong>' + escapeHTML(notice.title) + '</strong>'
+          + '<p>' + escapeHTML(notice.detail) + '</p></article>').join("") + '</div>'
+      : '<p class="ps-award-note">No exceptions flagged for the current branch and reporting-period selection.</p>';
+    return panel(
+      "Manager attention",
+      "Read-only target-pace and sales-attribution checks. These are not push notifications or scheduled messages.",
+      contents + '<button type="button" class="button button-outline manager-attention-action" data-manager-attention-analytics>Open Analytics</button>',
+    );
+  }
+
   function managementReportPanel() {
     if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return "";
     return panel(
@@ -3238,7 +3263,7 @@
           </div>
           <div class="connected-charts">${charts.join("")}</div>
           ${overviewPaymentPanels("pies")}
-          ${psRankingPanel()}${managementReportPanel()}`;
+          ${managementAttentionPanel(rows)}${psRankingPanel()}${managementReportPanel()}`;
       },
     );
   }
@@ -8539,6 +8564,12 @@
       if (!["manager", "district_manager", "admin"].includes(currentProfile?.role) || demoStore) return;
       void downloadTopPsCertificates(awardSingle?.dataset.psCertificate || null)
         .catch(error => { console.error("Certificate export failed.", error); alert(error.message || "Certificate export failed."); });
+      return;
+    }
+    if (event.target.closest("[data-manager-attention-analytics]")) {
+      if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return;
+      activePage = "analytics";
+      renderConnected();
       return;
     }
     const managementReport = event.target.closest("[data-management-report]");
