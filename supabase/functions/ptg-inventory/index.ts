@@ -56,7 +56,7 @@ Deno.serve(async request => {
       return reply(200, { ok: true, barcodes: [...barcodes], scope });
     }
     const barcode = String(input ?? "").trim().toUpperCase();
-    if (!["stock", "serials"].includes(mode) || !/^[A-Z0-9-]{1,64}$/.test(barcode)) {
+    if (!["stock", "serials", "insights"].includes(mode) || !/^[A-Z0-9-]{1,64}$/.test(barcode)) {
       return reply(400, { message: "Choose a product barcode." });
     }
     const canonical = /^\d{1,7}$/.test(barcode) ? barcode.padStart(8, "0") : barcode;
@@ -65,6 +65,52 @@ Deno.serve(async request => {
     if (stockError) throw stockError;
     const quantity = stock.reduce((sum, row) => sum + row.quantity, 0);
     const serialized = stock.some(row => row.serialized);
+    if (mode === "insights") {
+      // Aggregated activity only: never return raw sale lines, customer identity,
+      // payment data, PS information or any branch outside the verified PTG scope.
+      if (Deno.env.get("PTG_SALES_INSIGHTS_ENABLED") !== "true")
+        return reply(503, { message: "Product sales insights are not enabled." });
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit",
+      }).formatToParts(new Date());
+      const datePart = (type: string) => parts.find(part => part.type === type)?.value ?? "";
+      const today = datePart("year") + "-" + datePart("month") + "-" + datePart("day");
+      const sinceDate = new Date(today + "T00:00:00Z");
+      sinceDate.setUTCDate(sinceDate.getUTCDate() - 29);
+      const from = sinceDate.toISOString().slice(0, 10);
+      let units = 0, latestDate = "", rows = 0;
+      const transactions = new Set<string>();
+      // A single product can appear more than once in an invoice. Paginate
+      // over unique sale-line IDs and count each invoice only once.
+      for (let start = 0; start <= 5000; start += 500) {
+        const { data, error } = await sales.from("sale_lines")
+          .select("id,sale_id,quantity,sales!inner(sold_on)")
+          .in("branch_id", ids).eq("barcode", canonical)
+          .gte("sales.sold_on", from).lte("sales.sold_on", today)
+          .order("id", { ascending: true }).range(start, start + 499);
+        if (error) throw error;
+        const matches = data ?? [];
+        if (start === 5000 && matches.length) return reply(503, {
+          message: "This product has too many sales lines to summarize safely. Use Sales Tracker for its full report.",
+        });
+        for (const line of matches) {
+          const quantity = Number(line.quantity);
+          if (Number.isFinite(quantity)) units += quantity;
+          if (line.sale_id) transactions.add(line.sale_id);
+          const joined = line.sales as { sold_on?: string } | { sold_on?: string }[] | null;
+          const soldOn = String((Array.isArray(joined) ? joined[0] : joined)?.sold_on || "").slice(0, 10);
+          if (soldOn > latestDate) latestDate = soldOn;
+        }
+        rows += matches.length;
+        if (matches.length < 500) break;
+      }
+      return reply(200, {
+        ok: true, scope, barcode: canonical, quantity, serialized,
+        recent: { from, to: today, units, transactions: transactions.size,
+          lastSaleDate: latestDate || null },
+        source: "Branchline Sales Tracker", aggregated: true,
+      });
+    }
     if (mode === "stock" || !serialized) return reply(200, { ok: true, quantity, serialized, scope });
 
     const serials = [];
