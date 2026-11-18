@@ -898,13 +898,18 @@
     const branchTarget = liveData.targets
       .filter(row => row.branch_id === branchId && targetInPeriod(row.month))
       .reduce((total, row) => total + Number(row.amount), 0);
-    const target = activePsCount ? branchTarget / activePsCount : 0;
+    const assigned = ui.period !== "year" && (liveData.individualGoals || []).find(goal =>
+      goal.ps_id === currentProfile.id && goal.branch_id === branchId
+      && String(goal.month).slice(0, 7) === anchorMonth());
+    const explicit = assigned && Number(assigned.amount) > 0 ? Number(assigned.amount) : null;
+    const target = explicit ?? (activePsCount ? branchTarget / activePsCount : 0);
+    const targetSource = explicit !== null ? "individual" : "indicative";
     const actual = liveData.sales
       .filter(sale => sale.ps_id === currentProfile.id
         && sale.branch_id === branchId
         && inStatus(sale.sold_on))
       .reduce((total, sale) => total + saleTotal(sale, basis), 0);
-    return { actual, target, branchTarget, activePsCount };
+    return { actual, target, branchTarget, activePsCount, targetSource };
   }
 
   function psTargetCharts(scope) {
@@ -916,8 +921,10 @@
         currentLabel: "My sales",
         emptyText: "No branch target is set for this period yet.",
       }),
-      progressChart(personal.actual, personal.target, `${scope} · store target ÷ ${count} PS${count === 1 ? "" : "s"} in the branch`, {
-        title: "My sales vs my share of the store target",
+      progressChart(personal.actual, personal.target, personal.targetSource === "individual"
+        ? `${scope} · assigned individual monthly sales target`
+        : `${scope} · indicative store target ÷ ${count} PS${count === 1 ? "" : "s"} in the branch`, {
+        title: personal.targetSource === "individual" ? "My sales vs assigned monthly target" : "My sales vs my indicative share",
         currentLabel: "My sales",
         emptyText: count ? "No branch target is set for this period yet." : "The Product Specialist count is unavailable, so your share cannot be calculated.",
       }),
