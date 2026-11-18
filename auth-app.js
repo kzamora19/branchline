@@ -7582,11 +7582,14 @@
       if (!headers?.length) continue;
       if (sheet.name !== title) content.push({ text: sheet.name, bold: true, fontSize: 11, margin: [0, 8, 0, 4] });
       const numericColumn = label => /^(?:qty|quantity|srp|unit price|price|amount|total|moh|available units|progress|sales|target|share|monthly sell-out)/i.test(label);
+      // Align both header and data cells for inventory brand metric columns.
+      // Keep Branch, Brand and Status labels left-aligned.
+      const centeredBrandMetric = label => /^(?:available units|priced stock\s*\(srp\)|completed sell-out\s*\(srp\)|monthly sell-out\s*\(srp\)|3-month target\s*\(srp\)|moh|stock units missing srp|sell-out units missing srp|unmatched sell-out units)$/i.test(String(label).trim());
       const widths = reportPdfColumnWidths(headers, pageWidth, padding, margin);
       const rowCells = (row, isHeader) => headers.map((label, index) => ({
         text: isHeader ? String(label) : pdfReportCellText(row[index], label),
         bold: isHeader,
-        alignment: !isHeader && numericColumn(label) ? "right" : "left",
+        alignment: centeredBrandMetric(label) ? "center" : !isHeader && numericColumn(label) ? "right" : "left",
         noWrap: false, // headings and values must wrap instead of overflowing
         fontSize: isHeader ? (dense ? 7.5 : wide ? 8.5 : 9.5) : (dense ? 7.5 : wide ? 9 : 10),
       }));

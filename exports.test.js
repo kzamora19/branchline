@@ -69,6 +69,37 @@ test("wide PDF tables use 13 x 8.5-inch landscape pages, wrap all headings and f
   assert.equal(filename, "brands-report.pdf");
 });
 
+test("Brands PDF centers all highlighted metric headers and row values, not Brand/Branch/Status", async () => {
+  let doc;
+  const ctx = context({
+    currentProfile: { id: "owner", role: "manager" }, client: {}, downloadFile() {},
+  });
+  ctx.fakePdf = { createPdf(def) {
+    doc = def;
+    return { getBlob: callback => callback({ type: "application/pdf" }) };
+  } };
+  vm.runInContext("pdfLibrary = fakePdf", ctx);
+  const headers = [
+    "Branch", "Brand", "Available units", "Priced stock (SRP)",
+    "Completed sell-out (SRP)", "Monthly sell-out (SRP)", "3-month target (SRP)",
+    "MOH", "Status", "Stock units missing SRP", "Sell-out units missing SRP",
+    "Unmatched sell-out units",
+  ];
+  ctx.brandTable = [{ name: "Brands", rows: [
+    headers, ["Santiago", "ASAHI", 61, 140970, 32725, 3272.5, 9817.5, 43.08, "Over 3 months", 0, 0, 0],
+  ] }];
+  await vm.runInContext('downloadReportPdf(brandTable, "brands")', ctx);
+  const table = doc.content.find(block => block.table).table;
+  for (let col = 0; col < headers.length; col++) {
+    const expected = [2, 3, 4, 5, 6, 7, 9, 10, 11].includes(col) ? "center" : "left";
+    assert.equal(table.body[0][col].alignment, expected, headers[col] + " heading");
+    assert.equal(table.body[1][col].alignment, expected, headers[col] + " value");
+  }
+  assert.equal(doc.pageSize.width, 936);
+  assert.ok(table.body[0].every(cell => cell.noWrap === false));
+  assert.equal(table.body[0].length, table.body[1].length);
+});
+
 test("PDF limits fractions to two decimals without modifying identifiers or spreadsheet values", () => {
   const ctx = context();
   for (const [source, header, expected] of [

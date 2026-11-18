@@ -1011,3 +1011,8 @@ Cache v89 includes these changes.
 ### PDF report fit — 13 × 8.5-inch landscape (shell v179)
 
 Reports with 7–13 columns use 13 × 8.5-inch landscape pages. Extra-wide tables (>13 columns) use A3 landscape. PDF column widths are fitted to the available page area, headings and values wrap, and floating-point numeric display values are limited to two decimal places. Source figures, downloadable Excel/CSV data, sales records and calculations remain unchanged.
+
+
+### Centered PDF inventory brand metrics (shell v180)
+
+In the Brands PDF, Available units, Priced stock (SRP), Completed sell-out (SRP), Monthly sell-out (SRP), 3-month target (SRP), MOH, Stock units missing SRP, Sell-out units missing SRP, and Unmatched sell-out units are horizontally centered in both their headings and values. Branch, Brand, and Status remain left-aligned. PDF layout only; calculations, Excel/CSV output and source sales data are unchanged.
