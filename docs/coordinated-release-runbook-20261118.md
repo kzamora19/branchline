@@ -29,6 +29,14 @@ In the connected Sales Tracker Supabase project, `public.push_alert_schedule_run
 
 No new service-role secret needs to be placed in the PTG browser; the integration reuses the existing PTG-inventory cross-project auth relay. Keep all flags off on production until the coordinated release. Confirm existing Supabase usage limits before enabling frequent insights lookups.
 
+## Automated regression results (November 18, 2026)
+
+- **PTG real browser printing:** GitHub CI run [44298671546](https://github.com/kzamora19/first-megasaver-ptg/actions/runs/44298671546) passed all seven print layouts using Chrome, demo products and real print-generated PDFs. Expected portrait/landscape US Letter page counts verified; PNG previews and PDFs uploaded as workflow artifacts. The test covers representative demo examples, not every product description/logo or printer driver.
+- **PTG price integrity:** conflicts with matching memo/offer type cover Tag This, installment amounts, comparable SRP and cash values; distinct regular/promo/subdealer and unit-only/installation offers do not automatically trigger duplicate-price warnings. Invalid calendar dates are rejected. Non-blocking only.
+- **Sales Tracker real certificate PDFs:** GitHub CI run [44297631508](https://github.com/kzamora19/branchline/actions/runs/44297631508) passed real pdfmake generation, PDF text/page counting and US A4 landscape dimensions (one and ten recipients, including long names and branches). PDF/PNG proof stored as workflow artifacts.
+- Both development branches remain **unmerged**, and all integration flags remain **disabled**.
+- These automated successes do **not** replace the manual authorization, migration and physical-print checks listed next.
+
 ## Manual release tests required
 
 1. Confirm the latest commit on both PRs is green: regression/unit tests, TypeScript, Next build and Deno Edge type-check.
@@ -44,4 +52,4 @@ No new service-role secret needs to be placed in the PTG browser; the integratio
 
 ## Deferred for a separate approved migration
 
-Complete historical per-product price revisions across replacements would require a transactional append-only snapshot and retention/RLS design. Scheduled email report delivery or new automatic push campaigns require confirmed delivery recipients, schedule, quiet hours and approved integration costs. Neither has been silently enabled.
+A private append-only memo-revision migration and sanitized System Admin reader are now **staged in PTG**, but neither has been applied or validated against a controlled database. Earlier historical changes cannot be reconstructed retroactively. Scheduled email report delivery or new automatic push campaigns still require confirmed recipients, cadence, quiet hours and approved integration costs. Neither has been silently enabled.
