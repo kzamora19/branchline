@@ -6,6 +6,8 @@ on:
     paths:
       - 'auth-app.js'
       - 'ps-certificates.mjs'
+      - 'management-reports.mjs'
+      - 'management-reports.test.cjs'
       - 'ps-certificates.test.cjs'
       - 'styles.css'
       - '.github/workflows/ps-awards-ci.yml'
@@ -25,4 +27,4 @@ jobs:
         with:
           node-version: '22'
       - name: Test awards and existing report exports
-        run: node --test ps-certificates.test.cjs exports.test.js
+        run: node --test ps-certificates.test.cjs management-reports.test.cjs exports.test.js
