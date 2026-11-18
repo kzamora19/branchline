@@ -1,0 +1,28 @@
+name: PS awards validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'auth-app.js'
+      - 'ps-certificates.mjs'
+      - 'ps-certificates.test.cjs'
+      - 'styles.css'
+      - '.github/workflows/ps-awards-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-awards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test awards and existing report exports
+        run: node --test ps-certificates.test.cjs exports.test.js
