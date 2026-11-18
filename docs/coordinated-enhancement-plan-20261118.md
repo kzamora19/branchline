@@ -13,6 +13,15 @@
 1. **Sales Tracker PR #21:** Product Specialist performance cards + one-person and batch Top 10 PDF certificates. A4 landscape, scope and selected period, positive actual transactions only, exclude test and transferred PS history, no fabricated signatures or performance results.
 2. **PTG PR #28:** read-only price preflight warnings in product-details modal/queue, and smart print queue brand counts and shared-barcode review. The queue never auto-deletes legitimate unit-only/free-installation variants.
 
+## Progress after plan creation
+
+- [x] Sales Tracker: staged Top 10 PS performance cards and individual/batch landscape award certificates with tests.
+- [x] Sales Tracker: staged manual daily, weekly, monthly and YTD management reports, aggregated by branch, brand, PS and day with no customer identifying fields.
+- [x] Sales Tracker: staged read-only Manager Attention panel for behind-pace and unassigned-PS exceptions. Does not send push messages.
+- [x] Existing export regression tests and the new awards/reports/attention CI are passing on the development branch.
+- [ ] Review example certificate PDFs visually in a browser and on a printer before release.
+- [ ] Evaluate push alert scheduling/privacy controls and cross-app read-only gateway design (proposal in `docs/alerts-integration-design-20261118.md`).
+
 ## Remaining development
 
 ### PTG
