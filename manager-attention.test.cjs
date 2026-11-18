@@ -41,3 +41,25 @@ test("manager attention UI is manager-only and does not schedule or push notific
   assert.match(body, /data-manager-attention-analytics/);
   assert.doesNotMatch(body, /\.rpc\(|\.from\(|pushManager|setInterval/i);
 });
+
+test("manager attention flags verified brand pace, critical active stock, missing PS codes and significant decline", () => {
+  const { managerAttention } = require("./manager-attention.js");
+  const output = managerAttention({
+    rows: [], expectedByBranch: {},
+    brandRows: [{ brand: "LG", actual: 1200, target: 10000 },
+      { brand: "TCL", actual: 9500, target: 10000 },
+      { brand: "NO TARGET", actual: 150, target: 0 }],
+    expectedBrandPace: .55,
+    stockAlerts: [{ branch: "Santiago", count: 3 }],
+    missingCodesCount: 5,
+    declines: [{ branch: "Santiago", current: 2400, previous: 5000 },
+      { branch: "Ilagan", current: 4900, previous: 5000 }],
+    maxItems: 10,
+  });
+  assert.deepEqual(output.map(row => row.id).sort(),
+    ["brand:LG", "stock:Santiago", "missing-codes", "decline:Santiago"].sort());
+  assert.ok(output.some(item => item.level === "high" && item.id === "stock:Santiago"));
+  assert.ok(output.find(item => item.id === "brand:LG").detail.includes("Expected: 55.0%"));
+  assert.ok(output.find(item => item.id === "missing-codes").detail.includes("import mappings"));
+  assert.ok(!output.some(row => row.id === "decline:Ilagan"));
+});
