@@ -1070,7 +1070,7 @@
     const profiles = new Map(liveData.profiles.map(p => [p.id, p]));
     const testIds = new Set(liveData.profiles.filter(isTestProfile).map(p => p.id));
     const filters = { brand: ui.rankBrand, category: ui.rankCategory, sub: ui.rankSub };
-    const totals = new Map(), transactions = new Map();
+    const totals = new Map(), transactions = new Map(), dailyByPs = new Map();
     liveData.sales.forEach(sale => {
       const person = profiles.get(sale.ps_id);
       if (!person || person.role !== "ps" || person.active === false || isTestProfile(person)
@@ -1081,6 +1081,8 @@
       if (!(sum > 0)) return;
       addTo(totals, sale.ps_id, sum);
       transactions.set(sale.ps_id, (transactions.get(sale.ps_id) || 0) + 1);
+      if (!dailyByPs.has(sale.ps_id)) dailyByPs.set(sale.ps_id, new Map());
+      addTo(dailyByPs.get(sale.ps_id), String(sale.sold_on).slice(0, 10), sum);
     });
     const assistance = new Map();
     // A PS conversion estimate is shown only on days with reported assisted
@@ -1109,7 +1111,38 @@
       const storeTarget = showTarget ? liveData.targets.filter(t =>
         t.branch_id === person.branch_id && String(t.month).slice(0, 7) === ui.month)
         .reduce((sum, t) => sum + Number(t.amount || 0), 0) : 0;
-      const share = showTarget && countPs && storeTarget > 0 ? storeTarget / countPs : null;
+      const indicativeShare = showTarget && countPs && storeTarget > 0 ? storeTarget / countPs : null;
+      const assigned = showTarget ? (liveData.individualGoals || []).find(goal =>
+        goal.ps_id === id && goal.branch_id === person.branch_id && String(goal.month).slice(0, 7) === ui.month) : null;
+      const realTarget = assigned && Number(assigned.amount) > 0 ? Number(assigned.amount) : null;
+      const goal = realTarget ?? indicativeShare;
+      const targetLabel = realTarget !== null ? "Assigned PS target" : "Indicative branch share";
+      const today = localISODate();
+      const selectedMonth = ui.month;
+      const pastMonthEnd = selectedMonth && /^\d{4}-\d{2}$/.test(selectedMonth)
+        ? new Date(Date.UTC(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0)).toISOString().slice(0, 10)
+        : today;
+      const asOf = ui.period === "day" ? periodDay()
+        : selectedMonth < today.slice(0, 7) ? pastMonthEnd
+        : selectedMonth === today.slice(0, 7) ? today : null;
+      const trend = asOf && window.BranchlinePsPerformance?.specialistTrend
+        ? window.BranchlinePsPerformance.specialistTrend(dailyByPs.get(id) || new Map(), asOf) : null;
+      let pace = null, monthProjection = null;
+      if (showTarget && selectedMonth === today.slice(0, 7)
+        && typeof calendarForecastRules === "function"
+        && window.BranchlineAnalytics?.forecastMonth && window.BranchlinePsPerformance?.timePace) {
+        const rules = calendarForecastRules(new Set([person.branch_id]));
+        const forecast = window.BranchlineAnalytics.forecastMonth({
+          month: selectedMonth, refDate: today,
+          daily: Object.fromEntries(dailyByPs.get(id) || []), rules, partialDay: true,
+        });
+        const expected = paceFraction(new Set([person.branch_id]));
+        pace = window.BranchlinePsPerformance.timePace({
+          target: goal, actual: total, paceFraction: expected,
+          remainingSellingDays: forecast.paceDays,
+        });
+        if (forecast.status === "projected") monthProjection = forecast.value;
+      }
       const assistRecord = assistance.get(id);
       const countedTransactions = assistRecord ? liveData.sales.filter(sale =>
         sale.ps_id === id && sale.branch_id === person.branch_id
@@ -1123,8 +1156,9 @@
         id, name: person.full_name || "Staff member",
         brand: person.assigned_brand || "—", branch: branchName(person.branch_id),
         total, transactions: count, avgTicket: count ? total / count : 0,
-        assisted, conversion,
-        targetShare: share, progress: share ? total / share * 100 : null,
+        assisted, conversion, trend, pace, monthProjection,
+        assignedTarget: realTarget, targetLabel,
+        targetShare: goal, progress: goal ? total / goal * 100 : null,
       };
     }).sort((a, b) => b.total - a.total || natural(a.name, b.name) || natural(a.id, b.id))
       .slice(0, 10).map((row, index) => ({ ...row, rank: index + 1 }));
