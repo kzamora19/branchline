@@ -1077,6 +1077,24 @@
       addTo(totals, sale.ps_id, sum);
       transactions.set(sale.ps_id, (transactions.get(sale.ps_id) || 0) + 1);
     });
+    const assistance = new Map();
+    // A PS conversion estimate is shown only on days with reported assisted
+    // clients. Monthly conversions must not assume missing days had zero traffic.
+    if (!filters.brand && !filters.category && !filters.sub) {
+      (liveData.psWalkins || []).forEach(item => {
+        const person = profiles.get(item.ps_id);
+        const date = String(item.counted_on || "").slice(0, 10);
+        if (!person || person.role !== "ps" || person.active === false
+            || person.branch_id !== item.branch_id || !ids.has(item.branch_id)
+            || !inPeriod(date) || isTestProfile(person)) return;
+        const count = Number(item.clients_assisted);
+        if (!Number.isFinite(count) || count < 0) return;
+        if (!assistance.has(item.ps_id)) assistance.set(item.ps_id, { assisted: 0, dates: new Set() });
+        const entry = assistance.get(item.ps_id);
+        entry.assisted += Math.trunc(count);
+        entry.dates.add(date);
+      });
+    }
     return [...totals].map(([id, total]) => {
       const person = profiles.get(id);
       const count = transactions.get(id) || 0;
@@ -1087,10 +1105,20 @@
         t.branch_id === person.branch_id && String(t.month).slice(0, 7) === ui.month)
         .reduce((sum, t) => sum + Number(t.amount || 0), 0) : 0;
       const share = showTarget && countPs && storeTarget > 0 ? storeTarget / countPs : null;
+      const assistRecord = assistance.get(id);
+      const countedTransactions = assistRecord ? liveData.sales.filter(sale =>
+        sale.ps_id === id && sale.branch_id === person.branch_id
+        && assistRecord.dates.has(String(sale.sold_on || "").slice(0, 10))
+        && !isTestSale(sale, testIds)).length : 0;
+      // More recorded sales than logged assisted clients is ambiguous; omit.
+      const assisted = assistRecord?.assisted || 0;
+      const conversion = assisted > 0 && countedTransactions <= assisted
+        ? countedTransactions / assisted * 100 : null;
       return {
         id, name: person.full_name || "Staff member",
         brand: person.assigned_brand || "—", branch: branchName(person.branch_id),
         total, transactions: count, avgTicket: count ? total / count : 0,
+        assisted, conversion,
         targetShare: share, progress: share ? total / share * 100 : null,
       };
     }).sort((a, b) => b.total - a.total || natural(a.name, b.name) || natural(a.id, b.id))
@@ -1216,6 +1244,8 @@
           + '<div class="ps-award-stats"><span><small>Credited sales</small><strong>' + formatMoney(row.total) + '</strong></span>'
           + '<span><small>Transactions</small><strong>' + row.transactions + '</strong></span>'
           + '<span><small>Avg. ticket</small><strong>' + formatMoney(row.avgTicket) + '</strong></span>'
+          + (row.assisted ? '<span><small>Logged assists</small><strong>' + row.assisted + '</strong></span>' : "")
+          + (row.conversion === null ? "" : '<span><small>Conversion, logged days†</small><strong>' + row.conversion.toFixed(1) + '%</strong></span>')
           + (row.progress === null ? "" : '<span><small>Branch target share*</small><strong>' + row.progress.toFixed(1) + '%</strong></span>')
           + '</div>'
           + (demoStore ? "" : '<button type="button" class="button button-outline ps-award-single" data-ps-certificate="'
@@ -1223,6 +1253,8 @@
           + '</article>').join("") + '</div>'
         + (awardees.some(row => row.progress !== null)
           ? '<p class="ps-award-note">*Indicative target share = branch monthly target ÷ active Product Specialists; not an individually assigned quota.</p>' : "")
+        + (awardees.some(row => row.conversion !== null)
+          ? '<p class="ps-award-note">†Conversion uses recorded sales on dates with logged assisted clients only. Incomplete logs are excluded.</p>' : "")
       : '<p class="ps-award-note">No eligible Product Specialists with positive recorded sales for this selection.</p>';
     const awardButton = demoStore ? "" : '<button type="button" class="button button-outline ps-award-batch" data-award-top10 '
       + (awardees.length ? "" : "disabled") + ' aria-label="Download printable Top 10 Product Specialist certificates">Print Top 10 Certificates (PDF)</button>';
