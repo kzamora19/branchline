@@ -3028,6 +3028,11 @@
             .map(f => f.branchId + "|" + f.barcode));
           const managementAlerts = management.actionableAlerts({
             cards: performanceCards, expectedFraction: expectedMtd, today: through,
+            brands: brandRows(ids).map(row => ({ ...row, name: row.brand })),
+            recentSales: isCurrent ? facts.filter(f => f.date >= A.addDays(through, -6) && f.date <= through)
+              .reduce((total, fact) => total + fact.amount, 0) : null,
+            previousSales: isCurrent ? facts.filter(f => f.date >= A.addDays(through, -13) && f.date <= A.addDays(through, -7))
+              .reduce((total, fact) => total + fact.amount, 0) : null,
             stock: (liveData.inventoryStock || []).filter(item => ids.has(item.branch_id) && activeBarcodes.has(item.branch_id + "|" + item.barcode)),
             sales: liveData.sales.filter(sale => ids.has(sale.branch_id) && sale.sold_on.slice(0, 10) >= monthStart
               && sale.sold_on.slice(0, 10) <= through),
@@ -3105,7 +3110,7 @@
         });
 
         const missing = `<p class="an-note">Walk-in traffic and conversion use only days with a recorded count. A store count entered by a manager overrides the sum of PS counts. Nothing is estimated.</p>`;
-        return `${warning}${cards}${insightsPanel(insights)}${panel("Period comparison", "Growth compares like-for-like elapsed days.", comparisonTable, manualExport("an-compare", "Period comparison", ["Period", "Comparison", "Dates", "Actual", "Prior", "Growth"], comparisons,
+        return `${warning}${cards}${insightsPanel(insights)}${panel("Management Report Center · Daily / Weekly / Monthly / YTD", "Four ready-made period comparisons with consistent two-decimal figures. Use Download to export the complete report; periods overlap and must not be summed.", comparisonTable, manualExport("an-compare", "Management Report Center", ["Period", "Comparison", "Dates", "Actual", "Prior", "Growth"], comparisons,
           ([name, dates, current, prior, note]) => { const g = A.growth(current, prior); return `<tr><td>${escapeHTML(name)}</td><td>${escapeHTML(note)}</td><td>${escapeHTML(dates)}</td><td>${formatMoney(current)}</td><td>${formatMoney(prior)}</td><td>${g === null ? "n/a" : (g * 100).toFixed(1) + "%"}</td></tr>`; }))}${traffic.compare}${traffic.trend}${paymentMixPanels(month, mixView, mixLabel, `${panelBranchSelect("bpMix", ids)}${periodControl("pdMix", through)}`)          }${trendPanel}${psPanel}${missing}${inventoryAnalyticsPanels(ids, facts, monthStart, through, today)}`;
       },
     );
