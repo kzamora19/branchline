@@ -10,6 +10,7 @@ const APP_SHELL_URLS = [
   "./auth-app.js",
   "./ps-certificates.mjs",
   "./management-reports.mjs",
+  "./management-charts.mjs",
   "./manager-attention.js",
   "./ps-performance.js",
   "./auth-app.js?v=ps-individual-goals-20261118",
