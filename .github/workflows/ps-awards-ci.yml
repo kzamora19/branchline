@@ -39,6 +39,10 @@ jobs:
       - name: Type-check staged PTG inventory insights Edge Function
         run: deno check supabase/functions/ptg-inventory/index.ts
 
+      - name: Install PDF inspection tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends poppler-utils
       - name: Render real certificate PDFs with pdfmake
         run: |
           npm install --no-save --no-audit --no-fund --ignore-scripts pdfmake@0.2.20
