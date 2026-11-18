@@ -57,7 +57,14 @@ test("real pdfmake generates correctly paginated one-person and ten-person A4 la
   };
   const one = await generate(pdfMake, certificateDocument(people.slice(0, 1), options), "award-one.pdf");
   const ten = await generate(pdfMake, certificateDocument(people, options), "awards-ten.pdf");
-  for (const [file, pages] of [[one, 1], [ten, 10]]) {
+  const longRecipients = people.map((person, i) => i !== 9 ? person : {
+    ...person,
+    name: "ALEXANDRA MARIE CHRISTINE DELOS SANTOS FERNANDEZ MONTEVERDE DE LA CRUZ",
+    branch: "Santiago Branch, Cagayan Valley Regional Sales Operations",
+    brand: "Long Brand Name, Another Long Brand Name, and Retail Brand",
+  });
+  const long = await generate(pdfMake, certificateDocument(longRecipients, options), "awards-long-names.pdf");
+  for (const [file, pages] of [[one, 1], [ten, 10], [long, 10]]) {
     const metadata = execFileSync("pdfinfo", [file], { encoding: "utf8" });
     const count = Number(metadata.match(/^Pages:\s+(\d+)/m)?.[1]);
     const dimensions = metadata.match(/^Page size:\s+([\d.]+)\s+x\s+([\d.]+)/m);
@@ -74,6 +81,8 @@ test("real pdfmake generates correctly paginated one-person and ten-person A4 la
   }
   const text = execFileSync("pdftotext", [ten, "-"], { encoding: "utf8" });
   assert.ok(text.includes("ALEXANDRA MARIE CHRISTINE"), "long name actually rendered");
+  const longText = execFileSync("pdftotext", [long, "-"], { encoding: "utf8" });
+  assert.ok(longText.includes("MONTEVERDE DE LA CRUZ"), "very long test name is not clipped or omitted");
   assert.ok(text.includes("RANK #10"), "final recipient appears");
   console.log("Verified real PDFs: " + one + " (1 page), " + ten + " (10 pages).");
 });
