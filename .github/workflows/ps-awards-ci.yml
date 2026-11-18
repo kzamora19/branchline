@@ -13,6 +13,7 @@ on:
       - 'manager-attention.test.cjs'
       - 'management-reports.test.cjs'
       - 'ps-certificates.test.cjs'
+      - 'certificates-render.test.cjs'
       - 'styles.css'
       - '.github/workflows/ps-awards-ci.yml'
   workflow_dispatch:
@@ -37,3 +38,18 @@ jobs:
           deno-version: v2.x
       - name: Type-check staged PTG inventory insights Edge Function
         run: deno check supabase/functions/ptg-inventory/index.ts
+
+      - name: Render real certificate PDFs with pdfmake
+        run: |
+          npm install --no-save --no-audit --no-fund --ignore-scripts pdfmake@0.2.20
+          CERT_RENDER_DIR=certificate-render-output node --test certificates-render.test.cjs
+      - name: Render first and last certificate previews
+        run: |
+          pdftoppm -f 1 -l 1 -scale-to 1300 -png -singlefile certificate-render-output/award-one.pdf certificate-render-output/award-one-preview
+          pdftoppm -f 10 -l 10 -scale-to 1300 -png -singlefile certificate-render-output/awards-ten.pdf certificate-render-output/award-ten-preview
+      - name: Upload rendered certificate test previews
+        uses: actions/upload-artifact@v4
+        with:
+          name: certificate-print-validation
+          path: certificate-render-output/
+          retention-days: 14
