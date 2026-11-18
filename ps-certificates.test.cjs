@@ -76,6 +76,8 @@ test("Top 10 ranking uses scoped, actual line sales and excludes test invoices a
     linesForSale: id => [{ value: id === "a" ? 500 : 200, brand: "LG" }],
     lineMatches: () => true, addTo: (map, key, amount) => map.set(key, (map.get(key) || 0) + amount),
     branchName: () => "Santiago", natural: (a, b) => String(a).localeCompare(String(b)),
+    localISODate: () => "2026-11-18",
+    periodDay: () => "2026-11-18",
     inPeriod: date => date.startsWith("2026-11"),
     scopeBranchIds: () => new Set(["A"]),
   });
@@ -99,5 +101,7 @@ test("Top 10 ranking uses scoped, actual line sales and excludes test invoices a
 
 test("PS award controls are absent from PS role and never overwrite sales or targets", () => {
   assert.match(app, /function psRankingPanel\(\) \{\s*if \(currentProfile.role === "ps"\) return ""/);
-  assert.doesNotMatch(app.slice(app.indexOf("  function psAwardRankingRows("), app.indexOf("  function matches(", app.indexOf("  function psAwardRankingRows("))), /client\.(?:rpc|from)\(/);
+  // Award calculation and certificate download must be read-only. The separate
+  // protected individual-goal editor is intentionally permitted to write goals.
+  assert.doesNotMatch(app.slice(app.indexOf("  function psAwardRankingRows("), app.indexOf("  function psAwardScopeLabel(", app.indexOf("  function psAwardRankingRows("))), /client\.(?:rpc|from)\(/);
 });
