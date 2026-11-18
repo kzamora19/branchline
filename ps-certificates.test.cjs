@@ -64,7 +64,11 @@ test("Top 10 ranking uses scoped, actual line sales and excludes test invoices a
   ];
   const ctx = vm.createContext({
     liveData: { profiles: people, sales, targets: [{ branch_id: "A", month: "2026-11", amount: 1000 }],
-      branches: [{ id: "A", name: "Santiago" }] },
+      branches: [{ id: "A", name: "Santiago" }],
+      psWalkins: [
+        { branch_id: "A", ps_id: "good", counted_on: "2026-11-18", clients_assisted: 10 },
+        { branch_id: "B", ps_id: "good", counted_on: "2026-11-18", clients_assisted: 999 },
+      ] },
     ui: { rankBrand: "", rankCategory: "", rankSub: "", salesBasis: "price", period: "month", month: "2026-11" },
     window: { BranchlineAnalytics: { salesLineAmount: line => line.value } },
     isTestProfile: profile => /^Test/i.test(profile.full_name),
@@ -82,6 +86,11 @@ test("Top 10 ranking uses scoped, actual line sales and excludes test invoices a
   assert.equal(ranked[0].transactions, 1);
   assert.equal(ranked[0].targetShare, 1000);
   assert.equal(ranked[0].progress, 50);
+  assert.equal(ranked[0].assisted, 10);
+  assert.equal(ranked[0].conversion, 10);
+  vm.runInContext('ui.rankBrand = "LG"', ctx);
+  const filtered = vm.runInContext("psAwardRankingRows(new Set(['A']))", ctx);
+  assert.equal(filtered[0].conversion, null, "Brand-filtered ranking cannot claim whole-PS conversion");
   assert.ok(app.includes('data-award-top10'));
   assert.ok(app.includes('data-ps-certificate'));
   assert.ok(app.includes('!["manager", "district_manager", "admin"].includes(currentProfile?.role)'));
