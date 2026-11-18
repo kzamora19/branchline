@@ -1136,6 +1136,40 @@
     });
   }
 
+  function managementReportPanel() {
+    if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return "";
+    return panel(
+      "Management Report Center",
+      "Download aggregated reports for the selected month or day and your authorized branches. Weekly reports use Monday–Sunday. Customer information is excluded.",
+      '<div class="management-report-center">'
+        + '<button type="button" class="button button-outline" data-management-report="daily">Daily report</button>'
+        + '<button type="button" class="button button-outline" data-management-report="weekly">Weekly report</button>'
+        + '<button type="button" class="button button-outline" data-management-report="monthly">Monthly report</button>'
+        + '<button type="button" class="button button-outline" data-management-report="ytd">YTD report</button>'
+        + '</div>'
+        + '<p class="ps-award-note">Choose a report, then Excel or PDF. The selected day anchors daily/weekly reports; otherwise they end at the selected month’s latest available date. The weekly range may cross month boundaries. No automatic email delivery is scheduled.</p>',
+    );
+  }
+
+  async function exportManagementReport(kind, format = "excel") {
+    if (!["manager", "district_manager", "admin"].includes(currentProfile?.role) || activePage !== "overview") return;
+    if (liveData?.exportWarnings?.length) throw new Error("Some sales datasets failed to load. Reload successfully before exporting management reports.");
+    const owner = currentProfile.id, sessionClient = client;
+    const { buildManagementReport } = await import("./management-reports.mjs");
+    if (currentProfile?.id !== owner || client !== sessionClient || activePage !== "overview") return;
+    const stamp = localISODate();
+    const result = buildManagementReport({
+      kind, month: ui.month, day: ui.period === "day" ? periodDay() : null, today: stamp,
+      branches: liveData.branches, profiles: liveData.profiles, sales: liveData.sales,
+      branchIds: scopeBranchIds(),
+      isTestSale: sale => isTestSale(sale, liveData.testPsIds),
+      linesForSale,
+      amountForLine: line => window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis),
+      basis: ui.salesBasis === "srp" ? "SRP comparison — selling-price fallback" : "Selling price",
+    });
+    return exportWorkbook(result.sheets, "branchline-management-" + kind + "-" + stamp, false, format);
+  }
+
   function psRankingPanel() {
     if (currentProfile.role === "ps") return "";
     const lines = liveData.saleLines;
@@ -3204,7 +3238,7 @@
           </div>
           <div class="connected-charts">${charts.join("")}</div>
           ${overviewPaymentPanels("pies")}
-          ${psRankingPanel()}`;
+          ${psRankingPanel()}${managementReportPanel()}`;
       },
     );
   }
@@ -8505,6 +8539,12 @@
       if (!["manager", "district_manager", "admin"].includes(currentProfile?.role) || demoStore) return;
       void downloadTopPsCertificates(awardSingle?.dataset.psCertificate || null)
         .catch(error => { console.error("Certificate export failed.", error); alert(error.message || "Certificate export failed."); });
+      return;
+    }
+    const managementReport = event.target.closest("[data-management-report]");
+    if (managementReport) {
+      if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return;
+      chooseExportFormat(managementReport, format => exportManagementReport(managementReport.dataset.managementReport, format));
       return;
     }
     const exportAll = event.target.closest("[data-export-all]");
