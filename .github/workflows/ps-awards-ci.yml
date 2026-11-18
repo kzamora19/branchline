@@ -7,6 +7,8 @@ on:
       - 'auth-app.js'
       - 'ps-certificates.mjs'
       - 'management-reports.mjs'
+      - 'management-charts.mjs'
+      - 'management-charts.test.cjs'
       - 'ptg-sales-insights.test.cjs'
       - 'supabase/functions/ptg-inventory/index.ts'
       - 'manager-attention.js'
@@ -36,7 +38,7 @@ jobs:
         with:
           node-version: '22'
       - name: Test awards, management reports, integration and existing exports
-        run: node --test ps-certificates.test.cjs management-reports.test.cjs manager-attention.test.cjs ps-performance.test.cjs ps-individual-goals.test.cjs ptg-sales-insights.test.cjs exports.test.js
+        run: node --test ps-certificates.test.cjs management-reports.test.cjs management-charts.test.cjs manager-attention.test.cjs ps-performance.test.cjs ps-individual-goals.test.cjs ptg-sales-insights.test.cjs exports.test.js
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
