@@ -12,7 +12,7 @@
   const eligibleFact = (fact, ps) => fact.psId === ps.id && fact.branchId === ps.branch_id;
   const uniq = rows => new Set(rows.map(row => row.saleId).filter(Boolean)).size;
 
-  function psCards({ profiles = [], facts = [], assisted = [], targetsByBranch = {},
+  function psCards({ profiles = [], facts = [], assisted = [], targetsByBranch = {}, targetsByPs = {},
     from, through, expectedFraction = null, remainingDays = 0 }) {
     const active = profiles.filter(ps => ps?.id && ps?.branch_id && ps.active !== false);
     const counts = new Map();
@@ -22,7 +22,9 @@
       const own = facts.filter(fact => eligibleFact(fact, ps) && fact.date >= from && fact.date <= through);
       const sales = own.reduce((sum, row) => sum + number(row.amount), 0);
       const transactions = uniq(own);
-      const target = number(targetsByBranch[ps.branch_id]) / (counts.get(ps.branch_id) || 1);
+      const target = Object.prototype.hasOwnProperty.call(targetsByPs, ps.id)
+        ? number(targetsByPs[ps.id])
+        : number(targetsByBranch[ps.branch_id]) / (counts.get(ps.branch_id) || 1);
       const achievement = target > 0 ? sales / target : null;
       const records = assisted.filter(row => row.ps_id === ps.id && row.branch_id === ps.branch_id
         && iso(row.counted_on) >= from && iso(row.counted_on) <= through);
