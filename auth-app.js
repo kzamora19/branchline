@@ -1072,8 +1072,16 @@
 
 
   // Award totals exclude demo records, test profiles, zero sales and prior-branch transactions.
-  function psAwardRankingRows(scope) {
+  function psAwardRankingRows(scope, certificateWindow = null) {
     const ids = scope || scopeBranchIds();
+    // A certificate has its own independent reporting window. Never relabel
+    // a monthly dashboard ranking as annual (or the reverse).
+    const withinAwardPeriod = dateText => {
+      const day = String(dateText || "").slice(0, 10);
+      return certificateWindow
+        ? day >= certificateWindow.from && day <= certificateWindow.through
+        : inPeriod(dateText);
+    };
     const profiles = new Map(liveData.profiles.map(p => [p.id, p]));
     const testIds = new Set(liveData.profiles.filter(isTestProfile).map(p => p.id));
     const filters = { brand: ui.rankBrand, category: ui.rankCategory, sub: ui.rankSub };
@@ -1082,7 +1090,7 @@
       const person = profiles.get(sale.ps_id);
       if (!person || person.role !== "ps" || person.active === false || isTestProfile(person)
           || isTestSale(sale, testIds) || (person.branch_id && person.branch_id !== sale.branch_id)
-          || !ids.has(sale.branch_id) || !inPeriod(sale.sold_on)) return;
+          || !ids.has(sale.branch_id) || !withinAwardPeriod(sale.sold_on)) return;
       const sum = linesForSale(sale.id).filter(line => lineMatches(line, filters))
         .reduce((total, line) => total + window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), 0);
       if (!(sum > 0)) return;
@@ -1100,7 +1108,7 @@
         const date = String(item.counted_on || "").slice(0, 10);
         if (!person || person.role !== "ps" || person.active === false
             || person.branch_id !== item.branch_id || !ids.has(item.branch_id)
-            || !inPeriod(date) || isTestProfile(person)) return;
+            || !withinAwardPeriod(date) || isTestProfile(person)) return;
         const count = Number(item.clients_assisted);
         if (!Number.isFinite(count) || count < 0) return;
         if (!assistance.has(item.ps_id)) assistance.set(item.ps_id, { assisted: 0, dates: new Set() });
@@ -1112,7 +1120,7 @@
     return [...totals].map(([id, total]) => {
       const person = profiles.get(id);
       const count = transactions.get(id) || 0;
-      const showTarget = ui.period === "month" && !filters.brand && !filters.category && !filters.sub;
+      const showTarget = certificateWindow === null && ui.period === "month" && !filters.brand && !filters.category && !filters.sub;
       const countPs = showTarget ? liveData.profiles.filter(p =>
         p.role === "ps" && p.active && !isTestProfile(p) && p.branch_id === person.branch_id).length : 0;
       const storeTarget = showTarget ? liveData.targets.filter(t =>
@@ -1129,7 +1137,7 @@
       const pastMonthEnd = selectedMonth && /^\d{4}-\d{2}$/.test(selectedMonth)
         ? new Date(Date.UTC(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0)).toISOString().slice(0, 10)
         : today;
-      const asOf = ui.period === "day" ? periodDay()
+      const asOf = certificateWindow ? null : ui.period === "day" ? periodDay()
         : selectedMonth < today.slice(0, 7) ? pastMonthEnd
         : selectedMonth === today.slice(0, 7) ? today : null;
       const trend = asOf && window.BranchlinePsPerformance?.specialistTrend
@@ -1176,37 +1184,89 @@
     return names.length === 1 ? names[0] : names.length + " authorized branches";
   }
 
-  async function downloadTopPsCertificates(onlyId) {
-    if (!["manager", "district_manager", "admin"].includes(currentProfile?.role) || demoStore || activePage !== "overview") return;
+  function downloadTopPsCertificates(onlyId) {
+    if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)
+        || demoStore || activePage !== "overview") return;
     const profileId = currentProfile.id, sessionClient = client;
     const scope = panelIds("rankBranch", scopeBranchIds());
-    const ranking = psAwardRankingRows(scope);
-    const module = await import("./ps-certificates.mjs");
-    const awardees = module.topSpecialistAwardees(ranking, liveData.profiles, 10);
-    const selected = onlyId ? awardees.filter(row => row.id === onlyId) : awardees;
-    if (!selected.length) {
-      alert("No eligible Product Specialists with positive recorded sales in this selection.");
-      return;
-    }
-    const details = {
-      period: periodLabel(),
-      scope: psAwardScopeLabel(scope),
-      filters: [ui.rankBrand, ui.rankCategory, ui.rankSub].filter(Boolean).join(" / ") || "All brands and categories",
-      basis: ui.salesBasis === "srp" ? "SRP comparison basis" : "Selling-price basis",
-      issuedOn: localISODate(),
-    };
-    const doc = module.certificateDocument(selected, details);
-    const pdf = await loadPdfLibrary();
-    if (currentProfile?.id !== profileId || client !== sessionClient || activePage !== "overview") return;
-    const name = "branchline-top-ps-certificates-" + details.issuedOn
-      + (onlyId ? "-rank-" + selected[0].rank : "") + ".pdf";
-    await new Promise((resolve, reject) => {
-      try {
-        pdf.createPdf(doc).getBlob(blob => {
-          if (currentProfile?.id === profileId && client === sessionClient) downloadFile(name, blob);
-          resolve();
+    const today = localISODate();
+    const selectedMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(ui.month || "")
+      && ui.month <= today.slice(0, 7) ? ui.month : today.slice(0, 7);
+    const selectedYear = selectedMonth.slice(0, 4);
+    const initialKind = ui.period === "year" ? "annual" : "monthly";
+    openModal({
+      title: onlyId ? "Download Product Specialist Certificate" : "Download Top 10 Certificates",
+      intro: "Choose the actual performance period and enter the signatories to be printed. Names are optional and apply only to this export.",
+      submitLabel: "Generate certificate PDF",
+      body: `<label class="field"><span>Certificate period</span>
+        <select name="certificate_kind" required>
+          <option value="monthly" ${initialKind === "monthly" ? "selected" : ""}>Monthly certificate</option>
+          <option value="annual" ${initialKind === "annual" ? "selected" : ""}>Annual certificate</option>
+        </select></label>
+        <label class="field" data-certificate-month><span>Month covered</span>
+          <input type="month" name="certificate_month" max="${today.slice(0, 7)}"
+            value="${selectedMonth}" required></label>
+        <label class="field" data-certificate-year><span>Year covered</span>
+          <input type="number" name="certificate_year" min="2000" max="${today.slice(0, 4)}"
+            step="1" value="${selectedYear}" required></label>
+        <label class="field"><span>Branch Manager name (optional)</span>
+          <input type="text" name="branch_manager_name" maxlength="80"
+            placeholder="Enter printed name under the signature line" autocomplete="off"></label>
+        <label class="field"><span>District Manager name (optional)</span>
+          <input type="text" name="district_manager_name" maxlength="80"
+            placeholder="Enter printed name under the signature line" autocomplete="off"></label>
+        <p class="an-note">Both signatory names are centered beneath their signature lines. They are not saved to the staff directory or database. A current month/year certificate is marked through today's date.</p>`,
+      onReady: form => {
+        const update = () => {
+          const isAnnual = form.elements.certificate_kind.value === "annual";
+          form.querySelector("[data-certificate-month]").hidden = isAnnual;
+          form.querySelector("[data-certificate-year]").hidden = !isAnnual;
+          form.elements.certificate_month.disabled = isAnnual;
+          form.elements.certificate_year.disabled = !isAnnual;
+        };
+        form.elements.certificate_kind.addEventListener("change", update);
+        update();
+      },
+      onSubmit: async form => {
+        const { certificatePeriodRange } = await import("./certificate-periods.mjs");
+        const kind = form.elements.certificate_kind.value;
+        const value = kind === "annual"
+          ? String(form.elements.certificate_year.value).trim()
+          : String(form.elements.certificate_month.value).trim();
+        const window = certificatePeriodRange(kind, value, today);
+        const { topSpecialistAwardees, certificateDocument } = await import("./ps-certificates.mjs");
+        if (currentProfile?.id !== profileId || client !== sessionClient || activePage !== "overview") {
+          throw new Error("Your session or selected page changed. Open the certificate form again.");
+        }
+        const ranking = psAwardRankingRows(scope, window);
+        const awardees = topSpecialistAwardees(ranking, liveData.profiles, 10);
+        const selected = onlyId ? awardees.filter(row => row.id === onlyId) : awardees;
+        if (!selected.length) {
+          throw new Error(onlyId
+            ? "This specialist is not among the eligible Top 10 for the chosen period and filters."
+            : "There are no eligible Product Specialists with positive sales for this period.");
+        }
+        const doc = certificateDocument(selected, {
+          period: window.label,
+          issuedOn: today,
+          branchManagerName: String(form.elements.branch_manager_name.value || "").trim(),
+          districtManagerName: String(form.elements.district_manager_name.value || "").trim(),
         });
-      } catch (error) { reject(error); }
+        const pdf = await loadPdfLibrary();
+        if (currentProfile?.id !== profileId || client !== sessionClient || activePage !== "overview") {
+          throw new Error("Your session changed. The certificate was not exported.");
+        }
+        const name = "first-megasaver-top-ps-certificates-" + window.fileKey
+          + (onlyId ? "-rank-" + selected[0].rank : "") + ".pdf";
+        await new Promise((resolve, reject) => {
+          try {
+            pdf.createPdf(doc).getBlob(blob => {
+              if (currentProfile?.id === profileId && client === sessionClient) downloadFile(name, blob);
+              resolve();
+            });
+          } catch (error) { reject(error); }
+        });
+      },
     });
   }
 
