@@ -504,6 +504,19 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .rank-filters { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 12px; padding: 0 12px; }
 .rank-filters .field { flex: 1 1 150px; min-width: 0; max-width: 240px; }
 .dlg .rank-filters { padding: 0; }
+.ps-award-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(225px, 1fr)); gap: 12px; margin: 16px 0; }
+.ps-award-card { min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 16px; border: 1px solid #dde5ef; border-top: 3px solid #b48a36; border-radius: 10px; background: linear-gradient(155deg, #fff 0%, #f9fbff 100%); }
+.ps-award-rank { color: #976a20; font-size: 10px; font-weight: 850; letter-spacing: .09em; }
+.ps-award-card h3 { margin: 0; color: #193453; font-size: 15px; line-height: 1.3; overflow-wrap: anywhere; }
+.ps-award-card p { margin: -4px 0 4px; color: #60758c; font-size: 11px; overflow-wrap: anywhere; }
+.ps-award-stats { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-bottom: 6px; }
+.ps-award-stats span { display: grid; gap: 3px; min-width: 0; }
+.ps-award-stats small { color: #6d7c90; font-size: 10px; }
+.ps-award-stats strong { color: #142e53; font-size: 13px; overflow-wrap: anywhere; }
+.ps-award-card .ps-award-single { align-self: start; margin-top: auto; min-height: 34px; font-size: 11px; }
+.ps-award-batch { min-height: 38px; font-size: 12px; }
+.ps-award-note { margin: 0 0 14px; color: #60758c; font-size: 11px; line-height: 1.5; }
+@media (max-width: 560px) { .ps-award-grid { grid-template-columns: 1fr; } }
 .rank-row { cursor: pointer; }
 .rank-row:hover td, .rank-row:focus-visible td { background: #f3f6fd; }
 .ps-total { display: flex; align-items: baseline; justify-content: space-between; margin: 0; font-size: 12px; color: var(--muted); }
