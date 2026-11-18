@@ -48,11 +48,18 @@
   }
 
   function actionableAlerts({ cards = [], brands = [], stock = [], sales = [],
+    recentSales = null, previousSales = null,
     expectedFraction = null, today = "", minGap = 0.15 } = {}) {
     const alerts = [];
     const add = (code, level, title, message) => {
       if (!alerts.some(item => item.code === code)) alerts.push({ code, level, title, message });
     };
+    if (Number.isFinite(recentSales) && Number.isFinite(previousSales) &&
+      previousSales > 0 && recentSales < previousSales * 0.6) {
+      add("SALES_DROP", "warning", "Recent sales declined",
+        "Last seven days are " + (100 * (1 - recentSales / previousSales)).toFixed(1) +
+        "% below the preceding seven days. Review foot traffic, stock and staffing.");
+    }
     for (const card of cards) {
       if (card.target > 0 && expectedFraction !== null && expectedFraction >= 0.15
         && card.achievement !== null && card.achievement < Math.max(0, expectedFraction - minGap)) {
