@@ -36,8 +36,8 @@ test("manager attention UI is manager-only and does not schedule or push notific
   const end = source.indexOf("  function managementReportPanel(", start);
   assert.ok(start >= 0 && end > start);
   const body = source.slice(start, end);
-  assert.match(body, /currentProfile\\?\\.role/);
+  assert.ok(body.includes('currentProfile?.role'));
   assert.match(body, /managerAttention/);
   assert.match(body, /data-manager-attention-analytics/);
-  assert.doesNotMatch(body, /\\.rpc\\(|\\.from\\(|pushManager|schedule/i);
+  assert.doesNotMatch(body, /\.rpc\(|\.from\(|pushManager|setInterval/i);
 });
