@@ -1270,7 +1270,7 @@
     if (currentProfile?.id === originalSession && client === sessionClient) await refreshData();
   }
 
-  function managementAttentionPanel(branches) {
+  function managementAttentionPanel(branches, brands) {
     if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return "";
     const scoped = scopeBranchIds();
     const expectedByBranch = Object.fromEntries(branches.map(row => [
@@ -1279,8 +1279,55 @@
     const unassignedCount = liveData.sales.filter(sale =>
       scoped.has(sale.branch_id) && inPeriod(sale.sold_on)
       && !sale.ps_id && !isTestSale(sale, liveData.testPsIds)).length;
+    const scopedBrandRows = brands.map(row => ({ brand: row.brand, actual: row.actual, target: row.target }));
+    const isCurrent = ui.period === "month" && ui.month === currentMonth();
+    const stockAlerts = [];
+    const declines = [];
+    let missingCodesCount = 0;
+    if (isCurrent) {
+      const today = new Date(localISODate() + "T00:00:00Z");
+      const isoDay = delta => {
+        const day = new Date(today);
+        day.setUTCDate(day.getUTCDate() + delta);
+        return day.toISOString().slice(0, 10);
+      };
+      const recentFrom = isoDay(-29);
+      const previousFrom = isoDay(-14), previousThrough = isoDay(-8);
+      const currentFrom = isoDay(-7), currentThrough = isoDay(-1);
+      const stockMap = new Map((liveData.inventoryStock || []).map(item =>
+        [item.branch_id + "|" + String(item.barcode || "").trim().toUpperCase(), Number(item.quantity || 0)]));
+      const sold = new Map(), weekly = new Map();
+      for (const sale of liveData.sales) {
+        if (!scoped.has(sale.branch_id) || isTestSale(sale, liveData.testPsIds)) continue;
+        const date = String(sale.sold_on).slice(0, 10);
+        if (date >= recentFrom && date <= localISODate()) {
+          if (!String(sale.salesperson_code || "").trim()) missingCodesCount += 1;
+          for (const line of linesForSale(sale.id)) {
+            if (!line.barcode) continue;
+            const key = sale.branch_id + "|" + String(line.barcode).trim().toUpperCase();
+            if (!sold.has(sale.branch_id)) sold.set(sale.branch_id, new Set());
+            sold.get(sale.branch_id).add(key);
+          }
+        }
+        if ((date >= previousFrom && date <= previousThrough) ||
+            (date >= currentFrom && date <= currentThrough)) {
+          const key = sale.branch_id;
+          if (!weekly.has(key)) weekly.set(key, { current: 0, previous: 0 });
+          weekly.get(key)[date >= currentFrom ? "current" : "previous"] += saleTotal(sale, ui.salesBasis);
+        }
+      }
+      for (const row of branches) {
+        const branch = row.branch;
+        const low = [...(sold.get(branch.id) || [])]
+          .filter(key => stockMap.has(key) && stockMap.get(key) <= 1).length;
+        if (low) stockAlerts.push({ branch: branch.name, count: low });
+        const trend = weekly.get(branch.id);
+        if (trend?.previous > 0) declines.push({ branch: branch.name, ...trend });
+      }
+    }
     const notices = window.BranchlineManagerAttention?.managerAttention({
-      rows: branches, expectedByBranch, unassignedCount,
+      rows: branches, expectedByBranch, unassignedCount, brandRows: scopedBrandRows,
+      expectedBrandPace: paceFraction(scoped), stockAlerts, declines, missingCodesCount,
     }) || [];
     const contents = notices.length
       ? '<div class="manager-attention-grid">' + notices.map(notice =>
@@ -3410,7 +3457,7 @@
           </div>
           <div class="connected-charts">${charts.join("")}</div>
           ${overviewPaymentPanels("pies")}
-          ${managementAttentionPanel(rows)}${psRankingPanel()}${psIndividualTargetPanel()}${managementReportPanel()}`;
+          ${managementAttentionPanel(rows, brands)}${psRankingPanel()}${psIndividualTargetPanel()}${managementReportPanel()}`;
       },
     );
   }
