@@ -53,4 +53,15 @@ const scoped = productSnapshot({
 });
 assert.equal(scoped.length, 1);
 assert.equal(scoped[0].available_units, null);
-console.log("PASS: management metrics, alerts, scoping and read-only snapshots");
+const personal = psCards({
+  profiles:[{id:"p",branch_id:"b",full_name:"Test PS",active:true}],
+  facts:[], targetsByBranch:{b:10000}, targetsByPs:{p:3500},
+  from:"2026-11-01", through:"2026-11-19", remainingDays:5,
+});
+assert.equal(personal[0].target,3500);
+const zero = psCards({
+  profiles:[{id:"p",branch_id:"b",active:true}], facts:[],targetsByBranch:{b:10000},
+  targetsByPs:{p:0},from:"2026-11-01",through:"2026-11-19"
+});
+assert.equal(zero[0].target,0);
+console.log("PASS: management metrics, alerts, individual targets, scoping and snapshots");
