@@ -15,6 +15,7 @@ on:
       - 'ps-certificates.test.cjs'
       - 'ps-performance.js'
       - 'ps-performance.test.cjs'
+      - 'ps-individual-goals.test.cjs'
       - 'supabase/migrations/20261224000000_ps_individual_monthly_targets.sql'
       - 'certificates-render.test.cjs'
       - 'styles.css'
@@ -35,7 +36,7 @@ jobs:
         with:
           node-version: '22'
       - name: Test awards, management reports, integration and existing exports
-        run: node --test ps-certificates.test.cjs management-reports.test.cjs manager-attention.test.cjs ps-performance.test.cjs ptg-sales-insights.test.cjs exports.test.js
+        run: node --test ps-certificates.test.cjs management-reports.test.cjs manager-attention.test.cjs ps-performance.test.cjs ps-individual-goals.test.cjs ptg-sales-insights.test.cjs exports.test.js
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
