@@ -52,5 +52,5 @@ test("management Report Center is manager-only and reuses existing export functi
   assert.match(source, /data-management-report="ytd"/);
   assert.match(source, /chooseExportFormat\(managementReport, format => exportManagementReport/);
   assert.match(source, /exportWorkbook\(result\.sheets/);
-  assert.match(source, /!\\["manager", "district_manager", "admin"\\]\.includes\(currentProfile\\?\.role\)/);
+  assert.ok(source.includes('!["manager", "district_manager", "admin"].includes(currentProfile?.role)'));
 });
