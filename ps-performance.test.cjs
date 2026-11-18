@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 test("PS daily trend compares two seven-day windows, zero-base trends remain undefined", async () => {
   const { specialistTrend } = require("./ps-performance.js");
   const days = {
-    "2026-11-04": 500, "2026-11-05": 500,
+    "2026-11-05": 500, "2026-11-06": 500,
     "2026-11-12": 400, "2026-11-14": 600, "2026-11-18": 1000,
   };
   const trend = specialistTrend(days, "2026-11-18");
