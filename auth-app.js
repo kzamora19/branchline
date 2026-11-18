@@ -561,6 +561,8 @@
         fetchAll("branches", "id,name,district_id,code,transfer_sequence", [["name", true], ["id", true]]),
         fetchAll("districts", "id,name", [["name", true], ["id", true]]),
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
+        demoStore ? Promise.resolve({ data: [], error: null })
+          : fetchAll("ps_monthly_targets", "id,branch_id,ps_id,month,amount", [["month", false], ["id", true]]),
         fetchAll("sales",         "id,branch_id,ps_id,ps_name,salesperson_code,customer_name,invoice_number,sold_on,payment_mode,city,barangay,fulfillment_method,created_at,updated_at", [["sold_on", false], ["id", true]]),
                 fetchAll("products", "id,branch_id,barcode,model_description,brand,category,sub_category,active,srp", [["model_description", true], ["id", true]], query => (catalogBranch ? query.eq("branch_id", catalogBranch) : query).eq("active", true)),
         fetchAll("profiles", "id,full_name,role,branch_id,district_id,assigned_brand,active,login_id,email,salesperson_code", [["id", true]]),
@@ -587,7 +589,7 @@
         !demoStore && rolePages[profile.role].includes("customers") ? loadCustomerMasterAliases(client) : null,
       ];
       let completed = 0;
-      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, pushSchedules, paymentTargets, importBatches, dailyHistory, saleSerials, returnLines, customerMaster] = await Promise.all(
+      const [branches, districts, targets, individualGoals, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, pushSchedules, paymentTargets, importBatches, dailyHistory, saleSerials, returnLines, customerMaster] = await Promise.all(
         requests.map(request => Promise.resolve(request).then(result => {
           loading.update(10 + (++completed / requests.length) * 55, "Loading sales and account data...");
           return result;
@@ -639,6 +641,8 @@
         branches: visibleBranches,
         districts: visibleDistricts,
         targets: visibleTargets,
+        individualGoals: individualGoals.error ? [] : individualGoals.data,
+        individualGoalLoadError: individualGoals.error ? "Individual PS targets unavailable; branch shares will be indicative only." : "",
         brandTargets: brandTargets.error ? [] : brandTargets.data.map(item => ({ ...item, brand: titleCase(item.brand) })),
         sales: visibleSales.filter(item => !testSaleIds.has(item.id)),
         customerMaster,
@@ -679,6 +683,7 @@
         importBatches: importBatches.error ? [] : importBatches.data,
         dailyHistory: dailyHistory.error ? [] : dailyHistory.data.map(row => ({ ...row, day: String(row.day).slice(0, 10), sales: Number(row.sales), transactions: Number(row.transactions) })),
         exportWarnings: [
+          ["Individual PS targets", individualGoals],
           ["Brand targets", brandTargets], ["Manager links", managerLinks], ["Brand sales", brandSales],
           ["Personal dashboard", psDashboard], ["Brand contribution", brandContribution], ["Store-closed dates", holidays],
           ["Clients assisted", psWalkins], ["Store walk-ins", branchWalkins], ["Payment targets", paymentTargets],
