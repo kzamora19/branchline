@@ -40,7 +40,7 @@ export function certificateDocument(awardees, options = {}) {
     return {
       pageBreak: index ? "before" : undefined,
       stack: [
-        { text: "BRANCHLINE  |  SALES TRACKER", fontSize: 11, bold: true, color: color.navy, characterSpacing: 3, margin: [0, 18, 0, 6] },
+        { text: "BRANCHLINE  |  SALES TRACKER", fontSize: 11, bold: true, color: color.navy, characterSpacing: 3, margin: [0, 38, 0, 8] },
         { text: "EXCELLENCE IN SALES PERFORMANCE", fontSize: 11, color: color.gold, bold: true, characterSpacing: 2, margin: [0, 1, 0, 12] },
         { text: "CERTIFICATE OF RECOGNITION", fontSize: 27, bold: true, color: color.ink, margin: [0, 0, 0, 12] },
         { text: "Presented with appreciation to", fontSize: 12, color: color.gray, margin: [0, 0, 0, 7] },
@@ -50,7 +50,7 @@ export function certificateDocument(awardees, options = {}) {
         { text: period, fontSize: 12, bold: true, color: color.navy, margin: [0, 0, 0, 5] },
         { text: "Credited sales: " + money(person.total) + "   |   " + basis, fontSize: 11, color: color.ink, margin: [0, 0, 0, 5] },
         { text: "Branch: " + person.branch + "   •   Brand assignment: " + person.brand, fontSize: 9.5, color: color.gray, margin: [0, 0, 0, 5] },
-        { text: "Award scope: " + scope + "   •   Filters: " + filters, fontSize: 8.5, color: color.gray, margin: [0, 0, 0, 22] },
+        { text: "Award scope: " + scope + "   •   Filters: " + filters, fontSize: 8.5, color: color.gray, margin: [0, 0, 0, 46] },
         { columns: [
           { stack: [
             { text: "____________________________", fontSize: 10, color: color.navy },
@@ -61,7 +61,7 @@ export function certificateDocument(awardees, options = {}) {
             { text: "District / Management Representative", fontSize: 9, color: color.gray },
           ], alignment: "center" },
         ], columnGap: 80 },
-        { text: date ? "Issued: " + date : "", fontSize: 8, color: color.gray, margin: [0, 16, 0, 0] },
+        { text: date ? "Issued: " + date : "", fontSize: 8, color: color.gray, margin: [0, 30, 0, 0] },
       ],
       alignment: "center",
     };
