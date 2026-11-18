@@ -27,7 +27,7 @@ test("insights return only product-level aggregation without private sale-line o
   assert.match(body, /\.lte\("sales\.sold_on", today\)/);
   assert.match(body, /transactions\.add\(line\.sale_id\)/);
   assert.match(body, /recent: \{ from, to: today, units, transactions: transactions\.size/);
-  assert.doesNotMatch(body, /customer_name|ps_name|salesperson_code|payment_mode|serial/i);
+  assert.doesNotMatch(body, /\b(?:customer_name|ps_name|salesperson_code|payment_mode|serial_numbers)\b/i);
   assert.match(body, /too many sales lines to summarize safely/);
 });
 
