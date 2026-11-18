@@ -39,7 +39,10 @@ test("Certificate PDF is A4 landscape, one page per awarded PS, with blank signa
   assert.equal(doc.content[1].pageBreak, "before");
   assert.ok(doc.content[0].stack.some(part => part.text === "Sample Person A"));
   assert.ok(doc.content[0].stack.some(part => String(part.text).includes("RANK #1")));
-  assert.ok(doc.content[0].stack.some(part => String(part.text).includes("₱10,000.00")));
+  assert.ok(doc.content[0].stack.some(part => part.text === "This certificate is proudly presented to"));
+  assert.ok(doc.content[0].stack.some(part => String(part.text).includes("In grateful recognition of your outstanding sales performance")));
+  assert.ok(!doc.content[0].stack.some(part => String(part.text).includes("Credited sales:")));
+  assert.ok(!doc.content[0].stack.some(part => String(part.text).includes("Award scope:")));
   assert.ok(doc.content[0].stack.some(part => part.columns && part.columns.every(col => col.stack.some(x => String(x.text).includes("_____")))));
   assert.equal(typeof doc.background, "function");
   assert.equal(doc.background(1, { width: 841.89, height: 595.28 }).canvas.length, 3);
