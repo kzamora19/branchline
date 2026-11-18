@@ -1373,7 +1373,16 @@
       amountForLine: line => window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis),
       basis: ui.salesBasis === "srp" ? "SRP comparison — selling-price fallback" : "Selling price",
     });
-    return exportWorkbook(result.sheets, "branchline-management-" + kind + "-" + stamp, false, format);
+    const name = "branchline-management-" + kind + "-" + stamp;
+    if (format === "pdf") {
+      const sheets = ui.salesBasis === "srp"
+        ? [{ name: "Comparison basis", rows: [
+            ["Sales comparison basis", salesBasisNote()],
+            ["Original records", "Prices, product records and monthly targets are unchanged."],
+          ] }, ...result.sheets] : result.sheets;
+      return downloadReportPdf(sheets, name, undefined, { reportCharts: result.charts });
+    }
+    return exportWorkbook(result.sheets, name, false, format);
   }
 
   function psRankingPanel() {
@@ -7909,7 +7918,7 @@
     return weights.map(value => usable * value / total);
   }
 
-  async function downloadReportPdf(sheets, fileName, transaction) {
+  async function downloadReportPdf(sheets, fileName, transaction, options = {}) {
     const profileId = currentProfile?.id;
     const exportClient = client;
     const pdf = await loadPdfLibrary();
@@ -7934,6 +7943,10 @@
       const split = Math.ceil(fields.length / 2);
       content.push({ columns: [{ stack: fields.slice(0, split) }, { stack: fields.slice(split) }],
         columnGap: 16, margin: [0, 0, 0, 8] });
+    }
+    if (options.reportCharts?.length) {
+      const { managementPdfChartBlocks } = await import("./management-charts.mjs");
+      content.push(...managementPdfChartBlocks(options.reportCharts));
     }
     for (const sheet of sheets) {
       const [headers, ...rows] = sheet.rows;
