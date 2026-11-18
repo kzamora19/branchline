@@ -31,5 +31,5 @@ test("individual goal editor is manager-only, blank removes a goal, and sale rec
   assert.match(editor, /currentProfile\.dealer_id/);
   assert.doesNotMatch(editor, /from\("sales"\)|from\("sale_lines"\)|rpc\(/);
   assert.match(app, /personal\.targetSource === "individual"/);
-  assert.match(app, /targetLabel: realTarget !== null \? "Assigned PS target"/);
+  assert.match(app, /targetLabel = realTarget !== null \? "Assigned PS target"/);
 });
