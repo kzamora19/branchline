@@ -1285,13 +1285,22 @@
           + '<span><small>Avg. ticket</small><strong>' + formatMoney(row.avgTicket) + '</strong></span>'
           + (row.assisted ? '<span><small>Logged assists</small><strong>' + row.assisted + '</strong></span>' : "")
           + (row.conversion === null ? "" : '<span><small>Conversion, logged days†</small><strong>' + row.conversion.toFixed(1) + '%</strong></span>')
-          + (row.progress === null ? "" : '<span><small>Branch target share*</small><strong>' + row.progress.toFixed(1) + '%</strong></span>')
+          + (row.progress === null ? "" : '<span><small>' + escapeHTML(row.targetLabel) + '</small><strong>' + row.progress.toFixed(1) + '%</strong></span>')
+          + (row.pace?.requiredDaily === null || row.pace?.requiredDaily === undefined ? "" : '<span><small>Required per selling day</small><strong>' + formatMoney(row.pace.requiredDaily) + '</strong></span>')
+          + (row.monthProjection === null ? "" : '<span><small>Projected month-end</small><strong>' + formatMoney(row.monthProjection) + '</strong></span>')
+          + (row.trend === null ? "" : '<span><small>7-day sales</small><strong>' + formatMoney(row.trend.current) + '</strong></span>')
+          + (row.trend?.changePct === null || row.trend?.changePct === undefined ? "" : '<span><small>Vs previous 7 days</small><strong>' + row.trend.changePct.toFixed(1) + '%</strong></span>')
           + '</div>'
+          + (row.trend ? '<div class="ps-trend" role="img" aria-label="Seven days of sales ending ' + escapeHTML(row.trend.series[6].date) + '">'
+            + row.trend.series.map(point => '<span title="' + escapeHTML(point.date) + ' · ' + formatMoney(point.amount) + '" style="height:'
+              + Math.max(4, Math.round(point.amount / Math.max(1, ...row.trend.series.map(x => x.amount)) * 100)) + '%"></span>').join('') + '</div>'
+            : '')
           + (demoStore ? "" : '<button type="button" class="button button-outline ps-award-single" data-ps-certificate="'
             + escapeHTML(row.id) + '" aria-label="Download certificate for ' + escapeHTML(row.name) + '">Certificate PDF</button>')
           + '</article>').join("") + '</div>'
-        + (awardees.some(row => row.progress !== null)
-          ? '<p class="ps-award-note">*Indicative target share = branch monthly target ÷ active Product Specialists; not an individually assigned quota.</p>' : "")
+        + (awardees.some(row => row.targetShare && row.assignedTarget === null)
+          ? '<p class="ps-award-note">*Where no individual goal is assigned, the comparison uses an indicative branch target ÷ active PS count—not a personal quota.</p>' : "")
+        + (liveData.individualGoalLoadError ? '<p class="ps-award-note">' + escapeHTML(liveData.individualGoalLoadError) + '</p>' : "")
         + (awardees.some(row => row.conversion !== null)
           ? '<p class="ps-award-note">†Conversion uses recorded sales on dates with logged assisted clients only. Incomplete logs are excluded.</p>' : "")
       : '<p class="ps-award-note">No eligible Product Specialists with positive recorded sales for this selection.</p>';
