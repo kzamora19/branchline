@@ -53,7 +53,9 @@ test("Certificate PDF is A4 landscape, one page per awarded PS, with blank signa
   assert.equal(unsigned.content[0].stack.find(part => part.columns).columns[0].stack[1].text, " ");
   assert.equal(unsigned.content[0].stack.find(part => part.columns).columns[1].stack[1].text, " ");
   assert.equal(typeof doc.background, "function");
-  assert.equal(doc.background(1, { width: 841.89, height: 595.28 }).canvas.length, 3);
+  assert.equal(doc.background(1, { width: 841.89, height: 595.28 }).canvas.length, 6);
+  assert.match(doc.content[0].stack[0].image, /^data:image\/png;base64,/);
+  assert.ok(!doc.content[0].stack.some(part => String(part.text).includes("BRANCHLINE  |  SALES TRACKER")));
   assert.throws(() => certificateDocument([]), /no eligible/i);
   assert.throws(() => certificateDocument(Array(11).fill(rows[0])), /top 10/i);
 });
