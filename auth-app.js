@@ -1058,6 +1058,84 @@
       `<option value="${escapeHTML(option)}" ${selected === option ? "selected" : ""}>${escapeHTML(option)}</option>`).join("")}</select></label>`;
   }
 
+
+  // Award totals exclude demo records, test profiles, zero sales and prior-branch transactions.
+  function psAwardRankingRows(scope) {
+    const ids = scope || scopeBranchIds();
+    const profiles = new Map(liveData.profiles.map(p => [p.id, p]));
+    const testIds = new Set(liveData.profiles.filter(isTestProfile).map(p => p.id));
+    const filters = { brand: ui.rankBrand, category: ui.rankCategory, sub: ui.rankSub };
+    const totals = new Map(), transactions = new Map();
+    liveData.sales.forEach(sale => {
+      const person = profiles.get(sale.ps_id);
+      if (!person || person.role !== "ps" || person.active === false || isTestProfile(person)
+          || isTestSale(sale, testIds) || (person.branch_id && person.branch_id !== sale.branch_id)
+          || !ids.has(sale.branch_id) || !inPeriod(sale.sold_on)) return;
+      const sum = linesForSale(sale.id).filter(line => lineMatches(line, filters))
+        .reduce((total, line) => total + window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), 0);
+      if (!(sum > 0)) return;
+      addTo(totals, sale.ps_id, sum);
+      transactions.set(sale.ps_id, (transactions.get(sale.ps_id) || 0) + 1);
+    });
+    return [...totals].map(([id, total]) => {
+      const person = profiles.get(id);
+      const count = transactions.get(id) || 0;
+      const showTarget = ui.period === "month" && !filters.brand && !filters.category && !filters.sub;
+      const countPs = showTarget ? liveData.profiles.filter(p =>
+        p.role === "ps" && p.active && !isTestProfile(p) && p.branch_id === person.branch_id).length : 0;
+      const storeTarget = showTarget ? liveData.targets.filter(t =>
+        t.branch_id === person.branch_id && String(t.month).slice(0, 7) === ui.month)
+        .reduce((sum, t) => sum + Number(t.amount || 0), 0) : 0;
+      const share = showTarget && countPs && storeTarget > 0 ? storeTarget / countPs : null;
+      return {
+        id, name: person.full_name || "Staff member",
+        brand: person.assigned_brand || "—", branch: branchName(person.branch_id),
+        total, transactions: count, avgTicket: count ? total / count : 0,
+        targetShare: share, progress: share ? total / share * 100 : null,
+      };
+    }).sort((a, b) => b.total - a.total || natural(a.name, b.name) || natural(a.id, b.id))
+      .slice(0, 10).map((row, index) => ({ ...row, rank: index + 1 }));
+  }
+
+  function psAwardScopeLabel(ids) {
+    const names = liveData.branches.filter(branch => ids.has(branch.id)).map(branch => branch.name).sort(natural);
+    return names.length === 1 ? names[0] : names.length + " authorized branches";
+  }
+
+  async function downloadTopPsCertificates(onlyId) {
+    if (!["manager", "district_manager", "admin"].includes(currentProfile?.role) || demoStore || activePage !== "overview") return;
+    const profileId = currentProfile.id, sessionClient = client;
+    const scope = panelIds("rankBranch", scopeBranchIds());
+    const ranking = psAwardRankingRows(scope);
+    const module = await import("./ps-certificates.mjs");
+    const awardees = module.topSpecialistAwardees(ranking, liveData.profiles, 10);
+    const selected = onlyId ? awardees.filter(row => row.id === onlyId) : awardees;
+    if (!selected.length) {
+      alert("No eligible Product Specialists with positive recorded sales in this selection.");
+      return;
+    }
+    const details = {
+      period: periodLabel(),
+      scope: psAwardScopeLabel(scope),
+      filters: [ui.rankBrand, ui.rankCategory, ui.rankSub].filter(Boolean).join(" / ") || "All brands and categories",
+      basis: ui.salesBasis === "srp" ? "SRP comparison basis" : "Selling-price basis",
+      issuedOn: localISODate(),
+    };
+    const doc = module.certificateDocument(selected, details);
+    const pdf = await loadPdfLibrary();
+    if (currentProfile?.id !== profileId || client !== sessionClient || activePage !== "overview") return;
+    const name = "branchline-top-ps-certificates-" + details.issuedOn
+      + (onlyId ? "-rank-" + selected[0].rank : "") + ".pdf";
+    await new Promise((resolve, reject) => {
+      try {
+        pdf.createPdf(doc).getBlob(blob => {
+          if (currentProfile?.id === profileId && client === sessionClient) downloadFile(name, blob);
+          resolve();
+        });
+      } catch (error) { reject(error); }
+    });
+  }
+
   function psRankingPanel() {
     if (currentProfile.role === "ps") return "";
     const lines = liveData.saleLines;
@@ -1065,18 +1143,45 @@
     const categories = uniqueSorted(lines.map(line => line.category));
     const subs = uniqueSorted(lines.filter(line => !ui.rankCategory || line.category === ui.rankCategory).map(line => line.sub_category));
     const branchPick = panelBranchSelect("rankBranch", scopeBranchIds(), "field");
-    const filters = `<div class="rank-filters">${rankFilterSelect("rankBrand", "Brand", brands, ui.rankBrand)}${rankFilterSelect("rankCategory", "Category", categories, ui.rankCategory)}${rankFilterSelect("rankSub", "Sub-category", subs, ui.rankSub)}${branchPick}</div>`;
+    const filters = '<div class="rank-filters">'
+      + rankFilterSelect("rankBrand", "Brand", brands, ui.rankBrand)
+      + rankFilterSelect("rankCategory", "Category", categories, ui.rankCategory)
+      + rankFilterSelect("rankSub", "Sub-category", subs, ui.rankSub) + branchPick + '</div>';
     const active = [ui.rankBrand, ui.rankCategory, ui.rankSub].filter(Boolean).join(" › ");
+    const awardees = psAwardRankingRows(panelIds("rankBranch", scopeBranchIds()));
+    const cards = awardees.length
+      ? '<div class="ps-award-grid" aria-label="Top 10 Product Specialist performance cards">'
+        + awardees.map(row => '<article class="ps-award-card">'
+          + '<span class="ps-award-rank">#' + row.rank + ' · TOP PERFORMER</span>'
+          + '<h3>' + escapeHTML(row.name) + '</h3><p>' + escapeHTML(row.branch) + ' · ' + escapeHTML(row.brand) + '</p>'
+          + '<div class="ps-award-stats"><span><small>Credited sales</small><strong>' + formatMoney(row.total) + '</strong></span>'
+          + '<span><small>Transactions</small><strong>' + row.transactions + '</strong></span>'
+          + '<span><small>Avg. ticket</small><strong>' + formatMoney(row.avgTicket) + '</strong></span>'
+          + (row.progress === null ? "" : '<span><small>Branch target share*</small><strong>' + row.progress.toFixed(1) + '%</strong></span>')
+          + '</div>'
+          + (demoStore ? "" : '<button type="button" class="button button-outline ps-award-single" data-ps-certificate="'
+            + escapeHTML(row.id) + '" aria-label="Download certificate for ' + escapeHTML(row.name) + '">Certificate PDF</button>')
+          + '</article>').join("") + '</div>'
+        + (awardees.some(row => row.progress !== null)
+          ? '<p class="ps-award-note">*Indicative target share = branch monthly target ÷ active Product Specialists; not an individually assigned quota.</p>' : "")
+      : '<p class="ps-award-note">No eligible Product Specialists with positive recorded sales for this selection.</p>';
+    const awardButton = demoStore ? "" : '<button type="button" class="button button-outline ps-award-batch" data-award-top10 '
+      + (awardees.length ? "" : "disabled") + ' aria-label="Download printable Top 10 Product Specialist certificates">Print Top 10 Certificates (PDF)</button>';
+    const ranking = psRankingRows(panelIds("rankBranch", scopeBranchIds()));
     return panel(
       "Product Specialist ranking",
-      `${periodLabel()} · ${active ? `sales of ${active}` : "overall sales regardless of brand"}, highest first. Click a name to see their sales.`,
-      filters + tableBlock(
+      periodLabel() + " · " + (active ? "sales of " + active : "overall sales regardless of brand")
+        + ", highest first. Click a name to see their sales.",
+      filters + cards + tableBlock(
         "psrank",
         ["Rank", "Product Specialist", "Brand", "Branch", "Total sales"],
-        psRankingRows(panelIds("rankBranch", scopeBranchIds())),
-        row => `<tr class="rank-row" data-ps-detail="${escapeHTML(row.id)}" tabindex="0"><td><strong>#${row.rank}</strong></td><td><strong>${escapeHTML(row.name)}</strong></td><td>${escapeHTML(row.brand)}</td><td>${escapeHTML(row.branch)}</td><td>${formatMoney(row.total)}</td></tr>`,
+        ranking,
+        row => '<tr class="rank-row" data-ps-detail="' + escapeHTML(row.id) + '" tabindex="0"><td><strong>#'
+          + row.rank + '</strong></td><td><strong>' + escapeHTML(row.name) + '</strong></td><td>'
+          + escapeHTML(row.brand) + '</td><td>' + escapeHTML(row.branch) + '</td><td>' + formatMoney(row.total) + '</td></tr>',
         "No Product Specialists match this selection.",
       ),
+      awardButton,
     );
   }
 
@@ -8392,6 +8497,14 @@
         const rows = JSON.parse(chartButton.dataset.chartRows);
         return exportWorkbook([{ name: title, rows }], `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${localISODate()}`, false, format);
       }, true);
+      return;
+    }
+    const awardBatch = event.target.closest("[data-award-top10]");
+    const awardSingle = event.target.closest("[data-ps-certificate]");
+    if (awardBatch || awardSingle) {
+      if (!["manager", "district_manager", "admin"].includes(currentProfile?.role) || demoStore) return;
+      void downloadTopPsCertificates(awardSingle?.dataset.psCertificate || null)
+        .catch(error => { console.error("Certificate export failed.", error); alert(error.message || "Certificate export failed."); });
       return;
     }
     const exportAll = event.target.closest("[data-export-all]");
