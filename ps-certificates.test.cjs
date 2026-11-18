@@ -32,7 +32,7 @@ test("Certificate PDF is A4 landscape, one page per awarded PS, with blank signa
     { id: "p1", rank: 1, name: "Sample Person A", branch: "Santiago", brand: "TCL", total: 10000 },
     { id: "p2", rank: 2, name: "Sample Person B", branch: "Cauayan", brand: "LG", total: 9500 },
   ];
-  const doc = certificateDocument(rows, { period: "November 2026", scope: "2 branches", issuedOn: "2026-11-18", basis: "Selling-price basis" });
+  const doc = certificateDocument(rows, { period: "November 2026", issuedOn: "2026-11-18", branchManagerName: "Marina C. Santos", districtManagerName: "Javier D. Cruz" });
   assert.equal(doc.pageSize, "A4");
   assert.equal(doc.pageOrientation, "landscape");
   assert.equal(doc.content.length, 2);
@@ -43,7 +43,15 @@ test("Certificate PDF is A4 landscape, one page per awarded PS, with blank signa
   assert.ok(doc.content[0].stack.some(part => String(part.text).includes("In grateful recognition of your outstanding sales performance")));
   assert.ok(!doc.content[0].stack.some(part => String(part.text).includes("Credited sales:")));
   assert.ok(!doc.content[0].stack.some(part => String(part.text).includes("Award scope:")));
-  assert.ok(doc.content[0].stack.some(part => part.columns && part.columns.every(col => col.stack.some(x => String(x.text).includes("_____")))));
+  const signatureColumns = doc.content[0].stack.find(part => part.columns)?.columns;
+  assert.ok(signatureColumns && signatureColumns.length === 2);
+  assert.ok(signatureColumns.every(col => col.stack.some(x => String(x.text).includes("_____"))));
+  assert.equal(signatureColumns[0].stack[1].text, "Marina C. Santos");
+  assert.equal(signatureColumns[1].stack[1].text, "Javier D. Cruz");
+  assert.ok(signatureColumns.every(col => col.stack.every(x => x.alignment === "center")));
+  const unsigned = certificateDocument(rows, { period: "November 2026" });
+  assert.equal(unsigned.content[0].stack.find(part => part.columns).columns[0].stack[1].text, " ");
+  assert.equal(unsigned.content[0].stack.find(part => part.columns).columns[1].stack[1].text, " ");
   assert.equal(typeof doc.background, "function");
   assert.equal(doc.background(1, { width: 841.89, height: 595.28 }).canvas.length, 3);
   assert.throws(() => certificateDocument([]), /no eligible/i);
@@ -108,3 +116,22 @@ test("PS award controls are absent from PS role and never overwrite sales or tar
   // protected individual-goal editor is intentionally permitted to write goals.
   assert.doesNotMatch(app.slice(app.indexOf("  function psAwardRankingRows("), app.indexOf("  function psAwardScopeLabel(", app.indexOf("  function psAwardRankingRows("))), /client\.(?:rpc|from)\(/);
 });
+
+test("certificate export UI provides distinct editable signatories and recalculated period controls", async () => {
+  const start = app.indexOf("  function downloadTopPsCertificates(");
+  const end = app.indexOf("  function psIndividualTargetPanel()", start);
+  assert.ok(start >= 0 && end > start);
+  const block = app.slice(start, end);
+  assert.match(block, /name="branch_manager_name"/);
+  assert.match(block, /name="district_manager_name"/);
+  assert.match(block, /name="certificate_kind"/);
+  assert.match(block, /name="certificate_month"/);
+  assert.match(block, /name="certificate_year"/);
+  assert.match(block, /certificatePeriodRange\(kind, value, today\)/);
+  assert.match(block, /psAwardRankingRows\(scope, window\)/);
+  assert.match(block, /branchManagerName:/);
+  assert.match(block, /districtManagerName:/);
+  assert.match(block, /currentProfile\?\.id !== profileId/);
+  assert.doesNotMatch(block, /from\(["']sales["']\)\.(?:insert|update|delete)/);
+});
+
