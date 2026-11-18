@@ -1210,6 +1210,66 @@
     });
   }
 
+  function psIndividualTargetPanel() {
+    if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)
+        || ui.period !== "month") return "";
+    const ids = panelIds("rankBranch", scopeBranchIds());
+    const people = liveData.profiles.filter(person =>
+      person.role === "ps" && person.active && !isTestProfile(person)
+      && person.branch_id && ids.has(person.branch_id))
+      .sort((a, b) => natural(branchName(a.branch_id), branchName(b.branch_id)) || natural(a.full_name, b.full_name));
+    const unavailable = !!liveData.individualGoalLoadError;
+    const rows = people.map(person => {
+      const goal = (liveData.individualGoals || []).find(row =>
+        row.ps_id === person.id && row.branch_id === person.branch_id
+        && String(row.month).slice(0, 7) === ui.month);
+      return '<tr data-ps-goal-row><td><strong>' + escapeHTML(person.full_name) + '</strong></td>'
+        + '<td>' + escapeHTML(branchName(person.branch_id)) + '</td>'
+        + '<td><label class="visually-hidden" for="goal-' + escapeHTML(person.id) + '">Monthly sales target for ' + escapeHTML(person.full_name) + '</label>'
+        + '<input id="goal-' + escapeHTML(person.id) + '" data-ps-goal-input type="number" min="0" max="9999999999" step="0.01"'
+        + ' placeholder="Not assigned" value="' + escapeHTML(goal?.amount == null ? "" : String(goal.amount)) + '"'
+        + (unavailable || demoStore ? " disabled" : "") + '></td>'
+        + '<td><button type="button" class="button button-outline" data-save-ps-goal="' + escapeHTML(person.id) + '"'
+        + (unavailable || demoStore ? " disabled" : "") + '>Save goal</button></td></tr>';
+    }).join("");
+    const content = unavailable
+      ? '<p class="ps-award-note">Individual goals cannot be edited: the protected monthly-target table is unavailable. Apply and verify the staged RLS migration first.</p>'
+      : '<p class="ps-award-note">Set an individual monthly goal for each PS. A blank amount removes the goal and restores the clearly labeled indicative branch share. Only authorized managers can save changes.</p>';
+    return panel(
+      "Individual Product Specialist monthly targets",
+      monthLabel(ui.month) + " · management-only, branch-scoped goals.",
+      content + '<div class="table-wrap ps-target-table"><table><thead><tr>'
+        + '<th>Product Specialist</th><th>Branch</th><th>Individual monthly target (₱)</th><th>Action</th>'
+        + '</tr></thead><tbody>' + (rows || '<tr><td colspan="4">No active Product Specialists in this scope.</td></tr>')
+        + '</tbody></table></div>',
+    );
+  }
+
+  async function saveIndividualPsMonthlyTarget(psId, raw) {
+    if (!["manager", "district_manager", "admin"].includes(currentProfile?.role) || demoStore
+        || liveData.individualGoalLoadError || ui.period !== "month") throw new Error("You cannot edit PS targets in this session.");
+    const person = liveData.profiles.find(p => p.id === psId && p.role === "ps"
+      && p.active && !isTestProfile(p) && scopeBranchIds().has(p.branch_id));
+    if (!person || !/^\d{4}-\d{2}$/.test(ui.month)) throw new Error("That PS or month is not available in your branch scope.");
+    const originalSession = currentProfile.id, sessionClient = client;
+    const monthDate = ui.month + "-01";
+    const text = String(raw || "").trim();
+    if (text && (!/^\d+(?:\.\d{1,2})?$/.test(text) || !Number.isFinite(Number(text))
+      || Number(text) <= 0 || Number(text) > 9999999999)) throw new Error("Enter a valid positive monthly goal with up to two decimal places, or leave blank to remove it.");
+    if (!text) {
+      const deleted = await client.from("ps_monthly_targets").delete()
+        .eq("dealer_id", currentProfile.dealer_id).eq("branch_id", person.branch_id)
+        .eq("ps_id", psId).eq("month", monthDate);
+      if (deleted.error) throw deleted.error;
+    } else {
+      const record = { dealer_id: currentProfile.dealer_id, branch_id: person.branch_id,
+        ps_id: psId, month: monthDate, amount: Number(text), updated_by: currentProfile.id };
+      const updated = await client.from("ps_monthly_targets").upsert(record, { onConflict: "branch_id,ps_id,month" });
+      if (updated.error) throw updated.error;
+    }
+    if (currentProfile?.id === originalSession && client === sessionClient) await refreshData();
+  }
+
   function managementAttentionPanel(branches) {
     if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return "";
     const scoped = scopeBranchIds();
@@ -3350,7 +3410,7 @@
           </div>
           <div class="connected-charts">${charts.join("")}</div>
           ${overviewPaymentPanels("pies")}
-          ${managementAttentionPanel(rows)}${psRankingPanel()}${managementReportPanel()}`;
+          ${managementAttentionPanel(rows)}${psRankingPanel()}${psIndividualTargetPanel()}${managementReportPanel()}`;
       },
     );
   }
@@ -8657,6 +8717,16 @@
       if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return;
       activePage = "analytics";
       renderConnected();
+      return;
+    }
+    const goalButton = event.target.closest("[data-save-ps-goal]");
+    if (goalButton) {
+      const input = goalButton.closest("[data-ps-goal-row]")?.querySelector("[data-ps-goal-input]");
+      if (!input || goalButton.disabled) return;
+      goalButton.disabled = true;
+      void saveIndividualPsMonthlyTarget(goalButton.dataset.savePsGoal, input.value)
+        .catch(error => { console.error("Individual PS target save failed.", error); exportError(error); })
+        .finally(() => { if (goalButton.isConnected) goalButton.disabled = false; });
       return;
     }
     const managementReport = event.target.closest("[data-management-report]");
