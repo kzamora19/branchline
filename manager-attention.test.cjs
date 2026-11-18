@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 test("manager attention notices are read-only, actionable, rate-limited in view and correctly prioritized", async () => {
-  const { managerAttention } = await import("./manager-attention.mjs");
+  const { managerAttention } = require("./manager-attention.js");
   const rows = [
     { branch: { id: "a", name: "Santiago" }, actual: 1000, target: 10000 },
     { branch: { id: "b", name: "Cauayan" }, actual: 5300, target: 10000 },
@@ -24,7 +24,7 @@ test("manager attention notices are read-only, actionable, rate-limited in view 
 });
 
 test("missing expected pace, healthy branches and zero sales with no target generate no false warning", async () => {
-  const { managerAttention } = await import("./manager-attention.mjs");
+  const { managerAttention } = require("./manager-attention.js");
   assert.deepEqual(managerAttention({ rows: [{ branch: { id: "a", name: "A" }, actual: 0, target: 0 }] }), []);
   assert.deepEqual(managerAttention({ rows: [{ branch: { id: "a", name: "A" }, actual: 2000, target: 10000 }], expectedByBranch: {} }), []);
   assert.deepEqual(managerAttention({ rows: [{ branch: { id: "a", name: "A" }, actual: 9000, target: 10000 }], expectedByBranch: { a: 0.7 } }), []);
