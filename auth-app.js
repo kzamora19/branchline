@@ -7519,11 +7519,51 @@
     return pdfLibrary;
   }
 
+  // PDF-specific display formatting. Reports keep their source values in Excel/CSV
+  // and in the database; only long fractional metrics are rounded for print.
+  function pdfReportCellText(value, heading) {
+    const label = String(heading || "").trim();
+    const raw = String(value ?? "").trim();
+    if (/^(?:sales(?:person)? code|barcode|serial(?: numbers?)?|invoice(?: number)?|ps id|branch id|district id|product id|model(?: number)?|date|customer|product specialist|ps name)$/i.test(label)) return raw;
+    const match = raw.match(/^([+-]?\s*[₱$]?\s*)([\d,]+)\.(\d+)(\s*%?)$/);
+    if (!match || match[3].length <= 2) return raw;
+    const amount = Number(match[2].replace(/,/g, "") + "." + match[3]);
+    if (!Number.isFinite(amount)) return raw;
+    return match[1] + new Intl.NumberFormat("en-PH", {
+      minimumFractionDigits: 2, maximumFractionDigits: 2,
+    }).format(amount) + match[4];
+  }
+
+  // Exact widths prevent pdfmake's automatic minimum-word widths from pushing
+  // a wide report's last columns outside the printable page.
+  function reportPdfColumnWidths(headers, pageWidth, horizontalPadding, margin) {
+    const compact = headers.length > 13;
+    const usable = pageWidth - margin * 2 - headers.length * horizontalPadding * 2 - 4;
+    const weight = label => {
+      const text = String(label || "").toLowerCase();
+      if (/^(product|description|model|full description|remarks|notes)/.test(text)) return compact ? 2 : 2.2;
+      if (/^(brand|branch|customer|product specialist|ps name|payment mode|category|sub-category|status)/.test(text)) return 1.35;
+      if (/^(date|day|rank|qty|quantity|moh|progress|rate|available units|transactions)/.test(text)) return 0.85;
+      return 1;
+    };
+    const weights = headers.map(weight);
+    const total = weights.reduce((sum, value) => sum + value, 0);
+    return weights.map(value => usable * value / total);
+  }
+
   async function downloadReportPdf(sheets, fileName, transaction) {
     const profileId = currentProfile?.id;
     const exportClient = client;
     const pdf = await loadPdfLibrary();
     const maxColumns = Math.max(0, ...sheets.map(sheet => sheet.rows[0]?.length || 0));
+    // Standard Philippine 13 x 8.5-inch paper for 7–13 columns; larger
+    // transaction exports use A3 landscape so every column remains legible.
+    const dense = maxColumns > 13;
+    const wide = maxColumns >= 7;
+    const pageSize = dense ? "A3" : wide ? { width: 13 * 72, height: 8.5 * 72 } : "A4";
+    const pageWidth = dense ? 1190.55 : wide ? 13 * 72 : 595.28;
+    const margin = wide ? 28 : 32;
+    const padding = dense ? 2 : 3;
     const title = transaction?.name || (sheets.length === 1 ? sheets[0].name : "Sales Tracker report");
     const content = [
       { text: "BRANCHLINE  /  SALES TRACKER", fontSize: 10, bold: true, color: "#264c7f" },
@@ -7541,22 +7581,22 @@
       const [headers, ...rows] = sheet.rows;
       if (!headers?.length) continue;
       if (sheet.name !== title) content.push({ text: sheet.name, bold: true, fontSize: 11, margin: [0, 8, 0, 4] });
-      const numericColumn = label => /^(qty|quantity|srp|unit price|price|amount|total)$/i.test(label);
-      const widths = headers.map(label => {
-        if (!transaction || !numericColumn(label)) return "*";
-        return /^(qty|quantity)$/i.test(label) ? 34 : 84;
-      });
-      if (transaction) widths[0] = "44%";
+      const numericColumn = label => /^(?:qty|quantity|srp|unit price|price|amount|total|moh|available units|progress|sales|target|share|monthly sell-out)/i.test(label);
+      const widths = reportPdfColumnWidths(headers, pageWidth, padding, margin);
       const rowCells = (row, isHeader) => headers.map((label, index) => ({
-        text: String(row[index] ?? ""), bold: isHeader, alignment: numericColumn(label) ? "right" : "left",
-        noWrap: Boolean(transaction && numericColumn(label)),
+        text: isHeader ? String(label) : pdfReportCellText(row[index], label),
+        bold: isHeader,
+        alignment: !isHeader && numericColumn(label) ? "right" : "left",
+        noWrap: false, // headings and values must wrap instead of overflowing
+        fontSize: isHeader ? (dense ? 7.5 : wide ? 8.5 : 9.5) : (dense ? 7.5 : wide ? 9 : 10),
       }));
       content.push({
-        table: { headerRows: 1, widths, body: [rowCells(headers, true), ...rows.map(row => rowCells(row, false))] },
+        table: { headerRows: 1, widths, body: [rowCells(headers, true), ...rows.map(row => rowCells(row, false))],
+          dontBreakRows: true },
         layout: {
           fillColor: row => row === 0 ? "#e8eff8" : null,
           hLineColor: () => "#c2cede", vLineWidth: () => 0,
-          paddingLeft: () => 4, paddingRight: () => 4, paddingTop: () => 4, paddingBottom: () => 4,
+          paddingLeft: () => padding, paddingRight: () => padding, paddingTop: () => 4, paddingBottom: () => 4,
         },
       });
     }
@@ -7567,10 +7607,10 @@
       try {
         pdf.createPdf({
           info: { title, author: "Branchline Sales Tracker" },
-          pageSize: maxColumns > 13 ? "A3" : "A4", pageOrientation: maxColumns > 7 ? "landscape" : "portrait",
-          pageMargins: [32, 32, 32, 35], content,
-          defaultStyle: { fontSize: maxColumns > 13 ? 8 : 10, color: "#16243a" },
-          footer: (page, total) => ({ text: `${page} / ${total}`, alignment: "right", fontSize: 8, margin: [32, 7, 32, 0] }),
+          pageSize, pageOrientation: wide ? "landscape" : "portrait",
+          pageMargins: [margin, 32, margin, 35], content,
+          defaultStyle: { fontSize: dense ? 7.5 : wide ? 9 : 10, color: "#16243a" },
+          footer: (page, total) => ({ text: `${page} / ${total}`, alignment: "right", fontSize: 8, margin: [margin, 7, margin, 0] }),
         }).getBlob(resolve);
       } catch (error) { reject(error); }
     });

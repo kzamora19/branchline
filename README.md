@@ -1006,3 +1006,8 @@ The previous automatic repair could move valid January-September transactions
 into other months. Previously imported records require a separate source-matched,
 backed-up date-only repair; deploying this parser does not modify existing sales.
 Cache v89 includes these changes.
+
+
+### PDF report fit — 13 × 8.5-inch landscape (shell v179)
+
+Reports with 7–13 columns use 13 × 8.5-inch landscape pages. Extra-wide tables (>13 columns) use A3 landscape. PDF column widths are fitted to the available page area, headings and values wrap, and floating-point numeric display values are limited to two decimal places. Source figures, downloadable Excel/CSV data, sales records and calculations remain unchanged.
