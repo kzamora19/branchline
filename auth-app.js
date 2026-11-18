@@ -2887,7 +2887,7 @@
         if (isPs) {
           const count = Number(liveData.psDashboard?.ps_count) || 0;
           const store = branchTargets.get(currentProfile.branch_id) || 0;
-          const ownTarget = (liveData.psTargets || []).find(row => row.ps_id === currentProfile.id && row.month.slice(0,7) === month);
+          const ownTarget = (liveData.psTargets || []).find(row => row.ps_id === currentProfile.id && row.branch_id === currentProfile.branch_id && row.month.slice(0,7) === month);
           target = ownTarget ? Number(ownTarget.amount) : count ? store / count : 0;
           targetNote = ownTarget
             ? "Your individual monthly target was assigned by management."
@@ -3005,7 +3005,7 @@
           const expectedMtd = A.expectedFraction({ month, refDate, rules, partialDay: isCurrent });
           const management = window.BranchlineManagement;
           const targetsByPs = Object.fromEntries((liveData.psTargets || [])
-            .filter(row => ids.has(row.branch_id) && row.month.slice(0,7) === month)
+            .filter(row => ids.has(row.branch_id) && row.month.slice(0,7) === month && psProfiles.some(profile => profile.id === row.ps_id && profile.branch_id === row.branch_id))
             .map(row => [row.ps_id,Number(row.amount)]));
           const performanceCards = management.psCards({
             profiles: psProfiles, facts,
