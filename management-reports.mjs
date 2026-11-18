@@ -92,5 +92,12 @@ export function buildManagementReport({
       ...[...byDate.values()].sort((a, b) => a.label.localeCompare(b.label)).map(row =>
         [row.label, row.transactions.size, formatCurrency(row.amount)])] }),
   ];
-  return { range, transactions, net: formatCurrency(net), sheets };
+  const top = map => [...map.values()]
+    .sort((a, b) => b.amount - a.amount || String(a.label).localeCompare(String(b.label)))
+    .slice(0, 5).map(row => ({ label: row.label, amount: formatCurrency(row.amount) }));
+  const charts = [
+    { title: "Top branches by recorded sales", rows: top(byBranch) },
+    { title: "Top brands by recorded sales", rows: top(byBrand) },
+  ];
+  return { range, transactions, net: formatCurrency(net), sheets, charts };
 }
