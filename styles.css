@@ -885,3 +885,18 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .certificate-preview { margin-top: 16px; min-width: 0; }
 .certificate-preview iframe { display: block; width: 100%; height: min(65vh, 610px); min-height: 350px; border: 1px solid var(--line); border-radius: 8px; background: #f4f6fa; }
 .certificate-preview[hidden] { display: none !important; }
+
+/* Branchline Applications: independent tools under one familiar workspace. */
+.branchline-app-notice{margin:0 0 16px;line-height:1.55}
+.branchline-app-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}
+.branchline-app-card{min-width:0;background:#fff;border:1px solid var(--line);border-radius:12px;padding:21px;display:flex;flex-direction:column;gap:11px;box-shadow:0 2px 5px #1d283606}
+.branchline-app-card-top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.branchline-app-monogram{display:inline-flex;align-items:center;justify-content:center;width:43px;height:43px;border-radius:11px;color:var(--blue-dark);background:var(--blue-soft);font:800 14px "Manrope","Segoe UI",sans-serif;letter-spacing:.2px}
+.branchline-app-kind{font-size:9px;font-weight:800;letter-spacing:.6px;color:var(--muted);text-align:right}
+.branchline-app-card h2{font:750 16px/1.35 "Manrope","Segoe UI",sans-serif;margin:2px 0 0;color:var(--ink)}
+.branchline-app-card p{font-size:12px;line-height:1.55;color:#526174;margin:0}
+.branchline-app-card small{font-size:10px;line-height:1.5;color:var(--muted);display:block}
+.branchline-app-action{margin-top:auto;padding-top:5px}
+.branchline-app-action .button{min-height:39px;font-size:11px;text-decoration:none}
+.branchline-app-action .button:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
+@media(max-width:760px){.branchline-app-grid{grid-template-columns:1fr}.branchline-app-card{padding:17px}}
