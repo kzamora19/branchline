@@ -741,7 +741,10 @@
         showPacePopup();
         autoRegisterPush();
       } else autoRegisterPush();
-      if (!passwordRecoveryPending) await showInventoryReminder();
+      if (!passwordRecoveryPending) {
+        await showInventoryReminder();
+        showDailyCalendarEventNotices();
+      }
     } catch (error) {
       if (sequence !== loadSequence) return;
       console.error("Unable to load the authenticated Branchline workspace.", error);
@@ -2144,6 +2147,67 @@
       return { error: `Event calendar unavailable: ${failed.error.message}. Apply the event-calendar database update and reload.`, events: [], adjustments: [] };
     }
     return { events: events.data, adjustments: adjustments.data };
+  }
+
+  // On-app-opening daily event notices; this is not a remote push or an ad.
+  // Only events already accessible to this authenticated account can appear.
+  function showDailyCalendarEventNotices() {
+    const profile = currentProfile, context = liveData?.calendar;
+    if (!profile?.id || !context || context.error || context.demo || demoStore) return;
+    const date = localISODate();
+    const ids = scopeBranchIds();
+    const events = (context.events || []).filter(row => !row.cancelled_at
+      && window.BranchlineAnalytics.calendarOccursOn(row, date)
+      && (!row.branch_ids?.length || row.branch_ids.some(id => ids.has(id))))
+      .sort((a, b) => String(a.title || "").localeCompare(String(b.title || "")));
+    if (!events.length) return;
+    const storageKey = "branchline:calendar-notices:" + profile.id + ":" + date;
+    try { if (localStorage.getItem(storageKey) === "shown") return; }
+    catch { /* Restricted storage: still show this login's notices. */ }
+    try { localStorage.setItem(storageKey, "shown"); }
+    catch { /* Continue without persistence when storage is blocked. */ }
+    let index = 0;
+    const overlay = document.createElement("div");
+    overlay.className = "dlg-backdrop calendar-daily-notice-backdrop";
+    overlay.setAttribute("data-calendar-daily-notices", "");
+    const showNext = () => {
+      if (currentProfile?.id !== profile.id || index >= events.length) {
+        overlay.remove();
+        return;
+      }
+      const row = events[index];
+      overlay.innerHTML = `<div class="dlg dlg-wide calendar-daily-notice" role="dialog" aria-modal="true" aria-label="Today's calendar event">
+        <div class="dlg-head"><h2>Today's events · ${escapeHTML(date)}</h2>
+          <button type="button" class="dlg-close" data-calendar-next aria-label="Close event and continue">×</button></div>
+        <div class="dlg-form"><p class="dlg-intro">Event ${index + 1} of ${events.length}</p>
+          <div class="dlg-body calendar-event-detail">
+            <h3>${escapeHTML(row.title)}</h3>
+            <p>${escapeHTML(row.starts_on)} to ${escapeHTML(row.ends_on)} · ${escapeHTML(row.campaign_type || row.kind.replaceAll("_", " "))}</p>
+            <p>${escapeHTML(calendarScheduleLabel(row))}</p>
+            <p>${row.branch_ids?.length
+              ? escapeHTML(row.branch_ids.map(id => liveData.branches.find(b => b.id === id)?.name || "Authorized branch").join(", "))
+              : "Company-wide"}</p>
+            ${row.closed ? "<p><strong>Store closed</strong></p>" : ""}
+            ${row.notes ? `<p>${escapeHTML(row.notes)}</p>` : ""}
+            ${calendarMemoLinks(row)}
+          </div>
+          <div class="dlg-actions"><button type="button" class="button button-primary" data-calendar-next>${index + 1 < events.length ? "Next event" : "Done"}</button></div>
+        </div></div>`;
+      overlay.querySelector("[data-calendar-next]")?.focus({ preventScroll: true });
+    };
+    overlay.addEventListener("click", event => {
+      if (!event.target.closest("[data-calendar-next]")) return;
+      index++;
+      showNext();
+    });
+    overlay.addEventListener("keydown", event => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      index++;
+      showNext();
+    });
+    document.body.append(overlay);
+    showNext();
   }
 
   function calendarClosures() {
@@ -6123,8 +6187,8 @@
       submitLabel: "Save customer",
       body: `<div class="dlg-grid">
         ${fieldHTML("Customer name", "customer_name", `<input name="customer_name" required maxlength="200" value="${escapeHTML(details.name)}">`)}
-        ${fieldHTML("Barangay", "barangay", `<input name="barangay" maxlength="200" value="${escapeHTML(details.barangay)}">`)}
-        ${fieldHTML("City / municipality", "city", `<input name="city" maxlength="200" value="${escapeHTML(details.city)}">`)}
+        ${fieldHTML("Barangay", "barangay", `<input name="barangay" required maxlength="200" value="${escapeHTML(details.barangay)}">`)}
+        ${fieldHTML("City / municipality", "city", `<input name="city" required maxlength="200" value="${escapeHTML(details.city)}">`)}
         </div><details class="customer-combine">
           <summary>Combine purchase histories</summary>
           <p>Choose a duplicate to bring its purchase history into this customer record.</p>
@@ -6162,6 +6226,8 @@
       onSubmit: async form => {
         if (client !== editClient || currentProfile?.id !== editor) throw new Error("The account changed. Reopen Customer Master.");
         const combining = duplicate;
+        if (!form.elements.barangay.value.trim() || !form.elements.city.value.trim())
+          throw new Error("Barangay and City / municipality are required.");
         const { error } = await editClient.rpc("update_customer_master", {
           p_branch: keep.branchId, p_keep: JSON.parse(keep.key).slice(1),
           p_combine: combining ? JSON.parse(combining.key).slice(1) : null,
