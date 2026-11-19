@@ -1400,7 +1400,8 @@
   // view; it never sends a push or writes any sales/target records.
   function managerAttentionSnoozeStore() {
     if (!currentProfile?.id) return null;
-    const storageKey = "branchline:manager-attention:snoozes:" + currentProfile.id;
+    const storageKey = "branchline:manager-attention:snoozes:" + currentProfile.id + ":"
+      + [ui.period || "month", ui.month || "", ui.district || "", ui.branch || ""].join("|");
     const today = localISODate();
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
