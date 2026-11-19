@@ -7927,19 +7927,36 @@
     return pdfLibrary;
   }
 
-  // PDF-specific display formatting. Reports keep their source values in Excel/CSV
-  // and in the database; only long fractional metrics are rounded for print.
-  function pdfReportCellText(value, heading) {
-    const label = String(heading || "").trim();
+  // Format monetary export columns consistently while preserving quantities,
+  // dates, barcodes and other identifiers as authored.
+  function moneyExportColumn(label) {
+    const text = String(label || "").trim().toLowerCase();
+    if (/^(no\\.? of sales|number of sales|salesperson|sales code|sales date|qty|quantity|transactions|invoice|barcode|serial|model|month|year)/.test(text)) return false;
+    return /(?:\\b(?:amount|price|srp|sales|target|revenue|cost|value|subtotal|gross profit|net income|total due|downpayment|balance)\\b)/.test(text);
+  }
+
+  function exportMoneyNumber(value) {
+    if (typeof value === "number") return Number.isFinite(value) ? value : null;
     const raw = String(value ?? "").trim();
-    if (/^(?:sales(?:person)? code|barcode|serial(?: numbers?)?|invoice(?: number)?|ps id|branch id|district id|product id|model(?: number)?|date|customer|product specialist|ps name)$/i.test(label)) return raw;
-    const match = raw.match(/^([+-]?\s*[₱$]?\s*)([\d,]+)\.(\d+)(\s*%?)$/);
-    if (!match || match[3].length <= 2) return raw;
-    const amount = Number(match[2].replace(/,/g, "") + "." + match[3]);
-    if (!Number.isFinite(amount)) return raw;
-    return match[1] + new Intl.NumberFormat("en-PH", {
-      minimumFractionDigits: 2, maximumFractionDigits: 2,
-    }).format(amount) + match[4];
+    if (!/^(?:[₱$]\\s*)?-?(?:\\d+|\\d{1,3}(?:,\\d{3})+)(?:\\.\\d+)?$/.test(raw)) return null;
+    const parsed = Number(raw.replace(/[₱$,\\s]/g, ""));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function pdfReportCellText(value, heading) {
+    const raw = String(value ?? "").trim();
+    if (moneyExportColumn(heading)) {
+      const amount = exportMoneyNumber(value);
+      if (amount !== null) return (raw.startsWith("₱") ? "₱" : raw.startsWith("$") ? "$" : "")
+        + amount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    // Other fractional metrics may have more precision than fits on a printed report.
+    if (/^(?:moh|progress|share|achievement|growth|conversion rate)$/i.test(String(heading).trim())) {
+      const match = raw.match(/^([+-]?[\\d,]+)\\.(\\d+)(%)?$/);
+      if (match) return Number(match[1].replace(/,/g, "") + "." + match[2]).toLocaleString("en-PH",
+        { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (match[3] || "");
+    }
+    return raw;
   }
 
   // Exact widths prevent pdfmake's automatic minimum-word widths from pushing
@@ -8277,6 +8294,20 @@
       const index = [["Worksheet", "Full report name"]];
       sheets.forEach(sheet => {
         const worksheet = window.XLSX.utils.aoa_to_sheet(sheet.rows);
+        const headings = sheet.rows[0] || [];
+        headings.forEach((heading, columnIndex) => {
+          if (!moneyExportColumn(heading)) return;
+          for (let rowIndex = 1; rowIndex < sheet.rows.length; rowIndex += 1) {
+            const address = window.XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
+            const cell = worksheet[address];
+            if (!cell) continue;
+            const number = exportMoneyNumber(cell.v);
+            if (number === null) continue;
+            cell.v = number;
+            cell.t = "n";
+            cell.z = "#,##0.00";
+          }
+        });
         worksheet["!cols"] = sheet.rows[0].map((_, index) => ({
           wch: Math.min(40, Math.max(10, ...sheet.rows.slice(0, 200).map(row => String(row[index] ?? "").length))),
         }));
@@ -8295,7 +8326,7 @@
       window.XLSX.writeFile(book, `${fileName}.xlsx`);
     } else {
       // Offline fallback: one CSV per sheet.
-      sheets.forEach(sheet => downloadFile(`${fileName} - ${sheet.name}.csv`, new Blob([csvText(sheet.rows)], { type: "text/csv" })));
+      sheets.forEach(sheet => downloadFile(`${fileName} - ${sheet.name}.csv`, new Blob([csvText(sheet.rows.map((row, index) => index === 0 ? row : row.map((value, col) => moneyExportColumn(sheet.rows[0]?.[col]) && exportMoneyNumber(value) !== null ? exportMoneyNumber(value).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : value)))], { type: "text/csv" })));
     }
   }
 
