@@ -27,18 +27,18 @@
       name: "MegaFrame Studio",
       monogram: "MF",
       description: "Edit photos, build personalized frames and export print-ready layouts.",
-      access: "MegaFrame Studio sign-in and permissions apply",
+      access: "Requires an active PTG Team Leader, Branch Admin or System Admin account",
       kind: "external",
-      url: "https://megaframe-studio.vercel.app/",
+      url: "https://first-megasaver-ptg.vercel.app/studios/",
     },
     {
       id: "flyer-studio",
       name: "Flyer Studio",
       monogram: "FS",
       description: "Create promotional flyers, manage product bundles and export PDF artwork.",
-      access: "Flyer Studio sign-in and permissions apply",
+      access: "Requires an active PTG Team Leader, Branch Admin or System Admin account",
       kind: "external",
-      url: "https://kzamora19.github.io/flyer-studio/",
+      url: "https://first-megasaver-ptg.vercel.app/studios/",
     },
   ];
   for (const app of list) {
