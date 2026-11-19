@@ -145,3 +145,15 @@ test("certificate export UI provides distinct editable signatories and recalcula
   assert.doesNotMatch(block, /from\(["']sales["']\)\.(?:insert|update|delete)/);
 });
 
+
+test("Top 10 certificate button works from Targets as well as Overview", () => {
+  const begin = app.indexOf("  function downloadTopPsCertificates(onlyId) {");
+  const end = app.indexOf("  function psIndividualTargetPanel()", begin);
+  assert.ok(begin >= 0 && end > begin);
+  const flow = app.slice(begin, end);
+  assert.match(flow, /\["overview", "targets"\]\.includes\(activePage\)/);
+  assert.equal((flow.match(/\["overview", "targets"\]\.includes\(activePage\)/g) || []).length, 3);
+  assert.doesNotMatch(flow, /activePage !== "overview"/);
+  assert.match(app, /data-award-top10/);
+  assert.match(app, /downloadTopPsCertificates\(awardSingle\?\.dataset\.psCertificate \|\| null\)/);
+});
