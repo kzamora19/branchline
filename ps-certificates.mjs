@@ -40,7 +40,7 @@ export function certificateDocument(awardees, options = {}) {
 
   function centered(text, top, fontSize, extra = {}) {
     return { text, fontSize, color: color.ink, alignment: "center",
-      absolutePosition: { x: 72, y: top }, width: 698, ...extra };
+      absolutePosition: { x: 0, y: top }, width: 842, ...extra };
   }
   const pages = awardees.map((person, index) => {
     if (!person.name || !Number.isFinite(person.total) || person.total <= 0) {
@@ -62,9 +62,8 @@ export function certificateDocument(awardees, options = {}) {
         centered("RANK #" + person.rank + "  •  TOP 10 PRODUCT SPECIALISTS", 283, 14, {
           color: color.gold, bold: true, characterSpacing: 0.5,
         }),
-        centered("In grateful recognition of your outstanding sales performance, unwavering dedication, and valuable contributions to the continued success of 1st Megasaver.", 307, 10.8, {
-          absolutePosition: { x: 98, y: 307 }, width: 646,
-          color: color.ink, lineHeight: 1.15,
+        centered("In grateful recognition of your outstanding sales performance, unwavering dedication,\nand valuable contributions to the continued success of 1st Megasaver.", 307, 11.3, {
+          color: color.ink, lineHeight: 1.13,
         }),
         centered(period, 351, period.length > 70 ? 11.5 : 14.2, {
           color: "#FFFFFF", bold: true, characterSpacing: 0.5,
