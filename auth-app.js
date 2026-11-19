@@ -1194,15 +1194,21 @@
       && ui.month <= today.slice(0, 7) ? ui.month : today.slice(0, 7);
     const selectedYear = selectedMonth.slice(0, 4);
     const initialKind = ui.period === "year" ? "annual" : "monthly";
+    let prepared = null;
     openModal({
-      title: onlyId ? "Download Product Specialist Certificate" : "Download Top 10 Certificates",
-      intro: "Choose the actual performance period and enter the signatories to be printed. Names are optional and apply only to this export.",
-      submitLabel: "Generate certificate PDF",
+      title: onlyId ? "Product Specialist Certificate" : "Product Specialist Awards",
+      intro: "Choose the awardee count and period, then preview the actual certificate PDF before downloading. Names are optional.",
+      submitLabel: "Preview certificates",
+      wide: true,
       body: `<label class="field"><span>Certificate period</span>
         <select name="certificate_kind" required>
           <option value="monthly" ${initialKind === "monthly" ? "selected" : ""}>Monthly certificate</option>
           <option value="annual" ${initialKind === "annual" ? "selected" : ""}>Annual certificate</option>
         </select></label>
+        ${onlyId ? "" : `<label class="field"><span>Number of awardees</span><select name="certificate_count" required>
+          ${Array.from({ length: 10 }, (_, index) => index + 1).map(count =>
+            `<option value="${count}" ${count === 10 ? "selected" : ""}>Top ${count}</option>`).join("")}
+        </select></label>`}
         <label class="field" data-certificate-month><span>Month covered</span>
           <input type="month" name="certificate_month" max="${today.slice(0, 7)}"
             value="${selectedMonth}" required></label>
@@ -1215,8 +1221,41 @@
         <label class="field"><span>District Manager name (optional)</span>
           <input type="text" name="district_manager_name" maxlength="80"
             placeholder="Enter printed name under the signature line" autocomplete="off"></label>
-        <p class="an-note">Both signatory names are centered beneath their signature lines. They are not saved to the staff directory or database. A current month/year certificate is marked through today's date.</p>`,
+        <p class="an-note">Both signatory names appear beneath the approved signature lines. Every recipient gets one A4 landscape certificate page.</p>
+        <div class="certificate-preview" data-certificate-preview hidden>
+          <p class="an-note" role="status" data-certificate-preview-status></p>
+          <iframe title="Certificate PDF preview" data-certificate-preview-frame></iframe>
+        </div>`,
       onReady: form => {
+        const download = document.createElement("button");
+        download.type = "button";
+        download.className = "button button-primary";
+        download.textContent = "Download approved PDF";
+        download.disabled = true;
+        form.querySelector(".dlg-actions")?.append(download);
+        const invalidate = () => {
+          prepared = null;
+          download.disabled = true;
+          form.querySelector("[data-certificate-preview]").hidden = true;
+          form.querySelector("[data-certificate-preview-frame]").removeAttribute("src");
+          const root = form.closest(".dlg-backdrop");
+          if (root?.certificatePreviewUrl) {
+            URL.revokeObjectURL(root.certificatePreviewUrl);
+            root.certificatePreviewUrl = null;
+          }
+        };
+        form.addEventListener("input", invalidate);
+        form.addEventListener("change", invalidate);
+        download.addEventListener("click", () => {
+          if (!prepared) return;
+          if (currentProfile?.id !== profileId || client !== sessionClient
+              || !["overview", "targets"].includes(activePage)) {
+            invalidate();
+            alert("Your session or selected page changed. Preview certificates again.");
+            return;
+          }
+          downloadFile(prepared.name, prepared.blob);
+        });
         const update = () => {
           const isAnnual = form.elements.certificate_kind.value === "annual";
           form.querySelector("[data-certificate-month]").hidden = isAnnual;
@@ -1239,7 +1278,11 @@
           throw new Error("Your session or selected page changed. Open the certificate form again.");
         }
         const ranking = psAwardRankingRows(scope, window);
-        const awardees = topSpecialistAwardees(ranking, liveData.profiles, 10);
+        const awardeeCount = onlyId ? 10 : Number(form.elements.certificate_count.value);
+        if (!Number.isInteger(awardeeCount) || awardeeCount < 1 || awardeeCount > 10) {
+          throw new Error("Choose between 1 and 10 awardees.");
+        }
+        const awardees = topSpecialistAwardees(ranking, liveData.profiles, awardeeCount);
         const selected = onlyId ? awardees.filter(row => row.id === onlyId) : awardees;
         if (!selected.length) {
           throw new Error(onlyId
@@ -1256,16 +1299,25 @@
         if (currentProfile?.id !== profileId || client !== sessionClient || !["overview", "targets"].includes(activePage)) {
           throw new Error("Your session changed. The certificate was not exported.");
         }
-        const name = "first-megasaver-top-ps-certificates-" + window.fileKey
-          + (onlyId ? "-rank-" + selected[0].rank : "") + ".pdf";
-        await new Promise((resolve, reject) => {
-          try {
-            pdf.createPdf(doc).getBlob(blob => {
-              if (currentProfile?.id === profileId && client === sessionClient) downloadFile(name, blob);
-              resolve();
-            });
-          } catch (error) { reject(error); }
+        const name = "first-megasaver-" + (onlyId ? "ps-certificate-rank-" + selected[0].rank
+          : "top-" + selected.length + "-ps-certificates") + "-" + window.fileKey + ".pdf";
+        const blob = await new Promise((resolve, reject) => {
+          try { pdf.createPdf(doc).getBlob(resolve); } catch (error) { reject(error); }
         });
+        if (currentProfile?.id !== profileId || client !== sessionClient || !["overview", "targets"].includes(activePage)
+            || !form.isConnected) throw new Error("Your session changed. Reopen the certificate preview.");
+        const root = form.closest(".dlg-backdrop");
+        if (root.certificatePreviewUrl) URL.revokeObjectURL(root.certificatePreviewUrl);
+        root.certificatePreviewUrl = URL.createObjectURL(blob);
+        prepared = { blob, name };
+        const preview = form.querySelector("[data-certificate-preview]");
+        preview.hidden = false;
+        form.querySelector("[data-certificate-preview-status]").textContent =
+          selected.length + " certificate" + (selected.length === 1 ? "" : "s")
+          + " · " + window.label + " · review the pages before downloading.";
+        form.querySelector("[data-certificate-preview-frame]").src = root.certificatePreviewUrl;
+        form.querySelector(".dlg-actions button:last-child").disabled = false;
+        return false;
       },
     });
   }
@@ -1459,7 +1511,7 @@
     const awardees = psAwardRankingRows(scope);
     const ranking = psRankingRows(scope);
     const awardButton = demoStore ? "" : '<button type="button" class="button button-outline ps-award-batch" data-award-top10 '
-      + (awardees.length ? "" : "disabled") + ' aria-label="Download printable Top 10 Product Specialist certificates">Print Top 10 Certificates (PDF)</button>';
+      + (awardees.length ? "" : "disabled") + ' aria-label="Download printable Top 10 Product Specialist certificates">Print PS Certificates (PDF)</button>';
     const table = tableBlock(
       "psrank",
       ["Rank", "Product Specialist", "Brand", "Branch", "Total sales"],
@@ -6842,6 +6894,7 @@
     closeExportMenu();
     const popup = pieTablePopup;
     pieTablePopup = null;
+    if (modalRoot?.certificatePreviewUrl) URL.revokeObjectURL(modalRoot.certificatePreviewUrl);
     modalRoot?.remove();
     modalRoot = null;
     if (inventorySerialReturn?.isConnected) inventorySerialReturn.focus({ preventScroll: true });
