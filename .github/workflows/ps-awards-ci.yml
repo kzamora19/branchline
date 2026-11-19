@@ -62,6 +62,7 @@ jobs:
           pdftoppm -f 1 -l 1 -scale-to 1300 -png -singlefile certificate-render-output/award-one.pdf certificate-render-output/award-one-preview
           pdftoppm -f 10 -l 10 -scale-to 1300 -png -singlefile certificate-render-output/awards-ten.pdf certificate-render-output/award-ten-preview
       - name: Upload rendered certificate test previews
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: certificate-print-validation
