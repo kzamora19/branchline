@@ -87,7 +87,7 @@ test("real pdfmake generates correctly paginated one-person and ten-person A4 la
     assert.ok(text.includes("RANK #1"), "award rank is rendered");
     assert.ok(text.includes("MARINA C. SANTOS"), "BM name is in actual PDF text");
     assert.ok(text.includes("ELENA D. CRUZ"), "District Manager name is in actual PDF text");
-    assert.ok(text.includes("This certificate is proudly presented to"), "approved introduction is present");
+    assert.ok(text.replace(/\s+/g, "").includes("Thiscertificateisproudlypresentedto"), "approved introduction is present");
     assert.ok(!text.includes("Credited sales:"), "credited sales must remain omitted");
     assert.ok(!text.includes("Award scope:"), "award scope must remain omitted");
     assert.ok(text.includes("Issued: 2026-11-18"), "issued date is printed");
