@@ -1396,6 +1396,36 @@
     if (currentProfile?.id === originalSession && client === sessionClient) await refreshData();
   }
 
+  // Local, per-account and per-day snooze. This changes only the manager's
+  // view; it never sends a push or writes any sales/target records.
+  function managerAttentionSnoozeStore() {
+    if (!currentProfile?.id) return null;
+    const storageKey = "branchline:manager-attention:snoozes:" + currentProfile.id;
+    const today = localISODate();
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
+      const ids = saved?.day === today && Array.isArray(saved.ids)
+        ? saved.ids.filter(id => typeof id === "string").slice(0, 200)
+        : [];
+      return { storageKey, day: today, ids: new Set(ids) };
+    } catch {
+      return null; // Restricted browser storage must not prevent alerts.
+    }
+  }
+
+  function snoozeManagerAttentionNotice(id) {
+    const store = managerAttentionSnoozeStore();
+    if (!store || !id || id.length > 160) return false;
+    store.ids.add(id);
+    try {
+      localStorage.setItem(store.storageKey,
+        JSON.stringify({ day: store.day, ids: [...store.ids].slice(-200) }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function managementAttentionPanel(branches, brands) {
     if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return "";
     const scoped = scopeBranchIds();
@@ -1455,12 +1485,19 @@
       rows: branches, expectedByBranch, unassignedCount, brandRows: scopedBrandRows,
       expectedBrandPace: paceFraction(scoped), stockAlerts, declines, missingCodesCount,
     }) || [];
-    const contents = notices.length
-      ? '<div class="manager-attention-grid">' + notices.map(notice =>
+    const snoozed = managerAttentionSnoozeStore()?.ids || new Set();
+    const visible = notices.filter(notice => !snoozed.has(notice.id));
+    const contents = visible.length
+      ? '<div class="manager-attention-grid">' + visible.map(notice =>
         '<article class="manager-attention-item manager-attention-' + notice.level + '">'
           + '<strong>' + escapeHTML(notice.title) + '</strong>'
-          + '<p>' + escapeHTML(notice.detail) + '</p></article>').join("") + '</div>'
-      : '<p class="ps-award-note">No exceptions flagged for the current branch and reporting-period selection.</p>';
+          + '<p>' + escapeHTML(notice.detail) + '</p>'
+          + '<button type="button" class="button button-outline button-small" data-manager-attention-snooze="'
+          + escapeHTML(notice.id) + '" aria-label="Remind me tomorrow about ' + escapeHTML(notice.title)
+          + '">Remind me tomorrow</button></article>').join("") + '</div>'
+      : '<p class="ps-award-note">' + (notices.length
+        ? 'All current notices are snoozed until tomorrow. New exceptions will appear tomorrow.'
+        : 'No exceptions flagged for the current branch and reporting-period selection.') + '</p>';
     return panel(
       "Manager attention",
       "Read-only target-pace and sales-attribution checks. These are not push notifications or scheduled messages.",
@@ -8930,6 +8967,14 @@
       if (!["manager", "district_manager", "admin"].includes(currentProfile?.role) || demoStore) return;
       void downloadTopPsCertificates(awardSingle?.dataset.psCertificate || null)
         .catch(error => { console.error("Certificate export failed.", error); alert(error.message || "Certificate export failed."); });
+      return;
+    }
+    const snoozeNotice = event.target.closest("[data-manager-attention-snooze]");
+    if (snoozeNotice) {
+      if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return;
+      if (!snoozeManagerAttentionNotice(snoozeNotice.dataset.managerAttentionSnooze)) {
+        alert("Your browser could not save this notice preference.");
+      } else refreshResults();
       return;
     }
     if (event.target.closest("[data-manager-attention-analytics]")) {
