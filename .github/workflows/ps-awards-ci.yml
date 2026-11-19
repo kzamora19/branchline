@@ -1,0 +1,70 @@
+name: PS awards validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'auth-app.js'
+      - 'ps-certificates.mjs'
+      - 'certificate-corporate-frame.mjs'
+      - 'certificate-periods.mjs'
+      - 'certificate-periods.test.mjs'
+      - 'first-megasaver-logo-data.mjs'
+      - 'management-reports.mjs'
+      - 'management-charts.mjs'
+      - 'management-charts.test.cjs'
+      - 'ptg-sales-insights.test.cjs'
+      - 'supabase/functions/ptg-inventory/index.ts'
+      - 'manager-attention.js'
+      - 'manager-attention.test.cjs'
+      - 'management-reports.test.cjs'
+      - 'ps-certificates.test.cjs'
+      - 'ps-performance.js'
+      - 'ps-performance.test.cjs'
+      - 'ps-individual-goals.test.cjs'
+      - 'supabase/migrations/20261224000000_ps_individual_monthly_targets.sql'
+      - 'certificates-render.test.cjs'
+      - 'styles.css'
+      - '.github/workflows/ps-awards-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-awards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test awards, management reports, integration and existing exports
+        run: node --test certificate-periods.test.mjs ps-certificates.test.cjs management-reports.test.cjs management-charts.test.cjs manager-attention.test.cjs ps-performance.test.cjs ps-individual-goals.test.cjs ptg-sales-insights.test.cjs exports.test.js
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check staged PTG inventory insights Edge Function
+        run: deno check supabase/functions/ptg-inventory/index.ts
+
+      - name: Install PDF inspection tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends poppler-utils
+      - name: Render real certificate PDFs with pdfmake
+        run: |
+          npm install --no-save --no-audit --no-fund --ignore-scripts pdfmake@0.2.20
+          CERT_RENDER_DIR=certificate-render-output node --test certificates-render.test.cjs
+      - name: Render first and last certificate previews
+        run: |
+          pdftoppm -f 1 -l 1 -scale-to 1300 -png -singlefile certificate-render-output/award-one.pdf certificate-render-output/award-one-preview
+          pdftoppm -f 10 -l 10 -scale-to 1300 -png -singlefile certificate-render-output/awards-ten.pdf certificate-render-output/award-ten-preview
+      - name: Upload rendered certificate test previews
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: certificate-print-validation
+          path: certificate-render-output/
+          retention-days: 14

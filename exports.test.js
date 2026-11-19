@@ -171,6 +171,8 @@ test("table, PDF and Excel exports keep only their explicitly meaningful columns
 
 test("Sales and Brand Log downloads keep one PS name at the end and aligned row values", () => {
   const fixture = allFixture("manager");
+  vm.runInContext(section("  function exportSales(", "  // Pop-up with one Product Specialist's sales"), fixture.ctx);
+  vm.runInContext('addTo = (map, key, value) => map.set(key, (map.get(key) || 0) + value); branchDistrictName = () => "District 1";', fixture.ctx);
   vm.runInContext("exportSales()", fixture.ctx);
   const detail = fixture.ctx.output.sheets.find(sheet => sheet.name === "Sales").rows;
   const headers = [...detail[0]];

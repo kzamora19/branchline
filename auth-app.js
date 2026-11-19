@@ -561,6 +561,8 @@
         fetchAll("branches", "id,name,district_id,code,transfer_sequence", [["name", true], ["id", true]]),
         fetchAll("districts", "id,name", [["name", true], ["id", true]]),
         fetchAll("monthly_targets", "id,branch_id,month,amount", [["month", false], ["id", true]]),
+        demoStore ? Promise.resolve({ data: [], error: null })
+          : fetchAll("ps_monthly_targets", "id,branch_id,ps_id,month,amount", [["month", false], ["id", true]]),
         fetchAll("sales",         "id,branch_id,ps_id,ps_name,salesperson_code,customer_name,invoice_number,sold_on,payment_mode,city,barangay,fulfillment_method,created_at,updated_at", [["sold_on", false], ["id", true]]),
                 fetchAll("products", "id,branch_id,barcode,model_description,brand,category,sub_category,active,srp", [["model_description", true], ["id", true]], query => (catalogBranch ? query.eq("branch_id", catalogBranch) : query).eq("active", true)),
         fetchAll("profiles", "id,full_name,role,branch_id,district_id,assigned_brand,active,login_id,email,salesperson_code", [["id", true]]),
@@ -587,7 +589,7 @@
         !demoStore && rolePages[profile.role].includes("customers") ? loadCustomerMasterAliases(client) : null,
       ];
       let completed = 0;
-      const [branches, districts, targets, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, pushSchedules, paymentTargets, importBatches, dailyHistory, saleSerials, returnLines, customerMaster] = await Promise.all(
+      const [branches, districts, targets, individualGoals, sales, products, profiles, brandTargets, saleLines, managerLinks, brandSales, paymentModes, psDashboard, holidays, psWalkins, branchWalkins, pushMessages, pushSchedules, paymentTargets, importBatches, dailyHistory, saleSerials, returnLines, customerMaster] = await Promise.all(
         requests.map(request => Promise.resolve(request).then(result => {
           loading.update(10 + (++completed / requests.length) * 55, "Loading sales and account data...");
           return result;
@@ -639,6 +641,8 @@
         branches: visibleBranches,
         districts: visibleDistricts,
         targets: visibleTargets,
+        individualGoals: individualGoals.error ? [] : individualGoals.data,
+        individualGoalLoadError: individualGoals.error ? "Individual PS targets unavailable; branch shares will be indicative only." : "",
         brandTargets: brandTargets.error ? [] : brandTargets.data.map(item => ({ ...item, brand: titleCase(item.brand) })),
         sales: visibleSales.filter(item => !testSaleIds.has(item.id)),
         customerMaster,
@@ -679,6 +683,7 @@
         importBatches: importBatches.error ? [] : importBatches.data,
         dailyHistory: dailyHistory.error ? [] : dailyHistory.data.map(row => ({ ...row, day: String(row.day).slice(0, 10), sales: Number(row.sales), transactions: Number(row.transactions) })),
         exportWarnings: [
+          ["Individual PS targets", individualGoals],
           ["Brand targets", brandTargets], ["Manager links", managerLinks], ["Brand sales", brandSales],
           ["Personal dashboard", psDashboard], ["Brand contribution", brandContribution], ["Store-closed dates", holidays],
           ["Clients assisted", psWalkins], ["Store walk-ins", branchWalkins], ["Payment targets", paymentTargets],
@@ -893,13 +898,18 @@
     const branchTarget = liveData.targets
       .filter(row => row.branch_id === branchId && targetInPeriod(row.month))
       .reduce((total, row) => total + Number(row.amount), 0);
-    const target = activePsCount ? branchTarget / activePsCount : 0;
+    const assigned = ui.period !== "year" && (liveData.individualGoals || []).find(goal =>
+      goal.ps_id === currentProfile.id && goal.branch_id === branchId
+      && String(goal.month).slice(0, 7) === anchorMonth());
+    const explicit = assigned && Number(assigned.amount) > 0 ? Number(assigned.amount) : null;
+    const target = explicit ?? (activePsCount ? branchTarget / activePsCount : 0);
+    const targetSource = explicit !== null ? "individual" : "indicative";
     const actual = liveData.sales
       .filter(sale => sale.ps_id === currentProfile.id
         && sale.branch_id === branchId
         && inStatus(sale.sold_on))
       .reduce((total, sale) => total + saleTotal(sale, basis), 0);
-    return { actual, target, branchTarget, activePsCount };
+    return { actual, target, branchTarget, activePsCount, targetSource };
   }
 
   function psTargetCharts(scope) {
@@ -911,8 +921,10 @@
         currentLabel: "My sales",
         emptyText: "No branch target is set for this period yet.",
       }),
-      progressChart(personal.actual, personal.target, `${scope} · store target ÷ ${count} PS${count === 1 ? "" : "s"} in the branch`, {
-        title: "My sales vs my share of the store target",
+      progressChart(personal.actual, personal.target, personal.targetSource === "individual"
+        ? `${scope} · assigned individual monthly sales target`
+        : `${scope} · indicative store target ÷ ${count} PS${count === 1 ? "" : "s"} in the branch`, {
+        title: personal.targetSource === "individual" ? "My sales vs assigned monthly target" : "My sales vs my indicative share",
         currentLabel: "My sales",
         emptyText: count ? "No branch target is set for this period yet." : "The Product Specialist count is unavailable, so your share cannot be calculated.",
       }),
@@ -1058,6 +1070,381 @@
       `<option value="${escapeHTML(option)}" ${selected === option ? "selected" : ""}>${escapeHTML(option)}</option>`).join("")}</select></label>`;
   }
 
+
+  // Award totals exclude demo records, test profiles, zero sales and prior-branch transactions.
+  function psAwardRankingRows(scope, certificateWindow = null) {
+    const ids = scope || scopeBranchIds();
+    // A certificate has its own independent reporting window. Never relabel
+    // a monthly dashboard ranking as annual (or the reverse).
+    const withinAwardPeriod = dateText => {
+      const day = String(dateText || "").slice(0, 10);
+      return certificateWindow
+        ? day >= certificateWindow.from && day <= certificateWindow.through
+        : inPeriod(dateText);
+    };
+    const profiles = new Map(liveData.profiles.map(p => [p.id, p]));
+    const testIds = new Set(liveData.profiles.filter(isTestProfile).map(p => p.id));
+    const filters = { brand: ui.rankBrand, category: ui.rankCategory, sub: ui.rankSub };
+    const totals = new Map(), transactions = new Map(), dailyByPs = new Map();
+    liveData.sales.forEach(sale => {
+      const person = profiles.get(sale.ps_id);
+      if (!person || person.role !== "ps" || person.active === false || isTestProfile(person)
+          || isTestSale(sale, testIds) || (person.branch_id && person.branch_id !== sale.branch_id)
+          || !ids.has(sale.branch_id) || !withinAwardPeriod(sale.sold_on)) return;
+      const sum = linesForSale(sale.id).filter(line => lineMatches(line, filters))
+        .reduce((total, line) => total + window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), 0);
+      if (!(sum > 0)) return;
+      addTo(totals, sale.ps_id, sum);
+      transactions.set(sale.ps_id, (transactions.get(sale.ps_id) || 0) + 1);
+      if (!dailyByPs.has(sale.ps_id)) dailyByPs.set(sale.ps_id, new Map());
+      addTo(dailyByPs.get(sale.ps_id), String(sale.sold_on).slice(0, 10), sum);
+    });
+    const assistance = new Map();
+    // A PS conversion estimate is shown only on days with reported assisted
+    // clients. Monthly conversions must not assume missing days had zero traffic.
+    if (!filters.brand && !filters.category && !filters.sub) {
+      (liveData.psWalkins || []).forEach(item => {
+        const person = profiles.get(item.ps_id);
+        const date = String(item.counted_on || "").slice(0, 10);
+        if (!person || person.role !== "ps" || person.active === false
+            || person.branch_id !== item.branch_id || !ids.has(item.branch_id)
+            || !withinAwardPeriod(date) || isTestProfile(person)) return;
+        const count = Number(item.clients_assisted);
+        if (!Number.isFinite(count) || count < 0) return;
+        if (!assistance.has(item.ps_id)) assistance.set(item.ps_id, { assisted: 0, dates: new Set() });
+        const entry = assistance.get(item.ps_id);
+        entry.assisted += Math.trunc(count);
+        entry.dates.add(date);
+      });
+    }
+    return [...totals].map(([id, total]) => {
+      const person = profiles.get(id);
+      const count = transactions.get(id) || 0;
+      const showTarget = certificateWindow === null && ui.period === "month" && !filters.brand && !filters.category && !filters.sub;
+      const countPs = showTarget ? liveData.profiles.filter(p =>
+        p.role === "ps" && p.active && !isTestProfile(p) && p.branch_id === person.branch_id).length : 0;
+      const storeTarget = showTarget ? liveData.targets.filter(t =>
+        t.branch_id === person.branch_id && String(t.month).slice(0, 7) === ui.month)
+        .reduce((sum, t) => sum + Number(t.amount || 0), 0) : 0;
+      const indicativeShare = showTarget && countPs && storeTarget > 0 ? storeTarget / countPs : null;
+      const assigned = showTarget ? (liveData.individualGoals || []).find(goal =>
+        goal.ps_id === id && goal.branch_id === person.branch_id && String(goal.month).slice(0, 7) === ui.month) : null;
+      const realTarget = assigned && Number(assigned.amount) > 0 ? Number(assigned.amount) : null;
+      const goal = realTarget ?? indicativeShare;
+      const targetLabel = realTarget !== null ? "Assigned PS target" : "Indicative branch share";
+      const today = localISODate();
+      const selectedMonth = ui.month;
+      const pastMonthEnd = selectedMonth && /^\d{4}-\d{2}$/.test(selectedMonth)
+        ? new Date(Date.UTC(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0)).toISOString().slice(0, 10)
+        : today;
+      const asOf = certificateWindow ? null : ui.period === "day" ? periodDay()
+        : selectedMonth < today.slice(0, 7) ? pastMonthEnd
+        : selectedMonth === today.slice(0, 7) ? today : null;
+      const trend = asOf && window.BranchlinePsPerformance?.specialistTrend
+        ? window.BranchlinePsPerformance.specialistTrend(dailyByPs.get(id) || new Map(), asOf) : null;
+      let pace = null, monthProjection = null;
+      if (showTarget && selectedMonth === today.slice(0, 7)
+        && typeof calendarForecastRules === "function"
+        && window.BranchlineAnalytics?.forecastMonth && window.BranchlinePsPerformance?.timePace) {
+        const rules = calendarForecastRules(new Set([person.branch_id]));
+        const forecast = window.BranchlineAnalytics.forecastMonth({
+          month: selectedMonth, refDate: today,
+          daily: Object.fromEntries(dailyByPs.get(id) || []), rules, partialDay: true,
+        });
+        const expected = paceFraction(new Set([person.branch_id]));
+        pace = window.BranchlinePsPerformance.timePace({
+          target: goal, actual: total, paceFraction: expected,
+          remainingSellingDays: forecast.paceDays,
+        });
+        if (forecast.status === "projected") monthProjection = forecast.value;
+      }
+      const assistRecord = assistance.get(id);
+      const countedTransactions = assistRecord ? liveData.sales.filter(sale =>
+        sale.ps_id === id && sale.branch_id === person.branch_id
+        && assistRecord.dates.has(String(sale.sold_on || "").slice(0, 10))
+        && !isTestSale(sale, testIds)).length : 0;
+      // More recorded sales than logged assisted clients is ambiguous; omit.
+      const assisted = assistRecord?.assisted || 0;
+      const conversion = assisted > 0 && countedTransactions <= assisted
+        ? countedTransactions / assisted * 100 : null;
+      return {
+        id, name: person.full_name || "Staff member",
+        brand: person.assigned_brand || "—", branch: branchName(person.branch_id),
+        total, transactions: count, avgTicket: count ? total / count : 0,
+        assisted, conversion, trend, pace, monthProjection,
+        assignedTarget: realTarget, targetLabel,
+        targetShare: goal, progress: goal ? total / goal * 100 : null,
+      };
+    }).sort((a, b) => b.total - a.total || natural(a.name, b.name) || natural(a.id, b.id))
+      .slice(0, 10).map((row, index) => ({ ...row, rank: index + 1 }));
+  }
+
+  function psAwardScopeLabel(ids) {
+    const names = liveData.branches.filter(branch => ids.has(branch.id)).map(branch => branch.name).sort(natural);
+    return names.length === 1 ? names[0] : names.length + " authorized branches";
+  }
+
+  function downloadTopPsCertificates(onlyId) {
+    if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)
+        || demoStore || activePage !== "overview") return;
+    const profileId = currentProfile.id, sessionClient = client;
+    const scope = panelIds("rankBranch", scopeBranchIds());
+    const today = localISODate();
+    const selectedMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(ui.month || "")
+      && ui.month <= today.slice(0, 7) ? ui.month : today.slice(0, 7);
+    const selectedYear = selectedMonth.slice(0, 4);
+    const initialKind = ui.period === "year" ? "annual" : "monthly";
+    openModal({
+      title: onlyId ? "Download Product Specialist Certificate" : "Download Top 10 Certificates",
+      intro: "Choose the actual performance period and enter the signatories to be printed. Names are optional and apply only to this export.",
+      submitLabel: "Generate certificate PDF",
+      body: `<label class="field"><span>Certificate period</span>
+        <select name="certificate_kind" required>
+          <option value="monthly" ${initialKind === "monthly" ? "selected" : ""}>Monthly certificate</option>
+          <option value="annual" ${initialKind === "annual" ? "selected" : ""}>Annual certificate</option>
+        </select></label>
+        <label class="field" data-certificate-month><span>Month covered</span>
+          <input type="month" name="certificate_month" max="${today.slice(0, 7)}"
+            value="${selectedMonth}" required></label>
+        <label class="field" data-certificate-year><span>Year covered</span>
+          <input type="number" name="certificate_year" min="2000" max="${today.slice(0, 4)}"
+            step="1" value="${selectedYear}" required></label>
+        <label class="field"><span>Branch Manager name (optional)</span>
+          <input type="text" name="branch_manager_name" maxlength="80"
+            placeholder="Enter printed name under the signature line" autocomplete="off"></label>
+        <label class="field"><span>District Manager name (optional)</span>
+          <input type="text" name="district_manager_name" maxlength="80"
+            placeholder="Enter printed name under the signature line" autocomplete="off"></label>
+        <p class="an-note">Both signatory names are centered beneath their signature lines. They are not saved to the staff directory or database. A current month/year certificate is marked through today's date.</p>`,
+      onReady: form => {
+        const update = () => {
+          const isAnnual = form.elements.certificate_kind.value === "annual";
+          form.querySelector("[data-certificate-month]").hidden = isAnnual;
+          form.querySelector("[data-certificate-year]").hidden = !isAnnual;
+          form.elements.certificate_month.disabled = isAnnual;
+          form.elements.certificate_year.disabled = !isAnnual;
+        };
+        form.elements.certificate_kind.addEventListener("change", update);
+        update();
+      },
+      onSubmit: async form => {
+        const { certificatePeriodRange } = await import("./certificate-periods.mjs");
+        const kind = form.elements.certificate_kind.value;
+        const value = kind === "annual"
+          ? String(form.elements.certificate_year.value).trim()
+          : String(form.elements.certificate_month.value).trim();
+        const window = certificatePeriodRange(kind, value, today);
+        const { topSpecialistAwardees, certificateDocument } = await import("./ps-certificates.mjs");
+        if (currentProfile?.id !== profileId || client !== sessionClient || activePage !== "overview") {
+          throw new Error("Your session or selected page changed. Open the certificate form again.");
+        }
+        const ranking = psAwardRankingRows(scope, window);
+        const awardees = topSpecialistAwardees(ranking, liveData.profiles, 10);
+        const selected = onlyId ? awardees.filter(row => row.id === onlyId) : awardees;
+        if (!selected.length) {
+          throw new Error(onlyId
+            ? "This specialist is not among the eligible Top 10 for the chosen period and filters."
+            : "There are no eligible Product Specialists with positive sales for this period.");
+        }
+        const doc = certificateDocument(selected, {
+          period: window.label,
+          issuedOn: today,
+          branchManagerName: String(form.elements.branch_manager_name.value || "").trim(),
+          districtManagerName: String(form.elements.district_manager_name.value || "").trim(),
+        });
+        const pdf = await loadPdfLibrary();
+        if (currentProfile?.id !== profileId || client !== sessionClient || activePage !== "overview") {
+          throw new Error("Your session changed. The certificate was not exported.");
+        }
+        const name = "first-megasaver-top-ps-certificates-" + window.fileKey
+          + (onlyId ? "-rank-" + selected[0].rank : "") + ".pdf";
+        await new Promise((resolve, reject) => {
+          try {
+            pdf.createPdf(doc).getBlob(blob => {
+              if (currentProfile?.id === profileId && client === sessionClient) downloadFile(name, blob);
+              resolve();
+            });
+          } catch (error) { reject(error); }
+        });
+      },
+    });
+  }
+
+  function psIndividualTargetPanel() {
+    if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)
+        || ui.period !== "month") return "";
+    const ids = panelIds("rankBranch", scopeBranchIds());
+    const people = liveData.profiles.filter(person =>
+      person.role === "ps" && person.active && !isTestProfile(person)
+      && person.branch_id && ids.has(person.branch_id))
+      .sort((a, b) => natural(branchName(a.branch_id), branchName(b.branch_id)) || natural(a.full_name, b.full_name));
+    const unavailable = !!liveData.individualGoalLoadError;
+    const rows = people.map(person => {
+      const goal = (liveData.individualGoals || []).find(row =>
+        row.ps_id === person.id && row.branch_id === person.branch_id
+        && String(row.month).slice(0, 7) === ui.month);
+      return '<tr data-ps-goal-row><td><strong>' + escapeHTML(person.full_name) + '</strong></td>'
+        + '<td>' + escapeHTML(branchName(person.branch_id)) + '</td>'
+        + '<td><label class="visually-hidden" for="goal-' + escapeHTML(person.id) + '">Monthly sales target for ' + escapeHTML(person.full_name) + '</label>'
+        + '<input id="goal-' + escapeHTML(person.id) + '" data-ps-goal-input type="number" min="0" max="9999999999" step="0.01"'
+        + ' placeholder="Not assigned" value="' + escapeHTML(goal?.amount == null ? "" : String(goal.amount)) + '"'
+        + (unavailable || demoStore ? " disabled" : "") + '></td>'
+        + '<td><button type="button" class="button button-outline" data-save-ps-goal="' + escapeHTML(person.id) + '"'
+        + (unavailable || demoStore ? " disabled" : "") + '>Save goal</button></td></tr>';
+    }).join("");
+    const content = unavailable
+      ? '<p class="ps-award-note">Individual goals cannot be edited: the protected monthly-target table is unavailable. Apply and verify the staged RLS migration first.</p>'
+      : '<p class="ps-award-note">Set an individual monthly goal for each PS. A blank amount removes the goal and restores the clearly labeled indicative branch share. Only authorized managers can save changes.</p>';
+    return panel(
+      "Individual Product Specialist monthly targets",
+      monthLabel(ui.month) + " · management-only, branch-scoped goals.",
+      content + '<div class="table-wrap ps-target-table"><table><thead><tr>'
+        + '<th>Product Specialist</th><th>Branch</th><th>Individual monthly target (₱)</th><th>Action</th>'
+        + '</tr></thead><tbody>' + (rows || '<tr><td colspan="4">No active Product Specialists in this scope.</td></tr>')
+        + '</tbody></table></div>',
+    );
+  }
+
+  async function saveIndividualPsMonthlyTarget(psId, raw) {
+    if (!["manager", "district_manager", "admin"].includes(currentProfile?.role) || demoStore
+        || liveData.individualGoalLoadError || ui.period !== "month") throw new Error("You cannot edit PS targets in this session.");
+    const person = liveData.profiles.find(p => p.id === psId && p.role === "ps"
+      && p.active && !isTestProfile(p) && scopeBranchIds().has(p.branch_id));
+    if (!person || !/^\d{4}-\d{2}$/.test(ui.month)) throw new Error("That PS or month is not available in your branch scope.");
+    const originalSession = currentProfile.id, sessionClient = client;
+    const monthDate = ui.month + "-01";
+    const text = String(raw || "").trim();
+    if (text && (!/^\d+(?:\.\d{1,2})?$/.test(text) || !Number.isFinite(Number(text))
+      || Number(text) <= 0 || Number(text) > 9999999999)) throw new Error("Enter a valid positive monthly goal with up to two decimal places, or leave blank to remove it.");
+    if (!text) {
+      const deleted = await client.from("ps_monthly_targets").delete()
+        .eq("dealer_id", currentProfile.dealer_id).eq("branch_id", person.branch_id)
+        .eq("ps_id", psId).eq("month", monthDate);
+      if (deleted.error) throw deleted.error;
+    } else {
+      const record = { dealer_id: currentProfile.dealer_id, branch_id: person.branch_id,
+        ps_id: psId, month: monthDate, amount: Number(text), updated_by: currentProfile.id };
+      const updated = await client.from("ps_monthly_targets").upsert(record, { onConflict: "branch_id,ps_id,month" });
+      if (updated.error) throw updated.error;
+    }
+    if (currentProfile?.id === originalSession && client === sessionClient) await refreshData();
+  }
+
+  function managementAttentionPanel(branches, brands) {
+    if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return "";
+    const scoped = scopeBranchIds();
+    const expectedByBranch = Object.fromEntries(branches.map(row => [
+      row.branch.id, paceFraction(new Set([row.branch.id])),
+    ]));
+    const unassignedCount = liveData.sales.filter(sale =>
+      scoped.has(sale.branch_id) && inPeriod(sale.sold_on)
+      && !sale.ps_id && !isTestSale(sale, liveData.testPsIds)).length;
+    const scopedBrandRows = brands.map(row => ({ brand: row.brand, actual: row.actual, target: row.target }));
+    const isCurrent = ui.period === "month" && ui.month === currentMonth();
+    const stockAlerts = [];
+    const declines = [];
+    let missingCodesCount = 0;
+    if (isCurrent) {
+      const today = new Date(localISODate() + "T00:00:00Z");
+      const isoDay = delta => {
+        const day = new Date(today);
+        day.setUTCDate(day.getUTCDate() + delta);
+        return day.toISOString().slice(0, 10);
+      };
+      const recentFrom = isoDay(-29);
+      const previousFrom = isoDay(-14), previousThrough = isoDay(-8);
+      const currentFrom = isoDay(-7), currentThrough = isoDay(-1);
+      const stockMap = new Map((liveData.inventoryStock || []).map(item =>
+        [item.branch_id + "|" + String(item.barcode || "").trim().toUpperCase(), Number(item.quantity || 0)]));
+      const sold = new Map(), weekly = new Map();
+      for (const sale of liveData.sales) {
+        if (!scoped.has(sale.branch_id) || isTestSale(sale, liveData.testPsIds)) continue;
+        const date = String(sale.sold_on).slice(0, 10);
+        if (date >= recentFrom && date <= localISODate()) {
+          if (!String(sale.salesperson_code || "").trim()) missingCodesCount += 1;
+          for (const line of linesForSale(sale.id)) {
+            if (!line.barcode) continue;
+            const key = sale.branch_id + "|" + String(line.barcode).trim().toUpperCase();
+            if (!sold.has(sale.branch_id)) sold.set(sale.branch_id, new Set());
+            sold.get(sale.branch_id).add(key);
+          }
+        }
+        if ((date >= previousFrom && date <= previousThrough) ||
+            (date >= currentFrom && date <= currentThrough)) {
+          const key = sale.branch_id;
+          if (!weekly.has(key)) weekly.set(key, { current: 0, previous: 0 });
+          weekly.get(key)[date >= currentFrom ? "current" : "previous"] += saleTotal(sale, ui.salesBasis);
+        }
+      }
+      for (const row of branches) {
+        const branch = row.branch;
+        const low = [...(sold.get(branch.id) || [])]
+          .filter(key => stockMap.has(key) && stockMap.get(key) <= 1).length;
+        if (low) stockAlerts.push({ branch: branch.name, count: low });
+        const trend = weekly.get(branch.id);
+        if (trend?.previous > 0) declines.push({ branch: branch.name, ...trend });
+      }
+    }
+    const notices = window.BranchlineManagerAttention?.managerAttention({
+      rows: branches, expectedByBranch, unassignedCount, brandRows: scopedBrandRows,
+      expectedBrandPace: paceFraction(scoped), stockAlerts, declines, missingCodesCount,
+    }) || [];
+    const contents = notices.length
+      ? '<div class="manager-attention-grid">' + notices.map(notice =>
+        '<article class="manager-attention-item manager-attention-' + notice.level + '">'
+          + '<strong>' + escapeHTML(notice.title) + '</strong>'
+          + '<p>' + escapeHTML(notice.detail) + '</p></article>').join("") + '</div>'
+      : '<p class="ps-award-note">No exceptions flagged for the current branch and reporting-period selection.</p>';
+    return panel(
+      "Manager attention",
+      "Read-only target-pace and sales-attribution checks. These are not push notifications or scheduled messages.",
+      contents + '<button type="button" class="button button-outline manager-attention-action" data-manager-attention-analytics>Open Analytics</button>',
+    );
+  }
+
+  function managementReportPanel() {
+    if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return "";
+    return panel(
+      "Management Report Center",
+      "Download aggregated reports for the selected month or day and your authorized branches. Weekly reports use Monday–Sunday. Customer information is excluded.",
+      '<div class="management-report-center">'
+        + '<button type="button" class="button button-outline" data-management-report="daily">Daily report</button>'
+        + '<button type="button" class="button button-outline" data-management-report="weekly">Weekly report</button>'
+        + '<button type="button" class="button button-outline" data-management-report="monthly">Monthly report</button>'
+        + '<button type="button" class="button button-outline" data-management-report="ytd">YTD report</button>'
+        + '</div>'
+        + '<p class="ps-award-note">Choose a report, then Excel or PDF. The selected day anchors daily/weekly reports; otherwise they end at the selected month’s latest available date. The weekly range may cross month boundaries. No automatic email delivery is scheduled.</p>',
+    );
+  }
+
+  async function exportManagementReport(kind, format = "excel") {
+    if (!["manager", "district_manager", "admin"].includes(currentProfile?.role) || activePage !== "overview") return;
+    if (liveData?.exportWarnings?.length) throw new Error("Some sales datasets failed to load. Reload successfully before exporting management reports.");
+    const owner = currentProfile.id, sessionClient = client;
+    const { buildManagementReport } = await import("./management-reports.mjs");
+    if (currentProfile?.id !== owner || client !== sessionClient || activePage !== "overview") return;
+    const stamp = localISODate();
+    const result = buildManagementReport({
+      kind, month: ui.month, day: ui.period === "day" ? periodDay() : null, today: stamp,
+      branches: liveData.branches, profiles: liveData.profiles, sales: liveData.sales,
+      branchIds: scopeBranchIds(),
+      isTestSale: sale => isTestSale(sale, liveData.testPsIds),
+      linesForSale,
+      amountForLine: line => window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis),
+      basis: ui.salesBasis === "srp" ? "SRP comparison — selling-price fallback" : "Selling price",
+    });
+    const name = "branchline-management-" + kind + "-" + stamp;
+    if (format === "pdf") {
+      const sheets = ui.salesBasis === "srp"
+        ? [{ name: "Comparison basis", rows: [
+            ["Sales comparison basis", salesBasisNote()],
+            ["Original records", "Prices, product records and monthly targets are unchanged."],
+          ] }, ...result.sheets] : result.sheets;
+      return downloadReportPdf(sheets, name, undefined, { reportCharts: result.charts });
+    }
+    return exportWorkbook(result.sheets, name, false, format);
+  }
+
   function psRankingPanel() {
     if (currentProfile.role === "ps") return "";
     const lines = liveData.saleLines;
@@ -1065,18 +1452,58 @@
     const categories = uniqueSorted(lines.map(line => line.category));
     const subs = uniqueSorted(lines.filter(line => !ui.rankCategory || line.category === ui.rankCategory).map(line => line.sub_category));
     const branchPick = panelBranchSelect("rankBranch", scopeBranchIds(), "field");
-    const filters = `<div class="rank-filters">${rankFilterSelect("rankBrand", "Brand", brands, ui.rankBrand)}${rankFilterSelect("rankCategory", "Category", categories, ui.rankCategory)}${rankFilterSelect("rankSub", "Sub-category", subs, ui.rankSub)}${branchPick}</div>`;
+    const filters = '<div class="rank-filters">'
+      + rankFilterSelect("rankBrand", "Brand", brands, ui.rankBrand)
+      + rankFilterSelect("rankCategory", "Category", categories, ui.rankCategory)
+      + rankFilterSelect("rankSub", "Sub-category", subs, ui.rankSub) + branchPick + '</div>';
     const active = [ui.rankBrand, ui.rankCategory, ui.rankSub].filter(Boolean).join(" › ");
+    const awardees = psAwardRankingRows(panelIds("rankBranch", scopeBranchIds()));
+    const cards = awardees.length
+      ? '<div class="ps-award-grid" aria-label="Top 10 Product Specialist performance cards">'
+        + awardees.map(row => '<article class="ps-award-card">'
+          + '<span class="ps-award-rank">#' + row.rank + ' · TOP PERFORMER</span>'
+          + '<h3>' + escapeHTML(row.name) + '</h3><p>' + escapeHTML(row.branch) + ' · ' + escapeHTML(row.brand) + '</p>'
+          + '<div class="ps-award-stats"><span><small>Credited sales</small><strong>' + formatMoney(row.total) + '</strong></span>'
+          + '<span><small>Transactions</small><strong>' + row.transactions + '</strong></span>'
+          + '<span><small>Avg. ticket</small><strong>' + formatMoney(row.avgTicket) + '</strong></span>'
+          + (row.assisted ? '<span><small>Logged assists</small><strong>' + row.assisted + '</strong></span>' : "")
+          + (row.conversion === null ? "" : '<span><small>Conversion, logged days†</small><strong>' + row.conversion.toFixed(1) + '%</strong></span>')
+          + (row.progress === null ? "" : '<span><small>' + escapeHTML(row.targetLabel) + '</small><strong>' + row.progress.toFixed(1) + '%</strong></span>')
+          + (row.pace?.requiredDaily === null || row.pace?.requiredDaily === undefined ? "" : '<span><small>Required per selling day</small><strong>' + formatMoney(row.pace.requiredDaily) + '</strong></span>')
+          + (row.monthProjection === null ? "" : '<span><small>Projected month-end</small><strong>' + formatMoney(row.monthProjection) + '</strong></span>')
+          + (row.trend === null ? "" : '<span><small>7-day sales</small><strong>' + formatMoney(row.trend.current) + '</strong></span>')
+          + (row.trend?.changePct === null || row.trend?.changePct === undefined ? "" : '<span><small>Vs previous 7 days</small><strong>' + row.trend.changePct.toFixed(1) + '%</strong></span>')
+          + '</div>'
+          + (row.trend ? '<div class="ps-trend" role="img" aria-label="Seven days of sales ending ' + escapeHTML(row.trend.series[6].date) + '">'
+            + row.trend.series.map(point => '<span title="' + escapeHTML(point.date) + ' · ' + formatMoney(point.amount) + '" style="height:'
+              + Math.max(4, Math.round(point.amount / Math.max(1, ...row.trend.series.map(x => x.amount)) * 100)) + '%"></span>').join('') + '</div>'
+            : '')
+          + (demoStore ? "" : '<button type="button" class="button button-outline ps-award-single" data-ps-certificate="'
+            + escapeHTML(row.id) + '" aria-label="Download certificate for ' + escapeHTML(row.name) + '">Certificate PDF</button>')
+          + '</article>').join("") + '</div>'
+        + (awardees.some(row => row.targetShare && row.assignedTarget === null)
+          ? '<p class="ps-award-note">*Where no individual goal is assigned, the comparison uses an indicative branch target ÷ active PS count—not a personal quota.</p>' : "")
+        + (liveData.individualGoalLoadError ? '<p class="ps-award-note">' + escapeHTML(liveData.individualGoalLoadError) + '</p>' : "")
+        + (awardees.some(row => row.conversion !== null)
+          ? '<p class="ps-award-note">†Conversion uses recorded sales on dates with logged assisted clients only. Incomplete logs are excluded.</p>' : "")
+      : '<p class="ps-award-note">No eligible Product Specialists with positive recorded sales for this selection.</p>';
+    const awardButton = demoStore ? "" : '<button type="button" class="button button-outline ps-award-batch" data-award-top10 '
+      + (awardees.length ? "" : "disabled") + ' aria-label="Download printable Top 10 Product Specialist certificates">Print Top 10 Certificates (PDF)</button>';
+    const ranking = psRankingRows(panelIds("rankBranch", scopeBranchIds()));
     return panel(
       "Product Specialist ranking",
-      `${periodLabel()} · ${active ? `sales of ${active}` : "overall sales regardless of brand"}, highest first. Click a name to see their sales.`,
-      filters + tableBlock(
+      periodLabel() + " · " + (active ? "sales of " + active : "overall sales regardless of brand")
+        + ", highest first. Click a name to see their sales.",
+      filters + cards + tableBlock(
         "psrank",
         ["Rank", "Product Specialist", "Brand", "Branch", "Total sales"],
-        psRankingRows(panelIds("rankBranch", scopeBranchIds())),
-        row => `<tr class="rank-row" data-ps-detail="${escapeHTML(row.id)}" tabindex="0"><td><strong>#${row.rank}</strong></td><td><strong>${escapeHTML(row.name)}</strong></td><td>${escapeHTML(row.brand)}</td><td>${escapeHTML(row.branch)}</td><td>${formatMoney(row.total)}</td></tr>`,
+        ranking,
+        row => '<tr class="rank-row" data-ps-detail="' + escapeHTML(row.id) + '" tabindex="0"><td><strong>#'
+          + row.rank + '</strong></td><td><strong>' + escapeHTML(row.name) + '</strong></td><td>'
+          + escapeHTML(row.brand) + '</td><td>' + escapeHTML(row.branch) + '</td><td>' + formatMoney(row.total) + '</td></tr>',
         "No Product Specialists match this selection.",
       ),
+      awardButton,
     );
   }
 
@@ -3099,7 +3526,7 @@
           </div>
           <div class="connected-charts">${charts.join("")}</div>
           ${overviewPaymentPanels("pies")}
-          ${psRankingPanel()}`;
+          ${managementAttentionPanel(rows, brands)}${psRankingPanel()}${psIndividualTargetPanel()}${managementReportPanel()}`;
       },
     );
   }
@@ -7551,7 +7978,7 @@
     return weights.map(value => usable * value / total);
   }
 
-  async function downloadReportPdf(sheets, fileName, transaction) {
+  async function downloadReportPdf(sheets, fileName, transaction, options = {}) {
     const profileId = currentProfile?.id;
     const exportClient = client;
     const pdf = await loadPdfLibrary();
@@ -7576,6 +8003,10 @@
       const split = Math.ceil(fields.length / 2);
       content.push({ columns: [{ stack: fields.slice(0, split) }, { stack: fields.slice(split) }],
         columnGap: 16, margin: [0, 0, 0, 8] });
+    }
+    if (options.reportCharts?.length) {
+      const { managementPdfChartBlocks } = await import("./management-charts.mjs");
+      content.push(...managementPdfChartBlocks(options.reportCharts));
     }
     for (const sheet of sheets) {
       const [headers, ...rows] = sheet.rows;
@@ -8392,6 +8823,36 @@
         const rows = JSON.parse(chartButton.dataset.chartRows);
         return exportWorkbook([{ name: title, rows }], `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${localISODate()}`, false, format);
       }, true);
+      return;
+    }
+    const awardBatch = event.target.closest("[data-award-top10]");
+    const awardSingle = event.target.closest("[data-ps-certificate]");
+    if (awardBatch || awardSingle) {
+      if (!["manager", "district_manager", "admin"].includes(currentProfile?.role) || demoStore) return;
+      void downloadTopPsCertificates(awardSingle?.dataset.psCertificate || null)
+        .catch(error => { console.error("Certificate export failed.", error); alert(error.message || "Certificate export failed."); });
+      return;
+    }
+    if (event.target.closest("[data-manager-attention-analytics]")) {
+      if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return;
+      activePage = "analytics";
+      renderConnected();
+      return;
+    }
+    const goalButton = event.target.closest("[data-save-ps-goal]");
+    if (goalButton) {
+      const input = goalButton.closest("[data-ps-goal-row]")?.querySelector("[data-ps-goal-input]");
+      if (!input || goalButton.disabled) return;
+      goalButton.disabled = true;
+      void saveIndividualPsMonthlyTarget(goalButton.dataset.savePsGoal, input.value)
+        .catch(error => { console.error("Individual PS target save failed.", error); exportError(error); })
+        .finally(() => { if (goalButton.isConnected) goalButton.disabled = false; });
+      return;
+    }
+    const managementReport = event.target.closest("[data-management-report]");
+    if (managementReport) {
+      if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return;
+      chooseExportFormat(managementReport, format => exportManagementReport(managementReport.dataset.managementReport, format));
       return;
     }
     const exportAll = event.target.closest("[data-export-all]");
