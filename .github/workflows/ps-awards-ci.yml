@@ -17,6 +17,8 @@ on:
       - 'supabase/functions/ptg-inventory/index.ts'
       - 'manager-attention.js'
       - 'manager-attention.test.cjs'
+      - 'push-schedule-clock.test.cjs'
+      - 'supabase/migrations/20261119090000_align_push_schedule_clock.sql'
       - 'management-reports.test.cjs'
       - 'ps-certificates.test.cjs'
       - 'ps-performance.js'
@@ -43,7 +45,7 @@ jobs:
         with:
           node-version: '22'
       - name: Test awards, management reports, integration and existing exports
-        run: node --test certificate-periods.test.mjs ps-certificates.test.cjs management-reports.test.cjs management-charts.test.cjs manager-attention.test.cjs ps-performance.test.cjs ps-individual-goals.test.cjs ptg-sales-insights.test.cjs exports.test.js ps-ranking-table.test.cjs
+        run: node --test push-schedule-clock.test.cjs certificate-periods.test.mjs ps-certificates.test.cjs management-reports.test.cjs management-charts.test.cjs manager-attention.test.cjs ps-performance.test.cjs ps-individual-goals.test.cjs ptg-sales-insights.test.cjs exports.test.js ps-ranking-table.test.cjs
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
