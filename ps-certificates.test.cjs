@@ -46,8 +46,8 @@ test("Certificate PDF is A4 landscape, one page per awarded PS, with blank signa
   const signatureColumns = doc.content[0].stack.find(part => part.columns)?.columns;
   assert.ok(signatureColumns && signatureColumns.length === 2);
   assert.ok(signatureColumns.every(col => col.stack.some(x => String(x.text).includes("_____"))));
-  assert.equal(signatureColumns[0].stack[1].text, "Marina C. Santos");
-  assert.equal(signatureColumns[1].stack[1].text, "Javier D. Cruz");
+  assert.equal(signatureColumns[0].stack[1].text, "MARINA C. SANTOS");
+  assert.equal(signatureColumns[1].stack[1].text, "JAVIER D. CRUZ");
   assert.ok(signatureColumns.every(col => col.stack.every(x => x.alignment === "center")));
   const unsigned = certificateDocument(rows, { period: "November 2026" });
   assert.equal(unsigned.content[0].stack.find(part => part.columns).columns[0].stack[1].text, " ");
@@ -176,4 +176,36 @@ test("awardee count is selectable from Top 1 through Top 10, with preview requir
   assert.match(flow, /downloadFile\(prepared\.name, prepared\.blob\)/);
   assert.doesNotMatch(flow, /downloadFile\(name, blob\)/);
   assert.match(app, /certificatePreviewUrl\) URL\.revokeObjectURL/);
+});
+
+test("approved certificate readability and whitespace adjustments are present", async () => {
+  const { certificateDocument } = await import("./ps-certificates.mjs");
+  const [person] = certificateDocument([
+    { id: "ps1", rank: 1, name: "Vermont Jay Montalban", branch: "Santiago", brand: "TCL", total: 1000 },
+  ], { branchManagerName: "  Kenneth Alvin C. Zamora  ", districtManagerName: "Kim Glenn Agustin" }).content;
+  const name = person.stack.find(p => p.text === "Vermont Jay Montalban");
+  assert.ok(name.bold);
+  assert.ok(name.fontSize >= 34, "awardee name is enlarged");
+  const branch = person.stack.find(p => String(p.text).startsWith("Branch: Santiago"));
+  const signature = person.stack.find(p => Array.isArray(p.columns));
+  assert.ok(branch.fontSize >= 12 && branch.bold, "branch and brand assignment is legible");
+  assert.ok(signature.absolutePosition.y - branch.absolutePosition.y >= 80,
+    "expanded space is maintained between branch assignment and signatures");
+  assert.equal(signature.columns[0].stack[1].text, "KENNETH ALVIN C. ZAMORA");
+  assert.equal(signature.columns[1].stack[1].text, "KIM GLENN AGUSTIN");
+  assert.equal(signature.columns[0].stack[2].text, "Branch Manager");
+  assert.equal(signature.columns[1].stack[2].text, "District Manager");
+  assert.doesNotMatch(JSON.stringify(signature), /Authorized Signatory|Management Representative/);
+});
+
+test("certificate form uppercases both editable signatories before building the PDF", () => {
+  const begin = app.indexOf("  function downloadTopPsCertificates(onlyId) {");
+  const end = app.indexOf("  function psIndividualTargetPanel()", begin);
+  const flow = app.slice(begin, end);
+  for (const name of ["branch_manager_name", "district_manager_name"]) {
+    assert.match(flow, new RegExp('name="' + name + '"'));
+  }
+  assert.match(flow, /field\.value\.toLocaleUpperCase\("en-PH"\)/);
+  assert.match(flow, /branchManagerName:.*toLocaleUpperCase\("en-PH"\)/);
+  assert.match(flow, /districtManagerName:.*toLocaleUpperCase\("en-PH"\)/);
 });
