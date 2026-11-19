@@ -3318,6 +3318,8 @@
           : pace.met ? `Over target by ${formatMoney(actual - target)}`
             : pace.perDay != null ? `${formatMoney(pace.perDay)} needed per remaining selling day (${remainingSellingDays})` : "No selling days remain";
         const dailyNeededCard = isPs ? "" : dailySalesNeededCard({ target, actual, month, today, rules });
+        const salesForDay = A.sumDaily(daily, through, through);
+        const salesForDayCount = transactionFacts.filter(f => f.date === through).length;
         const sharePerPs = isPs || !psProfiles.length ? null : actual / psProfiles.length;
         const walk = A.walkInSummary({
           from: monthStart,
@@ -3333,6 +3335,7 @@
 
         const cards = `<div class="connected-metrics">
           <article class="connected-metric"><span>Actual sales · ${escapeHTML(monthLabel(month))}${isCurrent ? " (to date)" : ""}</span><strong>${formatMoney(actual)}</strong><small>${escapeHTML(targetNote)}</small></article>
+          <article class="connected-metric"><span>Sales for the Day</span><strong>${formatMoney(salesForDay)}</strong><small>${escapeHTML(through)} · ${salesForDayCount} transaction${salesForDayCount === 1 ? "" : "s"}${isCurrent ? " · today" : " · selected day"}</small></article>
           ${dailyAverageCard(actual, monthStart, through)}
           <article class="connected-metric"><span>Target achievement</span><strong>${target > 0 ? percent(actual, target) : "No target"}</strong><small>Target ${target > 0 ? formatMoney(target) : "not set"}</small></article>
           ${dailyNeededCard}
@@ -3657,8 +3660,8 @@
     deliveryGroups = window.BranchlineDelivery.monitoring(sales, liveData.deliveryGuaranties, liveData.profiles);
     const total = deliveryGroups.reduce((sum, group) => sum + group.amount, 0);
     const quantity = deliveryGroups.reduce((sum, group) => sum + group.quantity, 0);
-    return panel("DELIVERY GUARRANTY", `${quantity} invoice(s) · Total amount: ${formatMoney(total)} · DG fees only, excluded from sales and targets. Uses the sales log's branch, date and search filters.`,
-      tableBlock("delivery-guarranty", ["PS name", "Qty of sales with DG", "Total amount"], deliveryGroups,
+    return panel("DELIVERY GUARRANTY", `${quantity} invoice(s) · DG fees only, excluded from sales and targets. Uses the sales log's branch, date and search filters.`,
+      `<div class="delivery-total-banner"><span>TOTAL DELIVERY GUARANTY AMOUNT</span><strong>${formatMoney(total)}</strong></div>` + tableBlock("delivery-guarranty", ["PS name", "Qty of sales with DG", "Total amount"], deliveryGroups,
         group => `<tr class="sale-summary-row" data-delivery-person="${escapeHTML(group.key)}" tabindex="0" aria-label="View Delivery Guarranty for ${escapeHTML(group.name)}"><td>${escapeHTML(group.name)}</td><td>${group.quantity}</td><td>${formatMoney(group.amount)}</td></tr>`,
         "No Delivery Guarranty fees match these filters."));
   }
@@ -3671,7 +3674,7 @@
       group.sales, sale => `<tr class="sale-summary-row" data-sale-details="${escapeHTML(sale.id)}" tabindex="0"><td>${escapeHTML(sale.customer_name)}</td><td>${escapeHTML(addressOf(sale) || "Not recorded")}</td><td>${escapeHTML(sale.invoice_number)}</td><td>${escapeHTML(sale.sold_on)}</td><td>${formatMoney(sale.dg_amount)}</td></tr>`, "No matching fees.");
     openModal({ title: `DELIVERY GUARRANTY · ${group.name}`, readOnly: true, wide: true,
       body: `<p>${group.quantity} invoice(s) · DG fees only</p><div data-delivery-table>${renderTable()}</div>
-        <p><strong>Total amount: ${formatMoney(group.amount)}</strong></p>`, onReady: form => {
+        <p class="delivery-total-modal"><strong>Total amount: ${formatMoney(group.amount)}</strong></p>`, onReady: form => {
         bindSaleDetailRows(form);
         bindModalTable(form.querySelector("[data-delivery-table]"), renderTable);
       } });
