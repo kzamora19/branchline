@@ -192,6 +192,7 @@
     ui.inventoryProductDetails = false;
     ui.salesBasis = "price";
     ui.filtersOpen = false;
+    ui.psRankingCollapsed = false;
     ui.period = "month";
     ui.anRange = "month";
     ui.month = "";
@@ -1447,65 +1448,42 @@
 
   function psRankingPanel() {
     if (currentProfile.role === "ps") return "";
-    const lines = liveData.saleLines;
-    const brands = uniqueSorted(lines.map(line => (line.brand || "").trim()));
-    const categories = uniqueSorted(lines.map(line => line.category));
-    const subs = uniqueSorted(lines.filter(line => !ui.rankCategory || line.category === ui.rankCategory).map(line => line.sub_category));
-    const branchPick = panelBranchSelect("rankBranch", scopeBranchIds(), "field");
-    const filters = '<div class="rank-filters">'
-      + rankFilterSelect("rankBrand", "Brand", brands, ui.rankBrand)
-      + rankFilterSelect("rankCategory", "Category", categories, ui.rankCategory)
-      + rankFilterSelect("rankSub", "Sub-category", subs, ui.rankSub) + branchPick + '</div>';
-    const active = [ui.rankBrand, ui.rankCategory, ui.rankSub].filter(Boolean).join(" › ");
-    const awardees = psAwardRankingRows(panelIds("rankBranch", scopeBranchIds()));
-    const cards = awardees.length
-      ? '<div class="ps-award-grid" aria-label="Top 10 Product Specialist performance cards">'
-        + awardees.map(row => '<article class="ps-award-card">'
-          + '<span class="ps-award-rank">#' + row.rank + ' · TOP PERFORMER</span>'
-          + '<h3>' + escapeHTML(row.name) + '</h3><p>' + escapeHTML(row.branch) + ' · ' + escapeHTML(row.brand) + '</p>'
-          + '<div class="ps-award-stats"><span><small>Credited sales</small><strong>' + formatMoney(row.total) + '</strong></span>'
-          + '<span><small>Transactions</small><strong>' + row.transactions + '</strong></span>'
-          + '<span><small>Avg. ticket</small><strong>' + formatMoney(row.avgTicket) + '</strong></span>'
-          + (row.assisted ? '<span><small>Logged assists</small><strong>' + row.assisted + '</strong></span>' : "")
-          + (row.conversion === null ? "" : '<span><small>Conversion, logged days†</small><strong>' + row.conversion.toFixed(1) + '%</strong></span>')
-          + (row.progress === null ? "" : '<span><small>' + escapeHTML(row.targetLabel) + '</small><strong>' + row.progress.toFixed(1) + '%</strong></span>')
-          + (row.pace?.requiredDaily === null || row.pace?.requiredDaily === undefined ? "" : '<span><small>Required per selling day</small><strong>' + formatMoney(row.pace.requiredDaily) + '</strong></span>')
-          + (row.monthProjection === null ? "" : '<span><small>Projected month-end</small><strong>' + formatMoney(row.monthProjection) + '</strong></span>')
-          + (row.trend === null ? "" : '<span><small>7-day sales</small><strong>' + formatMoney(row.trend.current) + '</strong></span>')
-          + (row.trend?.changePct === null || row.trend?.changePct === undefined ? "" : '<span><small>Vs previous 7 days</small><strong>' + row.trend.changePct.toFixed(1) + '%</strong></span>')
-          + '</div>'
-          + (row.trend ? '<div class="ps-trend" role="img" aria-label="Seven days of sales ending ' + escapeHTML(row.trend.series[6].date) + '">'
-            + row.trend.series.map(point => '<span title="' + escapeHTML(point.date) + ' · ' + formatMoney(point.amount) + '" style="height:'
-              + Math.max(4, Math.round(point.amount / Math.max(1, ...row.trend.series.map(x => x.amount)) * 100)) + '%"></span>').join('') + '</div>'
-            : '')
-          + (demoStore ? "" : '<button type="button" class="button button-outline ps-award-single" data-ps-certificate="'
-            + escapeHTML(row.id) + '" aria-label="Download certificate for ' + escapeHTML(row.name) + '">Certificate PDF</button>')
-          + '</article>').join("") + '</div>'
-        + (awardees.some(row => row.targetShare && row.assignedTarget === null)
-          ? '<p class="ps-award-note">*Where no individual goal is assigned, the comparison uses an indicative branch target ÷ active PS count—not a personal quota.</p>' : "")
-        + (liveData.individualGoalLoadError ? '<p class="ps-award-note">' + escapeHTML(liveData.individualGoalLoadError) + '</p>' : "")
-        + (awardees.some(row => row.conversion !== null)
-          ? '<p class="ps-award-note">†Conversion uses recorded sales on dates with logged assisted clients only. Incomplete logs are excluded.</p>' : "")
-      : '<p class="ps-award-note">No eligible Product Specialists with positive recorded sales for this selection.</p>';
+
+    // Retain one sortable and paginated ranking table. Clear removed card
+    // filters, so saved selections cannot silently limit the table or awards.
+    ui.rankBrand = "";
+    ui.rankCategory = "";
+    ui.rankSub = "";
+    ui.rankBranch = "";
+
+    const scope = scopeBranchIds();
+    const awardees = psAwardRankingRows(scope);
+    const ranking = psRankingRows(scope);
     const awardButton = demoStore ? "" : '<button type="button" class="button button-outline ps-award-batch" data-award-top10 '
       + (awardees.length ? "" : "disabled") + ' aria-label="Download printable Top 10 Product Specialist certificates">Print Top 10 Certificates (PDF)</button>';
-    const ranking = psRankingRows(panelIds("rankBranch", scopeBranchIds()));
+    const collapsed = ui.psRankingCollapsed === true;
+    const toggleButton = '<button type="button" class="button button-outline" data-toggle-ps-ranking '
+      + 'aria-controls="ps-ranking-table-content" aria-expanded="' + (!collapsed) + '" '
+      + 'aria-label="' + (collapsed ? "Expand" : "Collapse") + ' Product Specialist ranking table">'
+      + (collapsed ? "Expand table" : "Collapse table") + '</button>';
+    const table = tableBlock(
+      "psrank",
+      ["Rank", "Product Specialist", "Brand", "Branch", "Total sales"],
+      ranking,
+      row => '<tr class="rank-row" data-ps-detail="' + escapeHTML(row.id) + '" tabindex="0"><td><strong>#'
+        + row.rank + '</strong></td><td><strong>' + escapeHTML(row.name) + '</strong></td><td>'
+        + escapeHTML(row.brand) + '</td><td>' + escapeHTML(row.branch) + '</td><td>' + formatMoney(row.total) + '</td></tr>',
+      "No Product Specialists match this selection.",
+    );
     return panel(
       "Product Specialist ranking",
-      periodLabel() + " · " + (active ? "sales of " + active : "overall sales regardless of brand")
-        + ", highest first. Click a name to see their sales.",
-      filters + cards + tableBlock(
-        "psrank",
-        ["Rank", "Product Specialist", "Brand", "Branch", "Total sales"],
-        ranking,
-        row => '<tr class="rank-row" data-ps-detail="' + escapeHTML(row.id) + '" tabindex="0"><td><strong>#'
-          + row.rank + '</strong></td><td><strong>' + escapeHTML(row.name) + '</strong></td><td>'
-          + escapeHTML(row.brand) + '</td><td>' + escapeHTML(row.branch) + '</td><td>' + formatMoney(row.total) + '</td></tr>',
-        "No Product Specialists match this selection.",
-      ),
-      awardButton,
+      periodLabel() + " · overall sales regardless of brand, highest first. Click a name to see their sales.",
+      '<div id="ps-ranking-table-content" data-ps-ranking-body' + (collapsed ? " hidden" : "") + '>'
+        + table + '</div>',
+      awardButton + toggleButton,
     );
   }
+
 
   function matches(query, ...fields) {
     return !query || fields.join(" ").toLowerCase().includes(query);
@@ -8823,6 +8801,19 @@
         const rows = JSON.parse(chartButton.dataset.chartRows);
         return exportWorkbook([{ name: title, rows }], `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${localISODate()}`, false, format);
       }, true);
+      return;
+    }
+    const rankingToggle = event.target.closest("[data-toggle-ps-ranking]");
+    if (rankingToggle) {
+      const body = rankingToggle.closest(".connected-panel")?.querySelector("[data-ps-ranking-body]");
+      if (!body) return;
+      ui.psRankingCollapsed = !ui.psRankingCollapsed;
+      body.hidden = ui.psRankingCollapsed;
+      const expand = ui.psRankingCollapsed;
+      rankingToggle.textContent = expand ? "Expand table" : "Collapse table";
+      rankingToggle.setAttribute("aria-expanded", String(!expand));
+      rankingToggle.setAttribute("aria-label",
+        (expand ? "Expand" : "Collapse") + " Product Specialist ranking table");
       return;
     }
     const awardBatch = event.target.closest("[data-award-top10]");
