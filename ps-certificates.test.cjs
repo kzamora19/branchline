@@ -157,3 +157,23 @@ test("Top 10 certificate button works from Targets as well as Overview", () => {
   assert.match(app, /data-award-top10/);
   assert.match(app, /downloadTopPsCertificates\(awardSingle\?\.dataset\.psCertificate \|\| null\)/);
 });
+
+
+test("awardee count is selectable from Top 1 through Top 10, with preview required before export", () => {
+  const begin = app.indexOf("  function downloadTopPsCertificates(onlyId) {");
+  const end = app.indexOf("  function psIndividualTargetPanel()", begin);
+  const flow = app.slice(begin,end);
+  assert.match(flow, /name="certificate_count"/);
+  assert.match(flow, /length: 10/);
+  assert.match(flow, /awardeeCount = onlyId \? 10 : Number\(form\.elements\.certificate_count\.value\)/);
+  assert.match(flow, /topSpecialistAwardees\(ranking, liveData\.profiles, awardeeCount\)/);
+  assert.match(flow, /submitLabel: "Preview certificates"/);
+  assert.match(flow, /data-certificate-preview-frame/);
+  assert.match(flow, /PDF preview/);
+  assert.match(flow, /Download approved PDF/);
+  assert.match(flow, /URL\.createObjectURL\(blob\)/);
+  assert.match(flow, /prepared = \{ blob, name \}/);
+  assert.match(flow, /downloadFile\(prepared\.name, prepared\.blob\)/);
+  assert.doesNotMatch(flow, /downloadFile\(name, blob\)/);
+  assert.match(app, /certificatePreviewUrl\) URL\.revokeObjectURL/);
+});
