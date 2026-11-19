@@ -7,7 +7,6 @@ on:
       - 'auth-app.js'
       - 'ps-certificates.mjs'
       - 'certificate-corporate-frame.mjs'
-      - 'certificate-approved-border.mjs'
       - 'certificate-periods.mjs'
       - 'certificate-periods.test.mjs'
       - 'first-megasaver-logo-data.mjs'
