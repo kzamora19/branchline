@@ -17,11 +17,12 @@ create table if not exists public.ps_monthly_targets (
 create index if not exists ps_monthly_targets_scope_idx
   on public.ps_monthly_targets (dealer_id, branch_id, month);
 alter table public.ps_monthly_targets enable row level security;
-revoke all on table public.ps_monthly_targets from anon;
+revoke all on table public.ps_monthly_targets from public, anon, authenticated;
 grant select, insert, update, delete on table public.ps_monthly_targets to authenticated;
 grant all on table public.ps_monthly_targets to service_role;
 
 -- A member may see their own goal; managers only see assigned branches.
+drop policy if exists ps_monthly_targets_read on public.ps_monthly_targets;
 create policy ps_monthly_targets_read
   on public.ps_monthly_targets for select to authenticated
   using (
@@ -31,6 +32,7 @@ create policy ps_monthly_targets_read
 
 -- Goals are manager-controlled. Restrict the target to a real PS currently
 -- assigned to the exact dealer and branch in the new target row.
+drop policy if exists ps_monthly_targets_insert on public.ps_monthly_targets;
 create policy ps_monthly_targets_insert
   on public.ps_monthly_targets for insert to authenticated
   with check (
@@ -41,6 +43,7 @@ create policy ps_monthly_targets_insert
         and p.branch_id = branch_id and p.role = 'ps' and p.active = true
     )
   );
+drop policy if exists ps_monthly_targets_update on public.ps_monthly_targets;
 create policy ps_monthly_targets_update
   on public.ps_monthly_targets for update to authenticated
   using (is_dealer_member(dealer_id) and can_manage_branch(branch_id))
@@ -52,6 +55,7 @@ create policy ps_monthly_targets_update
         and p.branch_id = branch_id and p.role = 'ps' and p.active = true
     )
   );
+drop policy if exists ps_monthly_targets_delete on public.ps_monthly_targets;
 create policy ps_monthly_targets_delete
   on public.ps_monthly_targets for delete to authenticated
   using (is_dealer_member(dealer_id) and can_manage_branch(branch_id));
