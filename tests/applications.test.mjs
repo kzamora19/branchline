@@ -24,9 +24,13 @@ test("catalog contains all four expected applications with no duplication", () =
 test("external apps open verified HTTPS domains without credentials or OAuth state", () => {
   assert.deepEqual(apps.slice(1).map(app => new URL(app.url).origin), [
     "https://first-megasaver-ptg.vercel.app",
-    "https://megaframe-studio.vercel.app",
-    "https://kzamora19.github.io"
+    "https://first-megasaver-ptg.vercel.app",
+    "https://first-megasaver-ptg.vercel.app"
   ]);
+  assert.equal(apps[2].url, "https://first-megasaver-ptg.vercel.app/studios/");
+  assert.equal(apps[3].url, "https://first-megasaver-ptg.vercel.app/studios/");
+  assert.ok(apps[2].access.includes("Team Leader"));
+  assert.ok(apps[3].access.includes("Team Leader"));
   for (const app of apps.slice(1)) {
     assert.equal(app.kind, "external");
     const url = new URL(app.url);
