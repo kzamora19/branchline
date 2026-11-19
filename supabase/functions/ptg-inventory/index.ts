@@ -70,6 +70,23 @@ Deno.serve(async request => {
       // payment data, PS information or any branch outside the verified PTG scope.
       if (Deno.env.get("PTG_SALES_INSIGHTS_ENABLED") !== "true")
         return reply(503, { message: "Product sales insights are not enabled." });
+      // An absent inventory snapshot is not a zero-stock observation.
+      // The user's PTG session already limits 'branches' to their authorized
+      // scope; do not reveal any other branch's inventory coverage.
+      const snapshotDates = await Promise.all(branches.map(async branch => {
+        const { data, error } = await sales.from("inventory_snapshots")
+          .select("reported_at").eq("branch_id", branch.id)
+          .order("reported_at", { ascending: false }).limit(1);
+        if (error) throw error;
+        return data?.[0]?.reported_at ?? null;
+      }));
+      const trackedBranches = snapshotDates.filter(Boolean).length;
+      const stockCoverage = {
+        trackedBranches,
+        linkedBranches: branches.length,
+        complete: trackedBranches === branches.length,
+        latestReportedOn: snapshotDates.filter(Boolean).sort().at(-1)?.slice(0, 10) ?? null,
+      };
       const parts = new Intl.DateTimeFormat("en-US", {
         timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit",
       }).formatToParts(new Date());
@@ -105,7 +122,7 @@ Deno.serve(async request => {
         if (matches.length < 500) break;
       }
       return reply(200, {
-        ok: true, scope, barcode: canonical, quantity, serialized,
+        ok: true, scope, barcode: canonical, quantity, serialized, stockCoverage,
         recent: { from, to: today, units, transactions: transactions.size,
           lastSaleDate: latestDate || null },
         source: "Branchline Sales Tracker", aggregated: true,

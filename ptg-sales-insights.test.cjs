@@ -37,3 +37,16 @@ test("existing inventory and serial lookup modes remain available", () => {
   assert.match(edge, /if \(mode === "stock" \|\| !serialized\)/);
   assert.match(edge, /inventory_serials/);
 });
+
+test("Stock coverage is verified inside PTG-authorized branch scope, never assumed to be zero", () => {
+  const start = edge.indexOf('if (mode === "insights")');
+  const end = edge.indexOf('if (mode === "stock" || !serialized)',start);
+  const body = edge.slice(start,end);
+  assert.match(body, /Promise\.all\(branches\.map\(async branch =>/);
+  assert.match(body, /sales\.from\("inventory_snapshots"\)/);
+  assert.match(body, /\.eq\("branch_id", branch\.id\)/);
+  assert.match(body, /trackedBranches === branches\.length/);
+  assert.match(body, /stockCoverage,/);
+  assert.match(body, /source: "Branchline Sales Tracker", aggregated: true/);
+  assert.doesNotMatch(body, /select\(".*customer_name|select\(".*ps_name/);
+});
