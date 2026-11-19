@@ -6,7 +6,7 @@
   const filters = new WeakMap();
   let openColumnMenu;
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-  const sectionPages = new Set(["sales", "analytics", "settings", "targets", "users"]);
+  const sectionPages = new Set(["overview", "sales", "analytics", "settings", "targets", "users"]);
   const sectionStates = new Map();
   let sectionId = 0;
   let storageUnavailable = false;
