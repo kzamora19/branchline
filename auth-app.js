@@ -192,7 +192,6 @@
     ui.inventoryProductDetails = false;
     ui.salesBasis = "price";
     ui.filtersOpen = false;
-    ui.psRankingCollapsed = false;
     ui.period = "month";
     ui.anRange = "month";
     ui.month = "";
@@ -1461,11 +1460,6 @@
     const ranking = psRankingRows(scope);
     const awardButton = demoStore ? "" : '<button type="button" class="button button-outline ps-award-batch" data-award-top10 '
       + (awardees.length ? "" : "disabled") + ' aria-label="Download printable Top 10 Product Specialist certificates">Print Top 10 Certificates (PDF)</button>';
-    const collapsed = ui.psRankingCollapsed === true;
-    const toggleButton = '<button type="button" class="button button-outline" data-toggle-ps-ranking '
-      + 'aria-controls="ps-ranking-table-content" aria-expanded="' + (!collapsed) + '" '
-      + 'aria-label="' + (collapsed ? "Expand" : "Collapse") + ' Product Specialist ranking table">'
-      + (collapsed ? "Expand table" : "Collapse table") + '</button>';
     const table = tableBlock(
       "psrank",
       ["Rank", "Product Specialist", "Brand", "Branch", "Total sales"],
@@ -1478,9 +1472,8 @@
     return panel(
       "Product Specialist ranking",
       periodLabel() + " · overall sales regardless of brand, highest first. Click a name to see their sales.",
-      '<div id="ps-ranking-table-content" data-ps-ranking-body' + (collapsed ? " hidden" : "") + '>'
-        + table + '</div>',
-      awardButton + toggleButton,
+      table,
+      awardButton,
     );
   }
 
@@ -8862,19 +8855,6 @@
         const rows = JSON.parse(chartButton.dataset.chartRows);
         return exportWorkbook([{ name: title, rows }], `branchline-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${localISODate()}`, false, format);
       }, true);
-      return;
-    }
-    const rankingToggle = event.target.closest("[data-toggle-ps-ranking]");
-    if (rankingToggle) {
-      const body = rankingToggle.closest(".connected-panel")?.querySelector("[data-ps-ranking-body]");
-      if (!body) return;
-      ui.psRankingCollapsed = !ui.psRankingCollapsed;
-      body.hidden = ui.psRankingCollapsed;
-      const expand = ui.psRankingCollapsed;
-      rankingToggle.textContent = expand ? "Expand table" : "Collapse table";
-      rankingToggle.setAttribute("aria-expanded", String(!expand));
-      rankingToggle.setAttribute("aria-label",
-        (expand ? "Expand" : "Collapse") + " Product Specialist ranking table");
       return;
     }
     const awardBatch = event.target.closest("[data-award-top10]");
