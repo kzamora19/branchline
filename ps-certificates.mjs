@@ -50,7 +50,7 @@ export function certificateDocument(awardees, options = {}) {
     return {
       pageBreak: index ? "before" : undefined,
       stack: [
-        { image: firstMegasaverLogo, width: 315, absolutePosition: { x: 263.5, y: 39 } },
+        { image: firstMegasaverLogo, width: 315, alignment: "left", absolutePosition: { x: 263.5, y: 39 } },
         centered("EXCELLENCE IN SALES PERFORMANCE", 120, 11, {
           color: color.gold, bold: true, characterSpacing: 2.2,
         }),
@@ -62,8 +62,9 @@ export function certificateDocument(awardees, options = {}) {
         centered("RANK #" + person.rank + "  •  TOP 10 PRODUCT SPECIALISTS", 283, 14, {
           color: color.gold, bold: true, characterSpacing: 0.5,
         }),
-        centered("In grateful recognition of your outstanding sales performance, unwavering dedication, and valuable contributions to the continued success of 1st Megasaver.", 309, 11.4, {
-          width: 695, color: color.ink, lineHeight: 1.13,
+        centered("In grateful recognition of your outstanding sales performance, unwavering dedication, and valuable contributions to the continued success of 1st Megasaver.", 307, 10.8, {
+          absolutePosition: { x: 98, y: 307 }, width: 646,
+          color: color.ink, lineHeight: 1.15,
         }),
         centered(period, 351, period.length > 50 ? 10.7 : 14.2, {
           color: "#FFFFFF", bold: true, characterSpacing: 0.5,
@@ -83,12 +84,15 @@ export function certificateDocument(awardees, options = {}) {
               { text: "____________________________", fontSize: 10, color: color.navy, alignment: "center" },
               { text: districtManagerName || " ", fontSize: districtManagerName.length > 33 ? 9 : 11,
                 bold: true, color: color.navy, alignment: "center", margin: [0, 5, 0, 2] },
-              { text: "District / Management Representative", fontSize: 9, color: color.gray, alignment: "center" },
+              { text: "District Manager / Management Representative", fontSize: 9, color: color.gray, alignment: "center" },
             ], alignment: "center" },
           ],
           columnGap: 35, absolutePosition: { x: 103, y: 464 }, width: 635,
         },
-        centered(date ? "Issued: " + date : "", 542, 8.5, { color: color.gray, characterSpacing: 0.5 }),
+        centered(date ? "Issued: " + date : "", 535, 8.5, { color: color.gray, characterSpacing: 0.5 }),
+        ...(options.sample ? [centered("ILLUSTRATIVE SAMPLE ONLY  •  NOT AN ISSUED AWARD", 554, 7.5, {
+          color: color.gold, bold: true, characterSpacing: 1.2,
+        })] : []),
       ],
       alignment: "center",
     };
