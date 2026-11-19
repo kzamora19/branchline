@@ -51,7 +51,7 @@ export function certificateDocument(awardees, options = {}) {
           text: period, fontSize: 12, bold: true, color: "#FFFFFF", fillColor: color.navy,
           alignment: "center", margin: [7, 5, 7, 5],
         }]] }, layout: "noBorders", margin: [90, 0, 90, 10] },
-        { text: "Branch: " + person.branch + "   •   Brand assignment: " + person.brand, fontSize: 9.5, color: color.gray, margin: [0, 0, 0, 27] },
+        { text: "Branch: " + person.branch + "   •   Brand assignment: " + person.brand, fontSize: 9.5, color: color.gray, margin: [0, 0, 0, 50] },
         { columns: [
           { width: "*", stack: [
             { text: "____________________________", fontSize: 10, color: color.navy, alignment: "center" },
@@ -79,7 +79,8 @@ export function certificateDocument(awardees, options = {}) {
         { type: "rect", x: 14, y: 14, w: pageSize.width - 28, h: pageSize.height - 28, lineColor: color.navy, lineWidth: 3.3 },
         { type: "rect", x: 23, y: 23, w: pageSize.width - 46, h: pageSize.height - 46, lineColor: color.gold, lineWidth: 1.4 },
         { type: "rect", x: 29, y: 29, w: pageSize.width - 58, h: pageSize.height - 58, lineColor: "#C7D9F0", lineWidth: 0.5 },
-        { type: "line", x1: 60, y1: 111, x2: pageSize.width - 60, y2: 111, lineWidth: 0.55, lineColor: color.gold },
+        { type: "line", x1: 60, y1: 111, x2: 285, y2: 111, lineWidth: 0.55, lineColor: color.gold },
+        { type: "line", x1: pageSize.width - 285, y1: 111, x2: pageSize.width - 60, y2: 111, lineWidth: 0.55, lineColor: color.gold },
         { type: "rect", x: 23, y: 23, w: 92, h: 5, color: color.navy, lineColor: color.navy, lineWidth: 0 },
         { type: "rect", x: pageSize.width - 115, y: pageSize.height - 28, w: 92, h: 5, color: color.navy, lineColor: color.navy, lineWidth: 0 },
       ],
