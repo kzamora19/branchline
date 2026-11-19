@@ -437,6 +437,10 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .check-row { display: flex; align-items: center; gap: 8px; margin: 2px 0 10px; font-size: 12px; color: var(--muted); cursor: pointer; }
 .check-row input { width: 16px; height: 16px; }
 .dlg-backdrop { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(20, 30, 45, .5); }
+.calendar-daily-notice-backdrop { z-index: 220; }
+.calendar-daily-notice { max-width: 720px; max-height: min(88vh, 760px); overflow-y: auto; }
+.calendar-daily-notice .calendar-event-detail { padding: 8px 0; }
+.calendar-daily-notice .calendar-event-detail p { margin: 10px 0; }
 .dlg { width: min(440px, 100%); max-height: 92vh; overflow: auto; border-radius: 12px; background: #fff; box-shadow: var(--shadow); }
 .dlg-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 0; }
 .dlg-head h2 { margin: 0; font-size: 17px; }

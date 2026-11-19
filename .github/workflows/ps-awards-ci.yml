@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'auth-app.js'
+      - 'calendar-daily-notices.test.cjs'
+      - 'supabase/migrations/20261119170000_customer_master_address_required.sql'
       - 'ps-certificates.mjs'
       - 'certificate-corporate-frame.mjs'
       - 'certificate-periods.mjs'
@@ -45,7 +47,7 @@ jobs:
         with:
           node-version: '22'
       - name: Test awards, management reports, integration and existing exports
-        run: node --test push-schedule-clock.test.cjs certificate-periods.test.mjs ps-certificates.test.cjs management-reports.test.cjs management-charts.test.cjs manager-attention.test.cjs ps-performance.test.cjs ps-individual-goals.test.cjs ptg-sales-insights.test.cjs exports.test.js ps-ranking-table.test.cjs
+        run: node --test calendar-daily-notices.test.cjs push-schedule-clock.test.cjs certificate-periods.test.mjs ps-certificates.test.cjs management-reports.test.cjs management-charts.test.cjs manager-attention.test.cjs ps-performance.test.cjs ps-individual-goals.test.cjs ptg-sales-insights.test.cjs exports.test.js ps-ranking-table.test.cjs
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
