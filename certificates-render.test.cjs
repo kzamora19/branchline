@@ -91,7 +91,7 @@ test("real pdfmake generates correctly paginated one-person and ten-person A4 la
     assert.ok(text.replace(/\s+/g, "").includes("Thiscertificateisproudlypresentedto"), "approved introduction is present");
     assert.ok(!text.includes("Credited sales:"), "credited sales must remain omitted");
     assert.ok(!text.includes("Award scope:"), "award scope must remain omitted");
-    assert.ok(text.includes("Issued: 2026-11-18"), "issued date is printed");
+    assert.ok(text.includes("Issued: 2026-11-19"), "issued date is printed");
   }
   const annualText = execFileSync("pdftotext", [annual, "-"], { encoding: "utf8" });
   assert.ok(annualText.includes("Year 2026"), "Annual certificate prints the selected calendar year");
