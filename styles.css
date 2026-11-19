@@ -874,3 +874,9 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
   .demo-workspace-controls { padding: 12px 16px; }
   .demo-workspace-controls > div, .demo-workspace-controls .field { min-width: 0; max-width: 100%; }
 }
+
+/* Emphasize verified fee totals without altering sales-target calculations. */
+.delivery-total-banner { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin: 0 0 14px; padding: 13px 16px; border: 1px solid #b8cdee; border-radius: 8px; background: #f2f6ff; }
+.delivery-total-banner span { color: #405572; font-size: 12px; font-weight: 700; }
+.delivery-total-banner strong { color: #174b94; font: 800 clamp(19px,2vw,27px)/1.2 "Manrope","Segoe UI",sans-serif; font-variant-numeric: tabular-nums; }
+.delivery-total-modal { display: block; margin-top: 15px; font-size: 16px; color: #174b94; }
