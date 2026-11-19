@@ -59,7 +59,7 @@ test("the overview retains one ranking table, no top-performer cards or redundan
   assert.equal(ui.rankCategory, "");
   assert.equal(ui.rankSub, "");
   assert.equal(ui.rankBranch, "");
-  assert.match(html, /Print Top 10 Certificates \(PDF\)/);
+  assert.match(html, /Print PS Certificates \(PDF\)/);
 });
 
 test("ranking relies on shared heading collapse without a duplicate button", () => {
@@ -67,7 +67,7 @@ test("ranking relies on shared heading collapse without a duplicate button", () 
   assert.match(html, /data-table-key="psrank"/);
   assert.match(html, /SAMPLE SPECIALIST/);
   assert.doesNotMatch(html, /data-toggle-ps-ranking|Collapse table|Expand table|data-ps-ranking-body/);
-  assert.match(calls.panel.action, /Print Top 10 Certificates \(PDF\)/);
+  assert.match(calls.panel.action, /Print PS Certificates \(PDF\)/);
   assert.match(source, /BranchlineTableUI\?\.enhanceSections\(container, activePage\)/);
   const sectionUi = fs.readFileSync(path.join(__dirname, "table-ui.js"), "utf8");
   assert.match(sectionUi, /sectionPages = new Set\(\["overview"/);
