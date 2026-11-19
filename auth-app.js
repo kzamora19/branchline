@@ -1216,10 +1216,10 @@
           <input type="number" name="certificate_year" min="2000" max="${today.slice(0, 4)}"
             step="1" value="${selectedYear}" required></label>
         <label class="field"><span>Branch Manager name (optional)</span>
-          <input type="text" name="branch_manager_name" maxlength="80"
+          <input type="text" name="branch_manager_name" maxlength="80" autocapitalize="characters" class="certificate-signatory-input"
             placeholder="Enter printed name under the signature line" autocomplete="off"></label>
         <label class="field"><span>District Manager name (optional)</span>
-          <input type="text" name="district_manager_name" maxlength="80"
+          <input type="text" name="district_manager_name" maxlength="80" autocapitalize="characters" class="certificate-signatory-input"
             placeholder="Enter printed name under the signature line" autocomplete="off"></label>
         <p class="an-note">Both signatory names appear beneath the approved signature lines. Every recipient gets one A4 landscape certificate page.</p>
         <div class="certificate-preview" data-certificate-preview hidden>
@@ -1227,6 +1227,20 @@
           <iframe title="Certificate PDF preview" data-certificate-preview-frame></iframe>
         </div>`,
       onReady: form => {
+        for (const fieldName of ["branch_manager_name", "district_manager_name"]) {
+          const field = form.elements[fieldName];
+          field.addEventListener("input", () => {
+            const start = field.selectionStart, end = field.selectionEnd;
+            const normalized = field.value.toLocaleUpperCase("en-PH");
+            if (normalized !== field.value) {
+              field.value = normalized;
+              if (start !== null && end !== null) field.setSelectionRange(start, end);
+            }
+          });
+          field.addEventListener("blur", () => {
+            field.value = field.value.trim().replace(/\s+/g, " ").toLocaleUpperCase("en-PH");
+          });
+        }
         const download = document.createElement("button");
         download.type = "button";
         download.className = "button button-primary";
@@ -1292,8 +1306,8 @@
         const doc = certificateDocument(selected, {
           period: window.label,
           issuedOn: today,
-          branchManagerName: String(form.elements.branch_manager_name.value || "").trim(),
-          districtManagerName: String(form.elements.district_manager_name.value || "").trim(),
+          branchManagerName: String(form.elements.branch_manager_name.value || "").trim().replace(/\s+/g, " ").toLocaleUpperCase("en-PH"),
+          districtManagerName: String(form.elements.district_manager_name.value || "").trim().replace(/\s+/g, " ").toLocaleUpperCase("en-PH"),
         });
         const pdf = await loadPdfLibrary();
         if (currentProfile?.id !== profileId || client !== sessionClient || !["overview", "targets"].includes(activePage)) {
