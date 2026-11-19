@@ -66,7 +66,7 @@ export function certificateDocument(awardees, options = {}) {
           absolutePosition: { x: 98, y: 307 }, width: 646,
           color: color.ink, lineHeight: 1.15,
         }),
-        centered(period, 351, period.length > 50 ? 10.7 : 14.2, {
+        centered(period, 351, period.length > 70 ? 11.5 : 14.2, {
           color: "#FFFFFF", bold: true, characterSpacing: 0.5,
         }),
         centered("Branch: " + person.branch + "   •   Brand assignment: " + person.brand, 400, 10, {
