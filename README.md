@@ -1016,3 +1016,8 @@ Reports with 7–13 columns use 13 × 8.5-inch landscape pages. Extra-wide table
 ### Centered PDF inventory brand metrics (shell v180)
 
 In the Brands PDF, Available units, Priced stock (SRP), Completed sell-out (SRP), Monthly sell-out (SRP), 3-month target (SRP), MOH, Stock units missing SRP, Sell-out units missing SRP, and Unmatched sell-out units are horizontally centered in both their headings and values. Branch, Brand, and Status remain left-aligned. PDF layout only; calculations, Excel/CSV output and source sales data are unchanged.
+
+
+### Certificate layout publication — 2026-11-19
+
+This publication includes the approved Product Specialist certificate layout adjustments: larger bold awardee name, more readable branch and brand assignment, more space above the signatures, Branch Manager / District Manager titles, and uppercase BM/DM names in the form and exported PDF. The Top 1–10 awardee selector and PDF preview are retained. Certificate rendering and regression checks passed before merge (PR #30).
