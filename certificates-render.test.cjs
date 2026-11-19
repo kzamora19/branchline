@@ -57,6 +57,7 @@ test("real pdfmake generates correctly paginated one-person and ten-person A4 la
     issuedOn: "2026-11-18",
     branchManagerName: "MARINA C. SANTOS",
     districtManagerName: "ELENA D. CRUZ",
+    sample: true,
   };
   const one = await generate(pdfMake, certificateDocument(people.slice(0, 1), options), "award-one.pdf");
   const annualOptions = {
