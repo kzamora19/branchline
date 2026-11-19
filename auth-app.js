@@ -7957,7 +7957,7 @@
         { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (match[3] || "");
     }
     // Preserve existing print behavior for long fractional generic metrics.
-    const match = raw.match(/^([+-]?\\s*[₱$]?\\s*)([\\d,]+)\\.(\\d+)(\\s*%?)$/);
+    const match = raw.match(/^([+-]?\s*[₱$]?\s*)([\d,]+)\.(\d+)(\s*%?)$/);
     if (!match || match[3].length <= 2) return raw;
     const amount = Number(match[2].replace(/,/g, "") + "." + match[3]);
     return Number.isFinite(amount) ? match[1] + amount.toLocaleString("en-PH",
