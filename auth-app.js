@@ -8474,6 +8474,27 @@
       sheet: "PS sales",
       showBrand: true,
     });
+    // Individual certificates remain accessible from the table's name/detail
+    // dialog even though the redundant Top Performer cards were removed.
+    if (!demoStore && activePage === "overview"
+      && ["manager", "district_manager", "admin"].includes(currentProfile?.role)
+      && psAwardRankingRows(scopeBranchIds()).some(row => row.id === psId)) {
+      const actions = modalRoot?.querySelector(".dlg-head-actions");
+      if (actions) {
+        const certificate = document.createElement("button");
+        certificate.type = "button";
+        certificate.className = "button button-outline";
+        certificate.textContent = "Certificate PDF";
+        certificate.setAttribute("aria-label", "Download certificate for " + person.full_name);
+        certificate.addEventListener("click", () => {
+          void downloadTopPsCertificates(psId).catch(error => {
+            console.error("Individual certificate export failed.", error);
+            alert(error.message || "Certificate export failed.");
+          });
+        });
+        actions.prepend(certificate);
+      }
+    }
   }
 
   // Pop-up with one brand's sales in the current view, broken down by category and sub-category.
