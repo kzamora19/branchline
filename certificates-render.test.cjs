@@ -38,6 +38,7 @@ function setupPdfMake() {
 
 test("real pdfmake generates correctly paginated one-person and ten-person A4 landscape certificates", async () => {
   const { certificateDocument } = await import("./ps-certificates.mjs");
+  const { certificatePeriodRange } = await import("./certificate-periods.mjs");
   const pdfMake = setupPdfMake();
   const people = Array.from({ length: 10 }, (_, i) => ({
     id: "ps-" + (i + 1), name: i === 9
@@ -58,6 +59,11 @@ test("real pdfmake generates correctly paginated one-person and ten-person A4 la
     districtManagerName: "ELENA D. CRUZ",
   };
   const one = await generate(pdfMake, certificateDocument(people.slice(0, 1), options), "award-one.pdf");
+  const annualOptions = {
+    ...options,
+    period: certificatePeriodRange("annual", "2025", "2026-11-19").label,
+  };
+  const annual = await generate(pdfMake, certificateDocument(people.slice(0, 1), annualOptions), "award-annual.pdf");
   const ten = await generate(pdfMake, certificateDocument(people, options), "awards-ten.pdf");
   const longRecipients = people.map((person, i) => i !== 9 ? person : {
     ...person,
@@ -66,7 +72,7 @@ test("real pdfmake generates correctly paginated one-person and ten-person A4 la
     brand: "Long Brand Name, Another Long Brand Name, and Retail Brand",
   });
   const long = await generate(pdfMake, certificateDocument(longRecipients, options), "awards-long-names.pdf");
-  for (const [file, pages] of [[one, 1], [ten, 10], [long, 10]]) {
+  for (const [file, pages] of [[one, 1], [annual, 1], [ten, 10], [long, 10]]) {
     const metadata = execFileSync("pdfinfo", [file], { encoding: "utf8" });
     const count = Number(metadata.match(/^Pages:\s+(\d+)/m)?.[1]);
     const dimensions = metadata.match(/^Page size:\s+([\d.]+)\s+x\s+([\d.]+)/m);
@@ -86,6 +92,9 @@ test("real pdfmake generates correctly paginated one-person and ten-person A4 la
     assert.ok(!text.includes("Award scope:"), "award scope must remain omitted");
     assert.ok(text.includes("Issued: 2026-11-18"), "issued date is printed");
   }
+  const annualText = execFileSync("pdftotext", [annual, "-"], { encoding: "utf8" });
+  assert.ok(annualText.includes("Year 2025"), "Annual certificate prints the selected calendar year");
+  assert.ok(annualText.includes("Annual Performance"), "Annual label appears in the PDF");
   const text = execFileSync("pdftotext", [ten, "-"], { encoding: "utf8" });
   assert.ok(text.includes("ALEXANDRA MARIE CHRISTINE"), "long name actually rendered");
   const longText = execFileSync("pdftotext", [long, "-"], { encoding: "utf8" });
