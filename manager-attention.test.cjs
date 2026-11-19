@@ -74,7 +74,7 @@ test("manager attention snooze is account-scoped, expires next day and requires 
   assert.doesNotMatch(helper, /\.rpc\(|\.from\(|fetch\(/);
   const storage = new Map();
   const context = vm.createContext({
-    currentProfile: { id: "manager-a" }, localISODate: () => context.day,
+    currentProfile: { id: "manager-a" }, ui: { period: "month", month: "2026-11", branch: "STG", district: "" }, localISODate: () => context.day,
     day: "2026-11-19",
     localStorage: {
       getItem: key => storage.get(key) || null,
@@ -88,6 +88,10 @@ test("manager attention snooze is account-scoped, expires next day and requires 
   assert.equal(vm.runInContext('managerAttentionSnoozeStore().ids.has("brand:LG")', context), false,
     "snoozes do not leak to another account on the same device");
   context.currentProfile = { id: "manager-a" };
+  context.ui.branch = "CAU";
+  assert.equal(vm.runInContext('managerAttentionSnoozeStore().ids.has("brand:LG")', context), false,
+    "alerts in a different branch filter are not hidden");
+  context.ui.branch = "STG";
   context.day = "2026-11-20";
   assert.equal(vm.runInContext('managerAttentionSnoozeStore().ids.has("brand:LG")', context), false,
     "notice reappears the next day");
