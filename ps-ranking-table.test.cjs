@@ -62,47 +62,19 @@ test("the overview retains one ranking table, no top-performer cards or redundan
   assert.match(html, /Print Top 10 Certificates \(PDF\)/);
 });
 
-test("ranking table is expanded by default and can render collapsed without losing pagination/sorting markup", () => {
-  const ui = { psRankingCollapsed: false };
-  const shown = renderWith(ui).html;
-  assert.match(shown, /data-toggle-ps-ranking/);
-  assert.match(shown, /aria-expanded="true"/);
-  assert.match(shown, /Collapse table/);
-  assert.match(shown, /data-ps-ranking-body>/);
-  ui.psRankingCollapsed = true;
-  const hidden = renderWith(ui).html;
-  assert.match(hidden, /aria-expanded="false"/);
-  assert.match(hidden, /Expand table/);
-  assert.match(hidden, /data-ps-ranking-body hidden/);
-  assert.match(hidden, /data-table-key="psrank"/);
-  assert.match(css, /\[data-ps-ranking-body\]\[hidden\]\s*\{\s*display:\s*none\s*!important/);
-});
-
-test("collapse button updates aria state and visibility without resetting filters or table page", () => {
-  const first = source.indexOf('    const rankingToggle = event.target.closest("[data-toggle-ps-ranking]");');
-  const last = source.indexOf('    const awardBatch = event.target.closest("[data-award-top10]");', first);
-  assert.ok(first > 0 && last > first);
-  const handler = vm.runInNewContext("(function(event,ui) {\n" + source.slice(first, last) + "\n})");
-  const attrs = {};
-  const body = { hidden: false };
-  const button = {
-    textContent: "Collapse table",
-    closest: () => ({ querySelector: selector => selector === "[data-ps-ranking-body]" ? body : null }),
-    setAttribute: (name, value) => { attrs[name] = value; },
-  };
-  const event = { target: { closest: selector => selector === "[data-toggle-ps-ranking]" ? button : null } };
-  const ui = { psRankingCollapsed: false, pages: { psrank: 2 }, sort: { psrank: { col: 4, dir: "desc" } } };
-  handler(event, ui);
-  assert.equal(body.hidden, true);
-  assert.equal(ui.psRankingCollapsed, true);
-  assert.equal(button.textContent, "Expand table");
-  assert.equal(attrs["aria-expanded"], "false");
-  handler(event, ui);
-  assert.equal(body.hidden, false);
-  assert.equal(ui.psRankingCollapsed, false);
-  assert.equal(attrs["aria-expanded"], "true");
-  assert.equal(ui.pages.psrank, 2);
-  assert.equal(ui.sort.psrank.col, 4);
+test("ranking relies on shared heading collapse without a duplicate button", () => {
+  const { html, calls } = renderWith({});
+  assert.match(html, /data-table-key="psrank"/);
+  assert.match(html, /SAMPLE SPECIALIST/);
+  assert.doesNotMatch(html, /data-toggle-ps-ranking|Collapse table|Expand table|data-ps-ranking-body/);
+  assert.match(calls.panel.action, /Print Top 10 Certificates \(PDF\)/);
+  assert.match(source, /BranchlineTableUI\?\.enhanceSections\(container, activePage\)/);
+  const sectionUi = fs.readFileSync(path.join(__dirname, "table-ui.js"), "utf8");
+  assert.match(sectionUi, /sectionPages = new Set\(\["overview"/);
+  assert.match(sectionUi, /section-collapse-heading/);
+  assert.match(sectionUi, /aria-expanded/);
+  assert.match(css, /section-toggle\[aria-expanded="false"\]/);
+  assert.doesNotMatch(source, /psRankingCollapsed|data-toggle-ps-ranking/);
 });
 
 test("single certificates remain accessible via row detail; batch certificate remains available", () => {
