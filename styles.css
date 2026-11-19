@@ -500,6 +500,9 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
   .sales-return-dialog .return-products td:first-child { display: flex; align-items: center; justify-content: space-between; }
   .sales-return-dialog [data-return-quantity] { font-size: 16px; }
 }
+/* Compact ranking table: native [hidden] must win over all table/panel display rules. */
+[data-ps-ranking-body][hidden] { display: none !important; }
+[data-toggle-ps-ranking] { min-width: 115px; }
 #ps-detail { display: grid; gap: 12px; }
 .rank-filters { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 12px; padding: 0 12px; }
 .rank-filters .field { flex: 1 1 150px; min-width: 0; max-width: 240px; }
