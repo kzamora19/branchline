@@ -7945,6 +7945,7 @@
 
   function pdfReportCellText(value, heading) {
     const raw = String(value ?? "").trim();
+    if (/^(?:sales(?:person)? code|barcode|serial(?: numbers?)?|invoice(?: number)?|ps id|branch id|district id|product id|model(?: number)?|date|customer|product specialist|ps name)$/i.test(String(heading || "").trim())) return raw;
     if (moneyExportColumn(heading)) {
       const amount = exportMoneyNumber(value);
       if (amount !== null) return (raw.startsWith("₱") ? "₱" : raw.startsWith("$") ? "$" : "")
