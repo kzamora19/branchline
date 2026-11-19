@@ -46,30 +46,30 @@ export function certificateDocument(awardees, options = {}) {
     if (!person.name || !Number.isFinite(person.total) || person.total <= 0) {
       throw new Error("Certificate recipient data is invalid.");
     }
-    const recipientSize = person.name.length > 52 ? 21 : person.name.length > 36 ? 26 : 35;
+    const recipientSize = person.name.length > 52 ? 26 : person.name.length > 36 ? 31 : 40;
     return {
       pageBreak: index ? "before" : undefined,
       stack: [
         { image: firstMegasaverLogo, width: 315, alignment: "left", absolutePosition: { x: 263.5, y: 39 } },
-        centered("EXCELLENCE IN SALES PERFORMANCE", 120, 11, {
+        centered("EXCELLENCE IN SALES PERFORMANCE", 118, 16, {
           color: color.gold, bold: true, characterSpacing: 2.2,
         }),
-        centered("CERTIFICATE OF RECOGNITION", 148, 27.5, { color: color.navy, bold: true }),
-        centered("This certificate is proudly presented to", 201, 13, {
+        centered("CERTIFICATE OF RECOGNITION", 145, 32.5, { color: color.navy, bold: true }),
+        centered("This certificate is proudly presented to", 191, 18, {
           color: color.gray, characterSpacing: 1.5,
         }),
-        centered(person.name, 224, recipientSize, { color: color.navy, bold: true }),
-        centered("RANK #" + person.rank + "  •  TOP 10 PRODUCT SPECIALISTS", 283, 14, {
+        centered(person.name, 218, recipientSize, { color: color.navy, bold: true }),
+        centered("RANK #" + person.rank + "  •  TOP 10 PRODUCT SPECIALISTS", 272, 19, {
           color: color.gold, bold: true, characterSpacing: 0.5,
         }),
-        centered("In grateful recognition of your outstanding sales performance, unwavering dedication,\nand valuable contributions to the continued success of 1st Megasaver.", 307, 11.3, {
-          color: color.ink, lineHeight: 1.13,
+        centered("In grateful recognition of your outstanding sales performance, unwavering dedication,\nand valuable contributions to the continued success of 1st Megasaver.", 300, 16.3, {
+          color: color.ink, lineHeight: 1.02,
         }),
-        centered(period, 351, period.length > 70 ? 11.5 : 14.2, {
+        centered(period, 348, period.length > 70 ? 16.5 : 19.2, {
           color: "#FFFFFF", bold: true, characterSpacing: 0.5,
         }),
-        centered("Branch: " + person.branch + "   •   Brand assignment: " + person.brand, 395, 12.4, {
-          color: color.ink, bold: true,
+        centered("Branch: " + person.branch + "   •   Brand assignment: " + person.brand, 388, 24.8, {
+          color: color.ink, bold: true, lineHeight: 0.95,
         }),
         {
           columns: [
