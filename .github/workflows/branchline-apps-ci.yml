@@ -1,0 +1,50 @@
+name: Branchline application hub checks
+on:
+  push:
+    branches:
+      - main
+      - feature/studio-apps-hub-20261119
+    paths:
+      - 'auth-app.js'
+      - 'branchline-applications.js'
+      - 'index.html'
+      - 'styles.css'
+      - 'sw.js'
+      - 'tests/applications.test.mjs'
+      - 'tests/apps-browser.test.cjs'
+      - '.github/workflows/branchline-apps-ci.yml'
+  pull_request:
+    paths:
+      - 'auth-app.js'
+      - 'branchline-applications.js'
+      - 'index.html'
+      - 'styles.css'
+      - 'sw.js'
+      - 'tests/applications.test.mjs'
+      - 'tests/apps-browser.test.cjs'
+      - '.github/workflows/branchline-apps-ci.yml'
+permissions:
+  contents: read
+jobs:
+  app-hub:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate source syntax
+        run: |
+          node --check auth-app.js
+          node --check branchline-applications.js
+          node --check sw.js
+      - name: Verify application links, role navigation and offline cache
+        run: node --test tests/applications.test.mjs
+      - name: Install browser smoke test dependencies
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install chromium --only-shell
+      - name: Test desktop and mobile app navigation in Chromium
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 >/tmp/branchline-app-hub-server.log 2>&1 &
+          node tests/apps-browser.test.cjs
