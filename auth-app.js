@@ -1186,7 +1186,7 @@
 
   function downloadTopPsCertificates(onlyId) {
     if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)
-        || demoStore || activePage !== "overview") return;
+        || demoStore || !["overview", "targets"].includes(activePage)) return;
     const profileId = currentProfile.id, sessionClient = client;
     const scope = panelIds("rankBranch", scopeBranchIds());
     const today = localISODate();
@@ -1235,7 +1235,7 @@
           : String(form.elements.certificate_month.value).trim();
         const window = certificatePeriodRange(kind, value, today);
         const { topSpecialistAwardees, certificateDocument } = await import("./ps-certificates.mjs");
-        if (currentProfile?.id !== profileId || client !== sessionClient || activePage !== "overview") {
+        if (currentProfile?.id !== profileId || client !== sessionClient || !["overview", "targets"].includes(activePage)) {
           throw new Error("Your session or selected page changed. Open the certificate form again.");
         }
         const ranking = psAwardRankingRows(scope, window);
@@ -1253,7 +1253,7 @@
           districtManagerName: String(form.elements.district_manager_name.value || "").trim(),
         });
         const pdf = await loadPdfLibrary();
-        if (currentProfile?.id !== profileId || client !== sessionClient || activePage !== "overview") {
+        if (currentProfile?.id !== profileId || client !== sessionClient || !["overview", "targets"].includes(activePage)) {
           throw new Error("Your session changed. The certificate was not exported.");
         }
         const name = "first-megasaver-top-ps-certificates-" + window.fileKey
