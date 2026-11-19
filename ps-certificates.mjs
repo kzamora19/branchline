@@ -34,8 +34,8 @@ export function certificateDocument(awardees, options = {}) {
 
   const period = String(options.period || "Selected reporting period");
   const date = String(options.issuedOn || "");
-  const branchManagerName = String(options.branchManagerName ?? "").trim().slice(0, 80);
-  const districtManagerName = String(options.districtManagerName ?? "").trim().slice(0, 80);
+  const branchManagerName = String(options.branchManagerName ?? "").trim().replace(/\s+/g, " ").toLocaleUpperCase("en-PH").slice(0, 80);
+  const districtManagerName = String(options.districtManagerName ?? "").trim().replace(/\s+/g, " ").toLocaleUpperCase("en-PH").slice(0, 80);
   const color = { navy: "#092D68", royal: "#093F91", gold: "#B27C17", gray: "#304461", ink: "#0B2F68" };
 
   function centered(text, top, fontSize, extra = {}) {
@@ -46,7 +46,7 @@ export function certificateDocument(awardees, options = {}) {
     if (!person.name || !Number.isFinite(person.total) || person.total <= 0) {
       throw new Error("Certificate recipient data is invalid.");
     }
-    const recipientSize = person.name.length > 52 ? 19 : person.name.length > 36 ? 23 : 29;
+    const recipientSize = person.name.length > 52 ? 21 : person.name.length > 36 ? 26 : 35;
     return {
       pageBreak: index ? "before" : undefined,
       stack: [
@@ -58,7 +58,7 @@ export function certificateDocument(awardees, options = {}) {
         centered("This certificate is proudly presented to", 201, 13, {
           color: color.gray, characterSpacing: 1.5,
         }),
-        centered(person.name, 230, recipientSize, { color: color.navy, bold: true }),
+        centered(person.name, 224, recipientSize, { color: color.navy, bold: true }),
         centered("RANK #" + person.rank + "  •  TOP 10 PRODUCT SPECIALISTS", 283, 14, {
           color: color.gold, bold: true, characterSpacing: 0.5,
         }),
@@ -68,8 +68,8 @@ export function certificateDocument(awardees, options = {}) {
         centered(period, 351, period.length > 70 ? 11.5 : 14.2, {
           color: "#FFFFFF", bold: true, characterSpacing: 0.5,
         }),
-        centered("Branch: " + person.branch + "   •   Brand assignment: " + person.brand, 400, 10, {
-          color: color.gray,
+        centered("Branch: " + person.branch + "   •   Brand assignment: " + person.brand, 395, 12.4, {
+          color: color.ink, bold: true,
         }),
         {
           columns: [
@@ -77,19 +77,19 @@ export function certificateDocument(awardees, options = {}) {
               { text: "____________________________", fontSize: 10, color: color.navy, alignment: "center" },
               { text: branchManagerName || " ", fontSize: branchManagerName.length > 33 ? 9 : 11,
                 bold: true, color: color.navy, alignment: "center", margin: [0, 5, 0, 2] },
-              { text: "Branch Manager / Authorized Signatory", fontSize: 9, color: color.gray, alignment: "center" },
+              { text: "Branch Manager", fontSize: 9, color: color.gray, alignment: "center" },
             ], alignment: "center" },
             { width: 300, stack: [
               { text: "____________________________", fontSize: 10, color: color.navy, alignment: "center" },
               { text: districtManagerName || " ", fontSize: districtManagerName.length > 33 ? 9 : 11,
                 bold: true, color: color.navy, alignment: "center", margin: [0, 5, 0, 2] },
-              { text: "District Manager / Management Representative", fontSize: 9, color: color.gray, alignment: "center" },
+              { text: "District Manager", fontSize: 9, color: color.gray, alignment: "center" },
             ], alignment: "center" },
           ],
-          columnGap: 35, absolutePosition: { x: 103, y: 464 }, width: 635,
+          columnGap: 35, absolutePosition: { x: 103, y: 482 }, width: 635,
         },
-        centered(date ? "Issued: " + date : "", 535, 8.5, { color: color.gray, characterSpacing: 0.5 }),
-        ...(options.sample ? [centered("ILLUSTRATIVE SAMPLE ONLY  •  NOT AN ISSUED AWARD", 554, 7.5, {
+        centered(date ? "Issued: " + date : "", 558, 8.5, { color: color.gray, characterSpacing: 0.5 }),
+        ...(options.sample ? [centered("ILLUSTRATIVE SAMPLE ONLY  •  NOT AN ISSUED AWARD", 570, 7.5, {
           color: color.gold, bold: true, characterSpacing: 1.2,
         })] : []),
       ],
