@@ -8918,12 +8918,25 @@
     else if (open === "product") openProductModal();
     else if (open === "payments") openPaymentModesModal();
     else if (open === "import") openImportModal();
-    else if (open === "payment-targets") openPaymentTargetsModal();
+    else if (open === "payment-targets") {
+      try { openPaymentTargetsModal(); }
+      catch (error) { console.error("Unable to open payment mix targets.", error); alert(friendlyError(error)); }
+    }
     else if (open === "sync-categories") openSyncCategoriesModal();
     else if (open === "sales-history") openSalesHistoryModal();
     else if (open === "daily-history") openDailyHistoryModal();
-    else if (open === "target") openTargetModal();
-    else if (open === "targets-bulk") openBulkTargetsModal();
+    else if (open === "target" || open === "targets-bulk") {
+      try {
+        if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) {
+          throw new Error("Your account is not authorized to manage targets.");
+        }
+        if (open === "target") openTargetModal();
+        else openBulkTargetsModal();
+      } catch (error) {
+        console.error("Unable to open target editor.", error);
+        alert(friendlyError(error));
+      }
+    }
     else if (open === "district") openDistrictModal();
     else if (open === "branch") openBranchModal();
     else if (open === "user") openUserModal();
