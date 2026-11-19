@@ -7,6 +7,7 @@ on:
       - 'auth-app.js'
       - 'calendar-daily-notices.test.cjs'
       - 'supabase/migrations/20261119170000_customer_master_address_required.sql'
+      - 'supabase/migrations/20261119190000_calendar_events_inventory_viewers.sql'
       - 'ps-certificates.mjs'
       - 'certificate-corporate-frame.mjs'
       - 'certificate-periods.mjs'
