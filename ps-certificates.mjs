@@ -1,6 +1,7 @@
 // Standalone, read-only certificate composition. No database writes or side effects.
 import { firstMegasaverLogo } from "./first-megasaver-logo-data.mjs";
 import { firstMegasaverCertificateFrame } from "./certificate-corporate-frame.mjs";
+import { approvedBorderOverlay } from "./certificate-approved-border.mjs";
 export function topSpecialistAwardees(rankedRows, profiles, limit = 10) {
   const people = new Map((profiles || []).map(profile => [profile.id, profile]));
   const testName = value => /^\s*test([^a-z]|$)/i.test(String(value || ""));
@@ -89,6 +90,10 @@ export function certificateDocument(awardees, options = {}) {
           columnGap: 35, absolutePosition: { x: 103, y: 464 }, width: 635,
         },
         centered(date ? "Issued: " + date : "", 535, 8.5, { color: color.gray, characterSpacing: 0.5 }),
+        // Transparent artwork cropped from the user-approved certificate image.
+        // Positioned across each PDF page without flattening recipient or signature text.
+        { image: approvedBorderOverlay, width: 842, height: 595,
+          absolutePosition: { x: 0, y: 0 } },
         ...(options.sample ? [centered("ILLUSTRATIVE SAMPLE ONLY  •  NOT AN ISSUED AWARD", 554, 7.5, {
           color: color.gold, bold: true, characterSpacing: 1.2,
         })] : []),
