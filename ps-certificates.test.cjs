@@ -209,3 +209,28 @@ test("certificate form uppercases both editable signatories before building the 
   assert.match(flow, /branchManagerName:.*toLocaleUpperCase\("en-PH"\)/);
   assert.match(flow, /districtManagerName:.*toLocaleUpperCase\("en-PH"\)/);
 });
+
+
+test("recognition section gains exactly five points and branch assignment doubles", async () => {
+  const { certificateDocument } = await import("./ps-certificates.mjs");
+  const doc = certificateDocument([{ id: "ps1", rank: 1, name: "Vermont Jay Montalban", branch: "Santiago", brand: "TCL", total: 1000 }], {
+    period: "November 2026 • Monthly Performance (through 2026-11-19)",
+  });
+  const stack = doc.content[0].stack;
+  const lookup = prefix => stack.find(node => String(node.text || "").startsWith(prefix));
+  assert.equal(lookup("EXCELLENCE IN SALES PERFORMANCE").fontSize, 16);
+  assert.equal(lookup("CERTIFICATE OF RECOGNITION").fontSize, 32.5);
+  assert.equal(lookup("This certificate is proudly presented to").fontSize, 18);
+  assert.equal(lookup("Vermont Jay Montalban").fontSize, 40);
+  assert.equal(lookup("RANK #1").fontSize, 19);
+  assert.equal(lookup("In grateful recognition").fontSize, 16.3);
+  assert.equal(lookup("November 2026").fontSize, 19.2);
+  assert.equal(lookup("Branch: Santiago").fontSize, 24.8);
+  assert.ok(lookup("Branch: Santiago").absolutePosition.y > lookup("November 2026").absolutePosition.y);
+  const frame = doc.background(1, {width:842, height:595}).svg;
+  assert.match(frame, /M 112 344 H 730 L 719 375 H 100 Z/, "ribbon widened to fit the larger period label");
+  for(const personName of ["ALONG TEST NAME WITH MORE THAN THIRTY SIX CHARACTERS", "A VERY LONG NAME THAT HAS MORE THAN FIFTY TWO CHARACTERS TOTAL"]) {
+    const candidate = certificateDocument([{id:"ps1", rank:1, name:personName, branch:"Santiago", brand:"TCL", total:1000}]).content[0].stack.find(n=>n.text===personName);
+    assert.equal(candidate.fontSize, personName.length>52?26:31, "long-name font also gains five points");
+  }
+});
