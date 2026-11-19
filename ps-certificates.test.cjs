@@ -54,7 +54,7 @@ test("Certificate PDF is A4 landscape, one page per awarded PS, with blank signa
   assert.equal(unsigned.content[0].stack.find(part => part.columns).columns[1].stack[1].text, " ");
   assert.equal(typeof doc.background, "function");
   const frame = doc.background(1, { width: 841.89, height: 595.28 });
-  assert.match(frame.svg, /blueRibbon/);
+  assert.match(frame.svg, /id="ribbon"/);
   assert.match(frame.svg, /id="pageInside"/);
   assert.match(frame.svg, /clip-path="url\(#pageInside\)"/);
   assert.match(frame.svg, /One continuous matched contour/);
