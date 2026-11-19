@@ -7956,7 +7956,12 @@
       if (match) return Number(match[1].replace(/,/g, "") + "." + match[2]).toLocaleString("en-PH",
         { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (match[3] || "");
     }
-    return raw;
+    // Preserve existing print behavior for long fractional generic metrics.
+    const match = raw.match(/^([+-]?\\s*[₱$]?\\s*)([\\d,]+)\\.(\\d+)(\\s*%?)$/);
+    if (!match || match[3].length <= 2) return raw;
+    const amount = Number(match[2].replace(/,/g, "") + "." + match[3]);
+    return Number.isFinite(amount) ? match[1] + amount.toLocaleString("en-PH",
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + match[4] : raw;
   }
 
   // Exact widths prevent pdfmake's automatic minimum-word widths from pushing
@@ -8295,7 +8300,7 @@
       sheets.forEach(sheet => {
         const worksheet = window.XLSX.utils.aoa_to_sheet(sheet.rows);
         const headings = sheet.rows[0] || [];
-        headings.forEach((heading, columnIndex) => {
+        if (typeof window.XLSX.utils.encode_cell === "function") headings.forEach((heading, columnIndex) => {
           if (!moneyExportColumn(heading)) return;
           for (let rowIndex = 1; rowIndex < sheet.rows.length; rowIndex += 1) {
             const address = window.XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
