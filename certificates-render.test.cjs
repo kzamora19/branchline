@@ -43,18 +43,18 @@ test("real pdfmake generates correctly paginated one-person and ten-person A4 la
   const people = Array.from({ length: 10 }, (_, i) => ({
     id: "ps-" + (i + 1), name: i === 9
       ? "ALEXANDRA MARIE CHRISTINE DELOS SANTOS FERNANDEZ"
-      : "TEST RECIPIENT " + String(i + 1).padStart(2, "0"),
+      : "SAMPLE PRODUCT SPECIALIST " + String(i + 1).padStart(2, "0"),
     rank: i + 1,
     total: 1234567.89 + i * 320,
     branch: i % 2 ? "Tuguegarao" : "Santiago",
     brand: "Long Brand Assignment / Another Brand",
   }));
   const options = {
-    period: "November 2026 — Month-to-date performance",
+    period: "November 2026 • Monthly Performance (through 2026-11-19)",
     scope: "Cauayan, Ilagan, Santiago, Tuguegarao",
     basis: "Selling price",
     filters: "All brands and categories",
-    issuedOn: "2026-11-18",
+    issuedOn: "2026-11-19",
     branchManagerName: "MARINA C. SANTOS",
     districtManagerName: "ELENA D. CRUZ",
     sample: true,
@@ -62,7 +62,7 @@ test("real pdfmake generates correctly paginated one-person and ten-person A4 la
   const one = await generate(pdfMake, certificateDocument(people.slice(0, 1), options), "award-one.pdf");
   const annualOptions = {
     ...options,
-    period: certificatePeriodRange("annual", "2025", "2026-11-19").label,
+    period: certificatePeriodRange("annual", "2026", "2026-11-19").label,
   };
   const annual = await generate(pdfMake, certificateDocument(people.slice(0, 1), annualOptions), "award-annual.pdf");
   const ten = await generate(pdfMake, certificateDocument(people, options), "awards-ten.pdf");
@@ -94,7 +94,7 @@ test("real pdfmake generates correctly paginated one-person and ten-person A4 la
     assert.ok(text.includes("Issued: 2026-11-18"), "issued date is printed");
   }
   const annualText = execFileSync("pdftotext", [annual, "-"], { encoding: "utf8" });
-  assert.ok(annualText.includes("Year 2025"), "Annual certificate prints the selected calendar year");
+  assert.ok(annualText.includes("Year 2026"), "Annual certificate prints the selected calendar year");
   assert.ok(annualText.includes("Annual Performance"), "Annual label appears in the PDF");
   const text = execFileSync("pdftotext", [ten, "-"], { encoding: "utf8" });
   assert.ok(text.includes("ALEXANDRA MARIE CHRISTINE"), "long name actually rendered");
