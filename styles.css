@@ -880,3 +880,8 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .delivery-total-banner span { color: #405572; font-size: 12px; font-weight: 700; }
 .delivery-total-banner strong { color: #174b94; font: 800 clamp(19px,2vw,27px)/1.2 "Manrope","Segoe UI",sans-serif; font-variant-numeric: tabular-nums; }
 .delivery-total-modal { display: block; margin-top: 15px; font-size: 16px; color: #174b94; }
+
+/* Reviewed certificate output uses the same rendered PDF as the downloaded file. */
+.certificate-preview { margin-top: 16px; min-width: 0; }
+.certificate-preview iframe { display: block; width: 100%; height: min(65vh, 610px); min-height: 350px; border: 1px solid var(--line); border-radius: 8px; background: #f4f6fa; }
+.certificate-preview[hidden] { display: none !important; }
