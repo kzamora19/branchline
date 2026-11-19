@@ -1562,7 +1562,8 @@
     const scope = scopeBranchIds();
     const awardees = psAwardRankingRows(scope);
     const ranking = psRankingRows(scope);
-    const awardButton = demoStore ? "" : '<button type="button" class="button button-outline ps-award-batch" data-award-top10 '
+    const canPrintCertificates = !demoStore && ["manager", "district_manager", "admin"].includes(currentProfile?.role);
+    const awardButton = !canPrintCertificates ? "" : '<button type="button" class="button button-outline ps-award-batch" data-award-top10 '
       + (awardees.length ? "" : "disabled") + ' aria-label="Download printable Top 10 Product Specialist certificates">Print PS Certificates (PDF)</button>';
     const table = tableBlock(
       "psrank",

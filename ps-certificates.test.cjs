@@ -234,3 +234,14 @@ test("recognition section gains exactly five points and branch assignment double
     assert.equal(candidate.fontSize, personName.length>52?26:31, "long-name font also gains five points");
   }
 });
+
+test("Top PS certificate print action is displayed only to branch managers and higher", () => {
+  const fs = require("node:fs");
+  const source = fs.readFileSync(require("node:path").join(__dirname,"auth-app.js"),"utf8");
+  const start = source.indexOf("  function psRankingPanel()");
+  const end = source.indexOf("  function ", start + 15);
+  const panel = source.slice(start,end);
+  assert.match(panel, /const canPrintCertificates = !demoStore && \["manager", "district_manager", "admin"\]\.includes\(currentProfile\?\.role\)/);
+  assert.match(panel, /const awardButton = !canPrintCertificates \? ""/);
+  assert.match(source, /if \(!\["manager", "district_manager", "admin"\]\.includes\(currentProfile\?\.role\)/);
+});
