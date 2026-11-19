@@ -55,12 +55,12 @@ test("Certificate PDF is A4 landscape, one page per awarded PS, with blank signa
   assert.equal(typeof doc.background, "function");
   const frame = doc.background(1, { width: 841.89, height: 595.28 });
   assert.match(frame.svg, /blueRibbon/);
-  // Decorative border is taken from the approved artwork and sits over the frame.
-  const overlay = doc.content[0].stack.find(part => part.image && part.width === 842 && part.height === 595);
-  assert.ok(overlay, "Approved border is embedded on the certificate page");
-  assert.match(overlay.image, /^data:image\/png;base64,/);
-  assert.equal(overlay.absolutePosition.x, 0);
-  assert.equal(overlay.absolutePosition.y, 0);
+  assert.match(frame.svg, /id="pageInside"/);
+  assert.match(frame.svg, /clip-path="url\(#pageInside\)"/);
+  assert.match(frame.svg, /One continuous matched contour/);
+  assert.doesNotMatch(frame.svg, /data:image/);
+  assert.ok(!doc.content[0].stack.some(part => part.width === 842 && part.height === 595 && part.image),
+    "No raster border overlay should cover the editable certificate");
   assert.equal(doc.pageMargins[0], 0);
   assert.match(doc.content[0].stack[0].image, /^data:image\/png;base64,/);
   assert.ok(!doc.content[0].stack.some(part => String(part.text).includes("BRANCHLINE  |  SALES TRACKER")));
