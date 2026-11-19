@@ -192,7 +192,6 @@
     ui.inventoryProductDetails = false;
     ui.salesBasis = "price";
     ui.filtersOpen = false;
-    ui.psRankingCollapsed = false;
     ui.period = "month";
     ui.anRange = "month";
     ui.month = "";
@@ -1461,11 +1460,6 @@
     const ranking = psRankingRows(scope);
     const awardButton = demoStore ? "" : '<button type="button" class="button button-outline ps-award-batch" data-award-top10 '
       + (awardees.length ? "" : "disabled") + ' aria-label="Download printable Top 10 Product Specialist certificates">Print Top 10 Certificates (PDF)</button>';
-    const collapsed = ui.psRankingCollapsed === true;
-    const toggleButton = '<button type="button" class="button button-outline" data-toggle-ps-ranking '
-      + 'aria-controls="ps-ranking-table-content" aria-expanded="' + (!collapsed) + '" '
-      + 'aria-label="' + (collapsed ? "Expand" : "Collapse") + ' Product Specialist ranking table">'
-      + (collapsed ? "Expand table" : "Collapse table") + '</button>';
     const table = tableBlock(
       "psrank",
       ["Rank", "Product Specialist", "Brand", "Branch", "Total sales"],
@@ -1478,9 +1472,8 @@
     return panel(
       "Product Specialist ranking",
       periodLabel() + " · overall sales regardless of brand, highest first. Click a name to see their sales.",
-      '<div id="ps-ranking-table-content" data-ps-ranking-body' + (collapsed ? " hidden" : "") + '>'
-        + table + '</div>',
-      awardButton + toggleButton,
+      table,
+      awardButton,
     );
   }
 
@@ -8864,19 +8857,6 @@
       }, true);
       return;
     }
-    const rankingToggle = event.target.closest("[data-toggle-ps-ranking]");
-    if (rankingToggle) {
-      const body = rankingToggle.closest(".connected-panel")?.querySelector("[data-ps-ranking-body]");
-      if (!body) return;
-      ui.psRankingCollapsed = !ui.psRankingCollapsed;
-      body.hidden = ui.psRankingCollapsed;
-      const expand = ui.psRankingCollapsed;
-      rankingToggle.textContent = expand ? "Expand table" : "Collapse table";
-      rankingToggle.setAttribute("aria-expanded", String(!expand));
-      rankingToggle.setAttribute("aria-label",
-        (expand ? "Expand" : "Collapse") + " Product Specialist ranking table");
-      return;
-    }
     const awardBatch = event.target.closest("[data-award-top10]");
     const awardSingle = event.target.closest("[data-ps-certificate]");
     if (awardBatch || awardSingle) {
@@ -8938,12 +8918,25 @@
     else if (open === "product") openProductModal();
     else if (open === "payments") openPaymentModesModal();
     else if (open === "import") openImportModal();
-    else if (open === "payment-targets") openPaymentTargetsModal();
+    else if (open === "payment-targets") {
+      try { openPaymentTargetsModal(); }
+      catch (error) { console.error("Unable to open payment mix targets.", error); alert(friendlyError(error)); }
+    }
     else if (open === "sync-categories") openSyncCategoriesModal();
     else if (open === "sales-history") openSalesHistoryModal();
     else if (open === "daily-history") openDailyHistoryModal();
-    else if (open === "target") openTargetModal();
-    else if (open === "targets-bulk") openBulkTargetsModal();
+    else if (open === "target" || open === "targets-bulk") {
+      try {
+        if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) {
+          throw new Error("Your account is not authorized to manage targets.");
+        }
+        if (open === "target") openTargetModal();
+        else openBulkTargetsModal();
+      } catch (error) {
+        console.error("Unable to open target editor.", error);
+        alert(friendlyError(error));
+      }
+    }
     else if (open === "district") openDistrictModal();
     else if (open === "branch") openBranchModal();
     else if (open === "user") openUserModal();
