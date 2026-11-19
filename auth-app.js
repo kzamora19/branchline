@@ -7931,15 +7931,15 @@
   // dates, barcodes and other identifiers as authored.
   function moneyExportColumn(label) {
     const text = String(label || "").trim().toLowerCase();
-    if (/^(no\\.? of sales|number of sales|salesperson|sales code|sales date|qty|quantity|transactions|invoice|barcode|serial|model|month|year)/.test(text)) return false;
-    return /(?:\\b(?:amount|price|srp|sales|target|revenue|cost|value|subtotal|gross profit|net income|total due|downpayment|balance)\\b)/.test(text);
+    if (/^(no\.? of sales|number of sales|salesperson|sales code|sales date|qty|quantity|transactions|invoice|barcode|serial|model|month|year)/.test(text)) return false;
+    return /(?:\b(?:amount|price|srp|sales|target|revenue|cost|value|subtotal|total|gross profit|net income|total due|downpayment|balance)\b)/.test(text);
   }
 
   function exportMoneyNumber(value) {
     if (typeof value === "number") return Number.isFinite(value) ? value : null;
     const raw = String(value ?? "").trim();
-    if (!/^(?:[₱$]\\s*)?-?(?:\\d+|\\d{1,3}(?:,\\d{3})+)(?:\\.\\d+)?$/.test(raw)) return null;
-    const parsed = Number(raw.replace(/[₱$,\\s]/g, ""));
+    if (!/^(?:[₱$]\s*)?-?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(raw)) return null;
+    const parsed = Number(raw.replace(/[₱$,\s]/g, ""));
     return Number.isFinite(parsed) ? parsed : null;
   }
 
@@ -7952,7 +7952,7 @@
     }
     // Other fractional metrics may have more precision than fits on a printed report.
     if (/^(?:moh|progress|share|achievement|growth|conversion rate)$/i.test(String(heading).trim())) {
-      const match = raw.match(/^([+-]?[\\d,]+)\\.(\\d+)(%)?$/);
+      const match = raw.match(/^([+-]?[\d,]+)\.(\d+)(%)?$/);
       if (match) return Number(match[1].replace(/,/g, "") + "." + match[2]).toLocaleString("en-PH",
         { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (match[3] || "");
     }
