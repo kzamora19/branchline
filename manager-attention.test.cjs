@@ -63,3 +63,38 @@ test("manager attention flags verified brand pace, critical active stock, missin
   assert.ok(output.find(item => item.id === "missing-codes").detail.includes("import mappings"));
   assert.ok(!output.some(row => row.id === "decline:Ilagan"));
 });
+
+test("manager attention snooze is account-scoped, expires next day and requires no database write", () => {
+  const vm = require("node:vm");
+  const source = fs.readFileSync(path.join(__dirname, "auth-app.js"), "utf8");
+  const start = source.indexOf("  function managerAttentionSnoozeStore()");
+  const end = source.indexOf("  function managementAttentionPanel(", start);
+  assert.ok(start >= 0 && end > start);
+  const helper = source.slice(start, end);
+  assert.doesNotMatch(helper, /\.rpc\(|\.from\(|fetch\(/);
+  const storage = new Map();
+  const context = vm.createContext({
+    currentProfile: { id: "manager-a" }, ui: { period: "month", month: "2026-11", branch: "STG", district: "" }, localISODate: () => context.day,
+    day: "2026-11-19",
+    localStorage: {
+      getItem: key => storage.get(key) || null,
+      setItem: (key, value) => storage.set(key, value),
+    },
+  });
+  vm.runInContext(helper, context);
+  assert.equal(vm.runInContext('snoozeManagerAttentionNotice("brand:LG")', context), true);
+  assert.equal(vm.runInContext('managerAttentionSnoozeStore().ids.has("brand:LG")', context), true);
+  context.currentProfile = { id: "manager-b" };
+  assert.equal(vm.runInContext('managerAttentionSnoozeStore().ids.has("brand:LG")', context), false,
+    "snoozes do not leak to another account on the same device");
+  context.currentProfile = { id: "manager-a" };
+  context.ui.branch = "CAU";
+  assert.equal(vm.runInContext('managerAttentionSnoozeStore().ids.has("brand:LG")', context), false,
+    "alerts in a different branch filter are not hidden");
+  context.ui.branch = "STG";
+  context.day = "2026-11-20";
+  assert.equal(vm.runInContext('managerAttentionSnoozeStore().ids.has("brand:LG")', context), false,
+    "notice reappears the next day");
+  assert.match(source, /data-manager-attention-snooze/);
+  assert.match(source, /Remind me tomorrow/);
+});
