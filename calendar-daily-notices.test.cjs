@@ -66,3 +66,14 @@ test("customer editor and RPC require barangay and municipality without backfill
   assert.match(migration,/security invoker/);
   assert.doesNotMatch(migration,/update public\.sales|insert into public\.sales/i);
 });
+
+test("calendar event RLS also allows only assigned inventory branches", () => {
+  const policy = fs.readFileSync(path.join(__dirname,
+    "supabase/migrations/20261119190000_calendar_events_inventory_viewers.sql"),"utf8");
+  assert.match(policy,/alter policy calendar_event_read on public\.calendar_events/);
+  assert.match(policy,/public\.is_dealer_member\(dealer_id\)/);
+  assert.match(policy,/public\.can_access_branch\(event_branch\.id\)/);
+  assert.match(policy,/public\.can_access_inventory\(event_branch\.id\)/);
+  assert.match(policy,/unnest\(calendar_events\.branch_ids\)/);
+  assert.doesNotMatch(policy,/create policy|grant all|using\s*\(\s*true\s*\)/i);
+});
