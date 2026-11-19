@@ -1,12 +1,13 @@
 "use strict";
 
-const CACHE_NAME = "branchline-shell-v185";
+const CACHE_NAME = "branchline-shell-v186";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
   "./install.html",
   "./styles.css",
   "./styles.css?v=ps-ranking-table-20261119",
+  "./styles.css?v=apps-hub-20261119",
   "./auth-app.js",
   "./ps-certificates.mjs",
   "./management-reports.mjs",
@@ -14,6 +15,9 @@ const APP_SHELL_URLS = [
   "./manager-attention.js",
   "./ps-performance.js",
   "./auth-app.js?v=ps-ranking-table-20261119",
+  "./branchline-applications.js",
+  "./branchline-applications.js?v=apps-hub-20261119",
+  "./auth-app.js?v=apps-hub-20261119",
   "./table-ui.js",
   "./promotion-review-ui.mjs",
   "./unified-import.mjs",
