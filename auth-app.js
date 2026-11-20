@@ -9090,16 +9090,6 @@
       renderConnected();
       return;
     }
-    const goalButton = event.target.closest("[data-save-ps-goal]");
-    if (goalButton) {
-      const input = goalButton.closest("[data-ps-goal-row]")?.querySelector("[data-ps-goal-input]");
-      if (!input || goalButton.disabled) return;
-      goalButton.disabled = true;
-      void saveIndividualPsMonthlyTarget(goalButton.dataset.savePsGoal, input.value)
-        .catch(error => { console.error("Individual PS target save failed.", error); exportError(error); })
-        .finally(() => { if (goalButton.isConnected) goalButton.disabled = false; });
-      return;
-    }
     const managementReport = event.target.closest("[data-management-report]");
     if (managementReport) {
       if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return;
