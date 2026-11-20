@@ -16,6 +16,9 @@ test("catalog contains all four expected applications with no duplication", () =
     "sales-tracker", "price-tag-generator", "megaframe-studio", "flyer-studio"
   ]);
   assert.equal(apps[0].kind, "workspace");
+  assert.equal(apps[3].name, "MegaFlyer Studio");
+  assert.match(apps[3].access, /Shared assets require PTG Team Leader\+/);
+  assert.match(apps[3].access, /not centrally gated yet/);
   assert.equal(apps[0].url, "");
   assert.equal(Object.isFrozen(apps), true);
   assert.equal(apps.every(app => Object.isFrozen(app)), true);

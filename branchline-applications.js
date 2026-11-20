@@ -33,10 +33,10 @@
     },
     {
       id: "flyer-studio",
-      name: "Flyer Studio",
+      name: "MegaFlyer Studio",
       monogram: "FS",
-      description: "Create promotional flyers, manage product bundles and export PDF artwork.",
-      access: "Flyer Studio sign-in and permissions apply",
+      description: "Design promotional flyers and export print-ready PNG and PDF artwork.",
+      access: "Shared assets require PTG Team Leader+; editor access is not centrally gated yet",
       kind: "external",
       url: "https://kzamora19.github.io/flyer-studio/",
     },
