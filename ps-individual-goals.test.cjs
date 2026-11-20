@@ -110,3 +110,13 @@ test("manager overview replaces individual-goal editor with read-only equal-shar
   assert.doesNotMatch(block, /client\.from|client\.rpc|upsert|delete\(/);
   assert.doesNotMatch(app, /saveIndividualPsMonthlyTarget\(|data-save-ps-goal/);
 });
+
+test("staged dashboard RPC returns the exact store-target share rather than rounding to a 50k band", () => {
+  const sql = fs.readFileSync(path.join(__dirname,
+    "docs/ps-equal-share-dashboard-rpc-review.sql"), "utf8");
+  assert.match(sql, /REVIEW-ONLY PROPOSAL/);
+  assert.match(sql, /targets\.branch_goal \/ stats\.total_ps/);
+  assert.doesNotMatch(sql, /ceil\(|\/ 50000|50,?000/);
+  assert.match(sql, /not public\.is_test_profile\(p\.full_name, p\.login_id\)/);
+  assert.match(sql, /s\.ps_id = a\.id/);
+});
