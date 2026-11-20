@@ -910,7 +910,7 @@
       .filter(sale => sale.ps_id === currentProfile.id
         && sale.branch_id === branchId
         && inStatus(sale.sold_on))
-      .reduce((total, sale) => total + saleTotal(sale, basis), 0);
+      .reduce((total, sale) => total + saleTotal(sale, "price"), 0);
     return { actual, target, branchTarget, activePsCount, targetSource };
   }
 
@@ -1100,7 +1100,7 @@
     const profiles = new Map(liveData.profiles.map(p => [p.id, p]));
     const testIds = new Set(liveData.profiles.filter(isTestProfile).map(p => p.id));
     const filters = { brand: ui.rankBrand, category: ui.rankCategory, sub: ui.rankSub };
-    const totals = new Map(), transactions = new Map(), dailyByPs = new Map();
+    const totals = new Map(), actualPriceTotals = new Map(), transactions = new Map(), dailyByPs = new Map();
     liveData.sales.forEach(sale => {
       const person = profiles.get(sale.ps_id);
       if (!person || person.role !== "ps" || person.active === false || isTestProfile(person)
@@ -1110,6 +1110,9 @@
         .reduce((total, line) => total + window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), 0);
       if (!(sum > 0)) return;
       addTo(totals, sale.ps_id, sum);
+      const actualPrice = linesForSale(sale.id).filter(line => lineMatches(line, filters))
+        .reduce((total, line) => total + window.BranchlineAnalytics.salesLineAmount(line, "price"), 0);
+      addTo(actualPriceTotals, sale.ps_id, actualPrice);
       transactions.set(sale.ps_id, (transactions.get(sale.ps_id) || 0) + 1);
       if (!dailyByPs.has(sale.ps_id)) dailyByPs.set(sale.ps_id, new Map());
       addTo(dailyByPs.get(sale.ps_id), String(sale.sold_on).slice(0, 10), sum);
@@ -1185,7 +1188,7 @@
         total, transactions: count, avgTicket: count ? total / count : 0,
         assisted, conversion, trend, pace, monthProjection,
         assignedTarget: null, targetLabel,
-        targetShare: goal, progress: goal ? total / goal * 100 : null,
+        targetShare: goal, progress: goal ? (actualPriceTotals.get(id) || 0) / goal * 100 : null,
       };
     }).sort((a, b) => b.total - a.total || natural(a.name, b.name) || natural(a.id, b.id))
       .slice(0, 10).map((row, index) => ({ ...row, rank: index + 1 }));
@@ -1379,7 +1382,7 @@
         + '<td>' + escapeHTML(person.salesperson_code || "—") + '</td>'
         + '<td>' + formatMoney(credited) + '</td>'
         + '<td>' + (target ? formatMoney(target) : "—") + '</td>'
-        + '<td>' + (achievement === null ? "—" : percent(achievement)) + '</td></tr>';
+        + '<td>' + (achievement === null ? "—" : percent(credited, target)) + '</td></tr>';
     }).join("");
     const note = '<p class="ps-award-note">Automatic monthly PS target = store target ÷ active branch PS (including zero-sale PS).'
       + ' Achievement = recorded selling-price sales attributed to the PS ÷ that equal target.'
@@ -1576,7 +1579,7 @@
         + escapeHTML(row.salesCode || "—") + '</td><td>' + escapeHTML(row.brand) + '</td><td>'
         + escapeHTML(row.branch) + '</td><td>' + formatMoney(row.total) + '</td><td>'
         + (row.target ? formatMoney(row.target) : "—") + '</td><td>'
-        + (row.achievement === null || row.achievement === undefined ? "—" : percent(row.achievement / 100)) + '</td></tr>',
+        + (row.achievement === null || row.achievement === undefined ? "—" : percent(row.achievement, 100)) + '</td></tr>',
       "No Product Specialists match this selection.",
     );
     return panel(
