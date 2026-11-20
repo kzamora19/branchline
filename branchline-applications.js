@@ -33,9 +33,9 @@
     },
     {
       id: "flyer-studio",
-      name: "Flyer Studio",
+      name: "MegaFlyer Studio",
       monogram: "FS",
-      description: "Create promotional flyers, manage product bundles and export PDF artwork.",
+      description: "Design promotional flyers, manage product bundles and export print-ready PDF artwork.",
       access: "Requires an active PTG Team Leader, Branch Admin or System Admin account",
       kind: "external",
       url: "https://first-megasaver-ptg.vercel.app/studios/",

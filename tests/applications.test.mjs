@@ -16,6 +16,7 @@ test("catalog contains all four expected applications with no duplication", () =
     "sales-tracker", "price-tag-generator", "megaframe-studio", "flyer-studio"
   ]);
   assert.equal(apps[0].kind, "workspace");
+  assert.equal(apps[3].name, "MegaFlyer Studio");
   assert.equal(apps[0].url, "");
   assert.equal(Object.isFrozen(apps), true);
   assert.equal(apps.every(app => Object.isFrozen(app)), true);
