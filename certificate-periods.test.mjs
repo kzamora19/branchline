@@ -18,6 +18,8 @@ test("annual certificate uses Jan-Dec, marking current year as partial",()=>{
   assert.match(full.label,/Annual Performance/);
   const ytd=certificatePeriodRange("annual","2026","2026-11-19");
   assert.deepEqual([ytd.from,ytd.through,ytd.partial],["2026-01-01","2026-11-19",true]);
+  assert.equal(ytd.label, "Year 2026 • Annual Performance");
+  assert.doesNotMatch(ytd.label, /\(through /i);
 });
 
 test("future and malformed months/years are rejected",()=>{
