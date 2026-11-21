@@ -88,12 +88,18 @@ test("server-only verification bridges the two existing Supabase accounts, never
 });
 
 
-test("MegaFlyer Smart Product Photo Library stays private and uses existing Flyer Supabase backend",()=>{
+test("MegaFlyer Smart Product Photos use PTG-gated private backend in both standalone and protected editors",()=>{
  const privateBuilder=read(pathMap.flyer,"scripts/build-private-flyer.mjs");
  const photoClient=read(pathMap.flyer,"site/product-photo-library.js");
  const photoBackend=read(pathMap.flyer,"supabase/functions/flyer-product-photos/index.ts");
  const migration=read(pathMap.flyer,"supabase/migrations/202611210001_smart_product_photos.sql");
  const publicPage=read(pathMap.flyer,"scripts/build-cutover-pages.mjs");
+ const publicAdapter=read(pathMap.flyer,"site/product-photo-standalone.js");
+ const toolbar=read(pathMap.flyer,"site/toolbar-tabs.js");
+ assert.match(publicAdapter,/__MEGAFLYER_PRIVATE_DB__/);
+ assert.match(publicAdapter,/__MEGAFLYER_PHOTO_RPC__/);
+ assert.match(toolbar,/product-photo-standalone\.js/);
+ assert.match(toolbar,/__MEGAFLYER_PRIVATE_DB__/);
  assert.match(privateBuilder,/product-photo-library\.js/);
  assert.match(privateBuilder,/product-photo-match\.js/);
  assert.doesNotMatch(publicPage,/product-photo-library\.js/);
