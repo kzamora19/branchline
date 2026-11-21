@@ -29,7 +29,7 @@
       description: "Edit photos, build personalized frames and export print-ready layouts.",
       access: "MegaFrame Studio sign-in and permissions apply",
       kind: "external",
-      url: "https://megaframe-studio.vercel.app/",
+      url: "https://kzamora19.github.io/megaframe-studio/",
     },
     {
       id: "flyer-studio",

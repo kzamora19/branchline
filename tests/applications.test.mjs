@@ -24,7 +24,7 @@ test("catalog contains all four expected applications with no duplication", () =
 test("external apps open verified HTTPS domains without credentials or OAuth state", () => {
   assert.deepEqual(apps.slice(1).map(app => new URL(app.url).origin), [
     "https://kzamora19.github.io",
-    "https://megaframe-studio.vercel.app",
+    "https://kzamora19.github.io",
     "https://kzamora19.github.io"
   ]);
   for (const app of apps.slice(1)) {
@@ -51,11 +51,11 @@ test("every signed-in role can view the hub; independent app permissions are des
 });
 
 test("new app script loads before workspace, and new shell is available offline", () => {
-  assert.ok(html.indexOf('branchline-applications.js?v=ptg-pages-20261121') <
+  assert.ok(html.indexOf('branchline-applications.js?v=megaframe-pages-20261121') <
             html.indexOf('auth-app.js?v=certificate-label-20261121'));
-  assert.match(serviceWorker, /branchline-shell-v189/);
+  assert.match(serviceWorker, /branchline-shell-v190/);
   assert.ok(serviceWorker.includes('auth-app.js?v=certificate-label-20261121'));
-  assert.ok(serviceWorker.includes("branchline-applications.js?v=ptg-pages-20261121"));
+  assert.ok(serviceWorker.includes("branchline-applications.js?v=megaframe-pages-20261121"));
   assert.ok(styles.includes(".branchline-app-grid"));
   assert.ok(styles.includes("grid-template-columns:1fr"));
   assert.doesNotThrow(() => new Function(authSource));
