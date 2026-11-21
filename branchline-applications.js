@@ -20,7 +20,7 @@
       description: "Find products, review selling prices, prepare and print price tags.",
       access: "Existing PTG account permissions apply",
       kind: "external",
-      url: "https://first-megasaver-ptg.vercel.app/",
+      url: "https://kzamora19.github.io/first-megasaver-ptg/",
     },
     {
       id: "megaframe-studio",
