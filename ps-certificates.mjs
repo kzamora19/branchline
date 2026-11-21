@@ -68,7 +68,7 @@ export function certificateDocument(awardees, options = {}) {
         centered(period, 348, period.length > 70 ? 16.5 : 19.2, {
           color: "#FFFFFF", bold: true, characterSpacing: 0.5,
         }),
-        centered("Branch: " + person.branch + "   •   Brand assignment: " + person.brand, 388, 24.8, {
+        centered("Branch: " + person.branch + "   •   Brand assignment: " + String(person.brand || "—").toLocaleUpperCase("en-PH"), 388, 24.8, {
           color: color.ink, bold: true, lineHeight: 0.95,
         }),
         {

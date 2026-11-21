@@ -50,7 +50,7 @@ test("real pdfmake generates correctly paginated one-person and ten-person A4 la
     brand: "Long Brand Assignment / Another Brand",
   }));
   const options = {
-    period: "November 2026 • Monthly Performance (through 2026-11-19)",
+    period: "November 2026 • Monthly Performance",
     scope: "Cauayan, Ilagan, Santiago, Tuguegarao",
     basis: "Selling price",
     filters: "All brands and categories",

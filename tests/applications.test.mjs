@@ -52,9 +52,9 @@ test("every signed-in role can view the hub; independent app permissions are des
 
 test("new app script loads before workspace, and new shell is available offline", () => {
   assert.ok(html.indexOf('branchline-applications.js?v=ptg-pages-20261121') <
-            html.indexOf('auth-app.js?v=ps-equal-share-20261121'));
-  assert.match(serviceWorker, /branchline-shell-v188/);
-  assert.ok(serviceWorker.includes('auth-app.js?v=ps-equal-share-20261121'));
+            html.indexOf('auth-app.js?v=certificate-label-20261121'));
+  assert.match(serviceWorker, /branchline-shell-v189/);
+  assert.ok(serviceWorker.includes('auth-app.js?v=certificate-label-20261121'));
   assert.ok(serviceWorker.includes("branchline-applications.js?v=ptg-pages-20261121"));
   assert.ok(styles.includes(".branchline-app-grid"));
   assert.ok(styles.includes("grid-template-columns:1fr"));

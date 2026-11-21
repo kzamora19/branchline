@@ -25,7 +25,7 @@ export function certificatePeriodRange(kind, selectedValue, today) {
     kind,
     from,
     through,
-    label: current ? base + " (through " + through + ")" : base,
+    label: base, // `through` still limits data; do not print it in the certificate title.
     fileKey: kind === "monthly" ? "monthly-" + value : "annual-" + value,
     partial: current,
   };
