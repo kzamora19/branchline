@@ -51,3 +51,13 @@ Do not merge any of the four draft PRs, enable Pages cutover approval variables,
 - Concurrent Drive operations are disabled to avoid accidental double writes or conflicting restores.
 - An account-revocation generation guard prevents an asynchronous Drive panel setup from reactivating after a protected PTG launcher has locked.
 - CI now runs mocked MegaFrame **and** MegaFlyer backups, resumable-upload byte-range checks, paginated search, Drive retrieval, revoked PTG proof, and the initialization race. **These are not real Google OAuth or two-device acceptance tests.**
+
+
+## November 21 — resumable large-project upload recovery
+- Both protected Studio launchers now use **8 MiB chunks** (a 256 KiB multiple), rather than a single 150 MB PUT. An HTTP 308 with the server-confirmed `Range` determines the next offset.
+- On a transient interruption, the launcher queries the same Drive upload session using `Content-Range: bytes */total`, and only resumes after Google confirms the uploaded bytes. It refuses repeated lack of progress instead of looping indefinitely.
+- Each chunk checks a current PTG P-256 proof. Forced logout or account revocation locks the editor and aborts the active Drive network controller.
+- New automated Drive tests simulate a **partial chunk accepted before network failure** for both MegaFrame and MegaFlyer. Real Drive/Google-account recovery remains untested.
+
+### Restore-key continuity warning
+Google Drive backups are encrypted with a PTG-account/Studio-specific recovery key derived by the existing PTG gateway secret. If `PTG_STUDIO_DRAFT_RECOVERY_SECRET` is lost or rotated without a backwards-compatible key migration, these backups **could become impossible to decrypt**. Before rollout, the owner must establish secure secret backup, versioned key-rotation/recovery policy, and an actual cross-device restore rehearsal. Never export this secret into GitHub Pages or Drive.
