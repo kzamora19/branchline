@@ -46,3 +46,10 @@
 - [Branchline application-hub CI](https://github.com/kzamora19/branchline/actions/runs/44877964628) passed desktop/mobile navigation and label checks. [MegaFrame protected CI](https://github.com/kzamora19/megaframe-studio/actions/runs/44878046953) passed browser and private package tests. [MegaFlyer protected CI](https://github.com/kzamora19/flyer-studio/actions/runs/44878095710) passed package and real browser export checks.
 - PTG unified-branding and real local Supabase checks run in draft #40 CI; see [PTG development PR](https://github.com/kzamora19/first-megasaver-ptg/pull/40) for the latest result.
 - **Production HOLD unchanged:** Do not deploy branding alone. Merge as part of the four-app coordinated release only after protected hosted staging, Google OAuth/Drive, real device/print, historic public-source/PWA bypass, role/security and rollback gates pass.
+
+
+## Public Studio URL/PWA retirement — development milestone
+- MegaFrame [draft #18](https://github.com/kzamora19/megaframe-studio/pull/18) now contains an isolated, editor-free historical Pages retirement generator plus PWA cache-preservation and browser-rehearsal tests. Production Pages build remains unchanged.
+- MegaFlyer [draft #10](https://github.com/kzamora19/flyer-studio/pull/10) now contains an isolated, editor-free historical Pages retirement generator. Production `site/` still serves the current editor and is unchanged.
+- [Read the coordinated release and PWA migration runbook](./creative-studios-source-retirement-runbook-20261121.md). The cutover is **not** complete. Existing offline PWA copies cannot be remotely disabled before reconnection; downloaded data/code and migration/backup coverage remain unresolved release risks.
+- These generated artifacts are **not part of normal GitHub Pages deployment jobs** and are not authorized for production publishing until all security, hosted-account, data-migration and device/print acceptance gates pass.
