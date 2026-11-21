@@ -105,3 +105,14 @@ Do not deploy this feature independently of the four-app cutover. No fifth Supab
 - **Outstanding acceptance** includes a verified live TL+/admin product-photo upload/recall across devices (not proven by anonymous denial alone), account revocation during an active Studio session, real Cloud Save/Retrieve, Google OAuth/Drive, physical prints, backups/migration, and the coordinated four-app access cutover.
 
 **Do not mistake the standalone photo-library release for completion of Branchline Unified Integration.** No extra Supabase project, subscription or Vercel deployment was created.
+
+
+## PTG signed continuation for protected MegaFlyer shared photos — staged
+
+- Resolved the opaque-frame product-photo authentication mismatch: the unreleased MegaFlyer editor no longer needs a reusable PTG bearer or app-session ID to access its shared photo library.
+- Parent keeps a non-extractable P-256 signing key and **serializes** photo actions with 30-second revocation checks, preventing concurrent consumption of the same PTG one-time challenge.
+- The existing **standalone** Photo Library continues to authenticate directly via active PTG session as already released. The **protected** mode uses a one-use signed challenge, verified server-to-server by PTG. PTG alone supplies the actor ID and TL/admin scope; unauthorized / revoked proof closes the private editor.
+- The PTG function's added actor/scope fields are server-only and removed from the browser-facing private MegaFlyer delivery response.
+- The latest [MegaFlyer proof-only browser CI](https://github.com/kzamora19/flyer-studio/actions/runs/44889656108) passed tests for real editor layout/export, product photo recall/upload/opt-out without iframe credentials, encrypted local draft restore, cloud Save/Retrieve mock and proof revocation closing the iframe. [Branchline cross-repository source policy](https://github.com/kzamora19/branchline/actions/runs/44889552406) also passed.
+
+**This does not authorize four-app deployment.** PTG hosting, real cloud project integration, Google OAuth/Drive, actual TL/admin/revocation and user recovery, PWA/public editor shutdown, exact SHA cross-repo regression and production rollback must pass before the unified cutover. Draft PR merge conflicts with active production branches must be reconciled in a separate reviewed step.
