@@ -290,6 +290,10 @@ test("manual Google Drive backup remains PTG-gated, opt-in and encrypted for bot
   assert.match(drive,/https:\/\/www\.googleapis\.com\/auth\/drive\.file/);
   assert.match(drive,/BranchlineStudioDriveBackupV1/);
   assert.match(drive,/uploadType=resumable/);
+  assert.match(drive,/async function uploadResumable/);
+  assert.match(drive,/bytes \*\//);
+  assert.match(drive,/response\.status===308/);
+  assert.match(drive,/body\.slice\(offset,end\)/);
   assert.match(drive,/await context\.verify\(\)/);
   assert.match(drive,/ownerScope/);
   assert.match(drive,/window\.confirm/);
