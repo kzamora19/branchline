@@ -29,7 +29,7 @@
       description: "Edit photos, build personalized frames and export print-ready layouts.",
       access: "Requires an active PTG Team Leader, Branch Admin or System Admin account",
       kind: "external",
-      url: "https://first-megasaver-ptg.vercel.app/studios/",
+      url: "https://kzamora19.github.io/first-megasaver-ptg/studios/",
     },
     {
       id: "flyer-studio",
@@ -38,7 +38,7 @@
       description: "Design promotional flyers, manage product bundles and export print-ready PDF artwork.",
       access: "Requires an active PTG Team Leader, Branch Admin or System Admin account",
       kind: "external",
-      url: "https://first-megasaver-ptg.vercel.app/studios/",
+      url: "https://kzamora19.github.io/first-megasaver-ptg/studios/",
     },
   ];
   for (const app of list) {

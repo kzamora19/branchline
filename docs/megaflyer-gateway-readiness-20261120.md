@@ -22,3 +22,10 @@ The PTG Team Leader+ gateway in this pull request remains a **draft hold**. The 
 ## This staged change
 
 Only corrects **MegaFlyer Studio** branding on the existing draft Branchline gateway card and associated tests. No live redirects, credentials, or hosting configuration are modified.
+
+## November 21, 2026 — Non-Vercel draft launcher path
+
+- The draft-only Creative Studios cards now link to the *intended* PTG GitHub Pages route `https://kzamora19.github.io/first-megasaver-ptg/studios/`, based on its existing Next.js `basePath: "/first-megasaver-ptg"` and `app/studios/page.tsx` staging route.
+- This is **not yet a verified live route**: the PTG Studio portal itself is not released on GitHub Pages. These Branchline changes must stay draft/hold and cannot be merged independently.
+- PTG's **ordinary Price Tag Generator** card retains its existing production link; do not silently rewrite or break unrelated application navigation.
+- The destination launcher must ultimately point only to server-verified protected studio pages, never directly to the publicly served editor HTML/JS. The PTG draft requires an explicit HTTPS issuer origin and protected destinations; its PTG origin and both Studio URLs still require release-time configuration.
