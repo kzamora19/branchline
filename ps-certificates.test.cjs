@@ -214,7 +214,7 @@ test("certificate form uppercases both editable signatories before building the 
 test("recognition section gains exactly five points and branch assignment doubles", async () => {
   const { certificateDocument } = await import("./ps-certificates.mjs");
   const doc = certificateDocument([{ id: "ps1", rank: 1, name: "Vermont Jay Montalban", branch: "Santiago", brand: "TCL", total: 1000 }], {
-    period: "November 2026 • Monthly Performance (through 2026-11-19)",
+    period: "November 2026 • Monthly Performance",
   });
   const stack = doc.content[0].stack;
   const lookup = prefix => stack.find(node => String(node.text || "").startsWith(prefix));
