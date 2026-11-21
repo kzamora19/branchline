@@ -124,3 +124,47 @@ test("MegaFlyer Smart Product Photos use PTG-gated private backend in both stand
  assert.match(read(pathMap.flyer,"supabase/config.toml"),/\[functions\.flyer-product-photos\]/);
  assert.ok(!readdirSync(join(pathMap.flyer,"staging/.cross-repo-cutover/studio")).includes("product-photo-library.js"));
 });
+
+
+test("MegaFrame v2.7 startup and recovery remain encrypted inside the protected integration",()=>{
+ const editor=read(pathMap.frame,"editor.js");
+ const builder=read(pathMap.frame,"staging/build-private-package.mjs");
+ const launcher=read(pathMap.frame,"staging/studio-access/launch.js");
+ const vault=read(pathMap.frame,"staging/studio-access/draft-vault.js");
+ assert.match(editor,/startupChoiceDialog/);
+ assert.match(editor,/async function beginNewProject\(/);
+ assert.match(editor,/async function initializeDraftRecovery\(/);
+ assert.match(editor,/function recoveryArchiveId\(draft\)/);
+ assert.match(editor,/async function deleteLinkedRecovery\(id\)/);
+ assert.match(builder,/recoveryHelpers/);
+ assert.match(builder,/function recoveryArchiveId\(draft\)/);
+ assert.match(builder,/async function deleteLinkedRecovery\(id\)/);
+ assert.match(builder,/__MEGAFRAME_PRIVATE_DRAFT__/);
+ assert.match(vault,/validProjectId/);
+ assert.match(vault,/recovery_/);
+ assert.match(vault,/AES-GCM/);
+ assert.match(launcher,/allow-scripts allow-downloads allow-modals/);
+ assert.doesNotMatch(launcher,/frame\.sandbox\s*=\s*["'][^"'\n]*allow-same-origin/);
+});
+
+test("current live MegaFlyer wording and both app cutover release gates survive branch reconciliation",()=>{
+ const flyerHtml=read(pathMap.flyer,"site/index.html");
+ assert.match(flyerHtml,/<h1>MegaFlyer Studio<\/h1>/);
+ assert.match(flyerHtml,/Flyer Status: Draft/);
+ assert.match(flyerHtml,/aria-label="Flyer status: Draft"/);
+ for(const item of [
+  {dir:pathMap.frame,variable:"MEGAFRAME_CUTOVER_APPROVED"},
+  {dir:pathMap.flyer,variable:"MEGAFLYER_CUTOVER_APPROVED"}
+ ]){
+  const workflow=read(item.dir,".github/workflows/pages.yml");
+  assert.ok(workflow.includes(item.variable),
+    "No unattended public editor cutover is permitted for "+item.variable);
+  assert.match(workflow,/github\.event_name == 'workflow_dispatch'/);
+  assert.match(workflow,/refs\/heads\/main/);
+ }
+ // Latest standalone Smart Photo tests and its CI must not disappear when
+ // the older protected Studio development branch merges the live release.
+ assert.ok(existsSync(join(pathMap.flyer,".github/workflows/megaflyer-photo-release-ci.yml")));
+ assert.ok(existsSync(join(pathMap.flyer,"tests/megaflyer-smart-photo-release.cjs")));
+ assert.ok(existsSync(join(pathMap.flyer,"site/product-photo-standalone.js")));
+});
