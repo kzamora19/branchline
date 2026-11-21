@@ -1296,13 +1296,13 @@
         update();
       },
       onSubmit: async form => {
-        const { certificatePeriodRange } = await import("./certificate-periods.mjs");
+        const { certificatePeriodRange } = await import("./certificate-periods.mjs?v=certificate-label-20261121");
         const kind = form.elements.certificate_kind.value;
         const value = kind === "annual"
           ? String(form.elements.certificate_year.value).trim()
           : String(form.elements.certificate_month.value).trim();
         const window = certificatePeriodRange(kind, value, today);
-        const { topSpecialistAwardees, certificateDocument } = await import("./ps-certificates.mjs");
+        const { topSpecialistAwardees, certificateDocument } = await import("./ps-certificates.mjs?v=certificate-label-20261121");
         if (currentProfile?.id !== profileId || client !== sessionClient || !["overview", "targets"].includes(activePage)) {
           throw new Error("Your session or selected page changed. Open the certificate form again.");
         }
