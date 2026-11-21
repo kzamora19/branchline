@@ -232,3 +232,48 @@ test("latest live MegaFrame and MegaFlyer editor interfaces survive private pack
  assert.match(branchTests,/PS assist drilldown values/);
  assert.match(read(branchline,"index.html"),/auth-app\.js\?v=ps-assist-review-20261121/);
 });
+
+test("PTG-account cloud backups span both Studios without a fifth Supabase project",()=>{
+ const access=read(pathMap.ptg,"supabase/functions/ptg-studio-access/index.ts");
+ const schema=read(pathMap.ptg,"supabase/migrations/20261121212700_ptg_studio_cloud_backups.sql");
+ const policy=read(pathMap.ptg,"supabase/functions/_shared/studio-cloud-policy.mjs");
+ const cloudSuite=read(pathMap.ptg,"tests/studio-edge-http-acceptance.mjs");
+ assert.match(access,/async function cloud\(/);
+ assert.match(access,/ptg_studio_cloud_backups/);
+ assert.match(access,/ptg_studio_cloud_write/);
+ assert.match(access,/const proven=await prove\(request,body\)/);
+ assert.match(access,/actor=authority\.actorId/);
+ assert.match(schema,/owner_ptg_id uuid not null references auth\.users/);
+ assert.match(schema,/enable row level security/);
+ assert.match(schema,/revoke all on public\.ptg_studio_cloud_backups from public, anon, authenticated/);
+ assert.match(schema,/security invoker/);
+ assert.match(schema,/p_expected_version/);
+ assert.match(policy,/STUDIO_CLOUD_CIPHERTEXT_LIMIT/);
+ assert.match(policy,/cloudKeyAllowed/);
+ assert.match(cloudSuite,/Different PTG actor cannot read another user's archive/);
+ for(const studio of studioCases){
+  const edge=read(studio.dir,studio.function);
+  const vault=read(studio.dir,"staging/studio-access/draft-vault.js");
+  const script=read(studio.dir,"staging/studio-access/launch.js");
+  const launcher=read(studio.dir,"staging/studio-access/index.html");
+  assert.match(edge,/body\.action==="cloud"/);
+  assert.match(edge,/["']cloud["']/);
+  assert.match(edge,/sessionId:verified\.sessionId|sessionId:auth\.sessionId/);
+  assert.doesNotMatch(edge,/actorId:verified\.actorId|actorId:auth\.actorId/);
+  assert.match(vault,/AES-GCM-v1/);
+  assert.match(vault,/cloudExport|cloud-export/);
+  assert.match(vault,/cloudImport|cloud-import/);
+  assert.match(script,/cloudOperation/);
+  assert.match(script,/expectedVersion/);
+  assert.match(script,/window\.confirm/);
+  assert.match(launcher,/id="cloudPanel"/);
+  assert.match(launcher,/id="cloudBackup"/);
+  assert.match(launcher,/id="cloudRestore"/);
+  assert.match(read(studio.dir,studio.id==="flyer"?"tests/cloud-launcher-browser.test.mjs":
+   "staging/cloud-launcher-browser.test.mjs"),/P-256/);
+ }
+ // The source retains four current backends and does not ask for a new project.
+ const plan=read(branchline,"docs/branchline-four-app-two-account-integration-20261121.md");
+ assert.match(plan,/four already existing, active Supabase projects/);
+ assert.doesNotMatch(plan,/create a fifth Supabase project|add a paid staging project/i);
+});
