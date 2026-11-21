@@ -14,7 +14,7 @@ const assert = require("node:assert/strict");
     await page.getByRole("heading",{name:"Branchline Applications"}).waitFor();
     assert.equal(await page.locator(".branchline-app-card").count(), 4);
     assert.deepEqual(await page.locator(".branchline-app-card h2").allTextContents(), [
-      "Sales Tracker", "Price Tag Generator", "MegaFrame Studio", "Flyer Studio"
+      "Sales Tracker", "Price Tag Generator", "MegaFrame Studio", "MegaFlyer Studio"
     ]);
     const urls = await page.locator(".branchline-app-action a").evaluateAll(anchors =>
       anchors.map(a=>({
@@ -22,6 +22,8 @@ const assert = require("node:assert/strict");
       }))
     );
     assert.equal(urls.length, 3);
+    assert.equal(urls[1].href, "https://kzamora19.github.io/first-megasaver-ptg/studios/");
+    assert.equal(urls[2].href, "https://kzamora19.github.io/first-megasaver-ptg/studios/");
     for (const link of urls) {
       assert.equal(link.target, "_blank");
       assert.ok(link.rel.includes("noopener") && link.rel.includes("noreferrer"));
