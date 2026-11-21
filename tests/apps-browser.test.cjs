@@ -27,8 +27,8 @@ const assert = require("node:assert/strict");
       }))
     );
     assert.equal(urls.length, 3);
-    assert.equal(urls[1].href, "https://kzamora19.github.io/first-megasaver-ptg/studios/");
-    assert.equal(urls[2].href, "https://kzamora19.github.io/first-megasaver-ptg/studios/");
+    assert.equal(urls[1].href, "https://kzamora19.github.io/first-megasaver-ptg/studios/?studio=megaframe");
+    assert.equal(urls[2].href, "https://kzamora19.github.io/first-megasaver-ptg/studios/?studio=flyer");
     for (const link of urls) {
       assert.equal(link.target, "_blank");
       assert.ok(link.rel.includes("noopener") && link.rel.includes("noreferrer"));
