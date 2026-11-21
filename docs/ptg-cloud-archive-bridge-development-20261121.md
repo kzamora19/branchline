@@ -46,7 +46,11 @@ These are **not** real production account tests. Existing MegaFrame/Flyer
 `auth.uid()`-owned legacy personal-cloud collections are **not migrated** and
 remain separate until users have approved a non-destructive export/import
 procedure. PTG cloud backup is not a replacement for the legacy cloud template
-library, Google Drive OAuth, or full-resolution cross-device image storage.
+library or full-resolution cross-device image storage. **A separate Google Drive
+manual encrypted backup/retrieve client is now staged in BOTH protected Studio
+launchers** (see `branchline-google-drive-backup-staging-20261121.md`). Its Google
+OAuth/Drive calls have only been simulated locally; real Google consent, two-device
+restore and prior unencrypted Drive backup migration remain unverified.
 
 ## What remains before a coordinated public release
 1. Owner-approved dedicated real hosted test identities and isolated test data,
