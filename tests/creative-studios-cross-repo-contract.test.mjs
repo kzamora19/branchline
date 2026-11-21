@@ -168,3 +168,24 @@ test("current live MegaFlyer wording and both app cutover release gates survive 
  assert.ok(existsSync(join(pathMap.flyer,"tests/megaflyer-smart-photo-release.cjs")));
  assert.ok(existsSync(join(pathMap.flyer,"site/product-photo-standalone.js")));
 });
+
+
+test("PTG protected Pages portal cannot publish ahead of synchronized Studio cutover",()=>{
+ const workflow=read(pathMap.ptg,".github/workflows/deploy-pages.yml");
+ assert.ok(workflow.includes("workflow_dispatch:"),"Owner release must be manually triggered");
+ const deploy=workflow.split("\n  deploy:\n")[1];
+ assert.ok(deploy && deploy.includes("github.event_name == 'workflow_dispatch'") &&
+   deploy.includes("refs/heads/migration/github-pages") &&
+   deploy.includes("vars.PTG_STUDIOS_CUTOVER_APPROVED == 'true'"),
+   "PTG Pages release must require explicit owner approval");
+ for(const [varName,studioPath] of [
+   ["NEXT_PUBLIC_STUDIO_MEGAFRAME_LAUNCH_URL","megaframe-studio/studio/"],
+   ["NEXT_PUBLIC_STUDIO_FLYER_LAUNCH_URL","flyer-studio/studio/"]
+ ]){
+   const row=workflow.split("\n").find(x=>x.trim().startsWith(varName+":"));
+   assert.ok(row && row.includes(studioPath) &&
+     row.includes("PTG_STUDIOS_CUTOVER_APPROVED") &&
+     row.includes("workflow_dispatch"),
+     "Protected launcher for "+varName+" must not be published on routine pushes");
+ }
+});
