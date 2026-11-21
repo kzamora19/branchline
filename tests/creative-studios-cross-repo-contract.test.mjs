@@ -52,7 +52,7 @@ test("each Studio cutover publishes a ticket-only loader, not a public editor",(
   const base=join(studio.dir,studio.cutover);
   assert.ok(existsSync(join(base,"index.html")),"Missing retirement notice "+studio.id);
   assert.deepEqual(readdirSync(join(base,"studio")).sort(),
-    ["draft-vault.js","index.html","launch.js"]);
+    ["draft-vault.js","drive-backup.js","index.html","launch.js"]);
   const html=read(base,"studio/index.html");
   const script=read(base,"studio/launch.js");
   const vault=read(base,"studio/draft-vault.js");
@@ -276,4 +276,34 @@ test("PTG-account cloud backups span both Studios without a fifth Supabase proje
  const plan=read(branchline,"docs/branchline-four-app-two-account-integration-20261121.md");
  assert.match(plan,/four already existing, active Supabase projects/);
  assert.doesNotMatch(plan,/create a fifth Supabase project|add a paid staging project/i);
+});
+
+test("manual Google Drive backup remains PTG-gated, opt-in and encrypted for both Studios",()=>{
+ for(const studio of studioCases){
+  const drive=read(studio.dir,"staging/studio-access/drive-backup.js");
+  const launcher=read(studio.dir,"staging/studio-access/index.html");
+  const source=read(studio.dir,"staging/studio-access/launch.js");
+  const vault=read(studio.dir,"staging/studio-access/draft-vault.js");
+  const builder=read(studio.dir,studio.id==="megaframe"?
+   "staging/build-cutover-pages.mjs":"scripts/build-cutover-pages.mjs");
+  assert.match(drive,/https:\/\/www\.googleapis\.com\/drive\/v3\/files/);
+  assert.match(drive,/https:\/\/www\.googleapis\.com\/auth\/drive\.file/);
+  assert.match(drive,/BranchlineStudioDriveBackupV1/);
+  assert.match(drive,/uploadType=resumable/);
+  assert.match(drive,/await context\.verify\(\)/);
+  assert.match(drive,/ownerScope/);
+  assert.match(drive,/window\.confirm/);
+  assert.doesNotMatch(drive,/localStorage|sessionStorage|service_role|allow-same-origin/);
+  assert.match(source,/BRANCHLINE_GOOGLE_DRIVE_BACKUP\.setup/);
+  assert.match(source,/BRANCHLINE_GOOGLE_DRIVE_BACKUP\?\.lock/);
+  assert.match(launcher,/id="drivePanel"/);
+  assert.match(launcher,/id="driveConnect"/);
+  assert.match(launcher,/id="driveBackup"/);
+  assert.match(launcher,/id="driveRestore"/);
+  assert.match(launcher,/drive-backup\.js/);
+  assert.match(builder,/drive-backup\.js/);
+  assert.match(vault,/options\.drive===true\?145_000_000:1_200_000/);
+  assert.doesNotMatch(read(studio.dir,studio.cutover+"/studio/index.html"),
+   /CLIENT_SECRET|GOOGLE_DRIVE_REFRESH_TOKEN|PTG_STUDIO_DRAFT_RECOVERY_SECRET/);
+ }
 });
