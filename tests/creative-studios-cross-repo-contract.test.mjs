@@ -189,3 +189,46 @@ test("PTG protected Pages portal cannot publish ahead of synchronized Studio cut
      "Protected launcher for "+varName+" must not be published on routine pushes");
  }
 });
+
+
+test("latest live MegaFrame and MegaFlyer editor interfaces survive private packaging",()=>{
+ const frameHtml=read(pathMap.frame,"index.html");
+ const frameBuilder=read(pathMap.frame,"staging/build-private-package.mjs");
+ const frameSource=read(pathMap.frame,"editor.js");
+ const frameSidebar=read(pathMap.frame,"chat-sidebar.js");
+ const frameOverlay=read(pathMap.frame,"overlay-engine.js");
+ assert.match(frameHtml,/src="\.\/overlay-engine\.js"/);
+ assert.match(frameHtml,/src="\.\/chat-sidebar\.js\?v=/);
+ assert.match(frameHtml,/href="\.\/chat-sidebar\.css\?v=/);
+ assert.match(frameBuilder,/"overlay-engine\.js"/);
+ assert.match(frameBuilder,/"chat-sidebar\.js"/);
+ assert.match(frameBuilder,/chat-sidebar\.css/);
+ assert.match(frameBuilder,/versioned|resource|static-loader-1/);
+ assert.match(frameSidebar,/Captions & Overlays/);
+ assert.match(frameOverlay,/OVERLAY_FONT_GROUPS/);
+ assert.match(frameOverlay,/overlayDrawLayers/);
+ assert.match(frameSource,/startupChoiceDialog/);
+ // The standalone production app now includes overlay/font/mobile regression tests.
+ for(const name of ["qa/smoke-overlays.cjs","qa/smoke-multiple-overlays.cjs",
+  "qa/smoke-font-picker.cjs","qa/smoke-editable-slider-values.cjs",
+  "qa/smoke-mobile-panels.cjs","qa/smoke-right-rail-reload.cjs"]){
+   assert.ok(existsSync(join(pathMap.frame,name)),name+" must survive integration");
+ }
+ const flyerBuilder=read(pathMap.flyer,"scripts/build-private-flyer.mjs");
+ const flyerPanel=read(pathMap.flyer,"site/floating-panels.js");
+ const flyerSidebar=read(pathMap.flyer,"site/chat-sidebar.js");
+ const flyerTest=read(pathMap.flyer,"tests/megaflyer-browser-ui.mjs");
+ assert.match(flyerPanel,/chat-sidebar\.js/);
+ assert.match(flyerBuilder,/chat-sidebar\.js/);
+ assert.match(flyerBuilder,/chat-sidebar\.css/);
+ assert.match(flyerBuilder,/latest ChatGPT-style two-level sidebar/);
+ assert.match(flyerSidebar,/chatMobileClosed/);
+ assert.match(flyerTest,/studioChatHeader/);
+ assert.match(flyerTest,/second sidebar|sidebarSizes/i);
+ const branchAuth=read(branchline,"auth-app.js");
+ assert.match(branchAuth,/data-ps-review-person/);
+ assert.match(branchAuth,/data-review-ps-day/);
+ const branchTests=read(branchline,"tests/applications.test.mjs");
+ assert.match(branchTests,/PS assist drilldown values/);
+ assert.match(read(branchline,"index.html"),/auth-app\.js\?v=ps-assist-review-20261121/);
+});
