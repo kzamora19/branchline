@@ -9,12 +9,17 @@ const assert = require("node:assert/strict");
   try {
     await page.goto("http://127.0.0.1:4173/", { waitUntil: "domcontentloaded" });
     await page.locator("#enter-demo").click();
+    assert.equal(await page.locator("#connected-shell .branchline-module-label").textContent(),"SALES TRACKER");
+    assert.equal(await page.locator("#sidebar .branchline-module-label").textContent(),"SALES TRACKER");
+    assert.equal(await page.locator("#connected-shell .brand-name").count(),1);
+    assert.equal(await page.locator("#connected-shell .branchline-module-label").count(),1);
+
     await page.locator('[data-live-page="apps"]').waitFor({state:"visible",timeout:25000});
     await page.locator('[data-live-page="apps"]').click();
     await page.getByRole("heading",{name:"Branchline Applications"}).waitFor();
     assert.equal(await page.locator(".branchline-app-card").count(), 4);
     assert.deepEqual(await page.locator(".branchline-app-card h2").allTextContents(), [
-      "Sales Tracker", "Price Tag Generator", "MegaFrame Studio", "Flyer Studio"
+      "Sales Tracker", "Price Tag Generator", "MegaFrame Studio", "MegaFlyer Studio"
     ]);
     const urls = await page.locator(".branchline-app-action a").evaluateAll(anchors =>
       anchors.map(a=>({
@@ -22,6 +27,8 @@ const assert = require("node:assert/strict");
       }))
     );
     assert.equal(urls.length, 3);
+    assert.equal(urls[1].href, "https://kzamora19.github.io/first-megasaver-ptg/studios/?studio=megaframe");
+    assert.equal(urls[2].href, "https://kzamora19.github.io/first-megasaver-ptg/studios/?studio=flyer");
     for (const link of urls) {
       assert.equal(link.target, "_blank");
       assert.ok(link.rel.includes("noopener") && link.rel.includes("noreferrer"));
@@ -31,6 +38,9 @@ const assert = require("node:assert/strict");
     await page.locator("#branchline-app-sales").click();
     assert.ok(await page.locator('[data-live-page="overview"].active').count());
     await page.setViewportSize({width:390,height:800});
+    assert.equal(await page.locator("#connected-shell .branchline-module-label").textContent(),"SALES TRACKER");
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth+2),true,"Sidebar label must not create mobile overflow.");
+
     await page.locator("#connected-menu").click();
     await page.locator('[data-live-page="apps"]').click();
     await page.locator(".branchline-app-card").first().waitFor();
