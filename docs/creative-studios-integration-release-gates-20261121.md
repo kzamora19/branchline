@@ -67,3 +67,17 @@
 - A read-only Supabase security-advisors review also flagged **leaked password protection disabled** in all three existing live application projects. See [Supabase password protections](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection). It reported RLS-enabled/no-policy INFO notices for some PTG and Flyer server-only tables: these can be deliberately restricted, so review their actual grants before considering any policies. **No production Auth/RLS setting was changed.**
 
 **Release is still HOLD:** success of these scripts is not evidence of end-to-end hosted Google OAuth/Drive, signed real-account revocation, cross-device cloud saves, actual devices/physical printing, source cutover or user migration acceptance.
+
+
+
+## Primary Supabase free-tier staging capacity audit — November 21, 2026
+
+**Decision: Do not pause or delete either existing project. This is a read-only operational dependency assessment, not a provisioning or deployment.**
+
+- Primary connection belongs to organization `BRANCHLINE TEST`, currently with two active projects: `First Megasaver PTG` and `Ken's Project`. Supabase quoted `$0/month` for creating a project, but its create API refused due to the account-wide two active free-project limit. **No staging project was created.**
+- The older, generically named `Ken's Project` (ref `psoopubvdpwztzkdyifa`) is the **production Branchline Sales Tracker backend**. The currently published `supabase-config.js` references this exact project. It contains `sales`, `sale_lines`, `products`, `profiles`, `inventory_stock` and related operational tables; the production system maintains push notifications, user administration and inventory Edge Functions.
+- Read-only database queries on **2026-11-21** confirmed **14,819** sales, **23,349** sale lines, **33,364** products, **8,341** inventory-stock records, **22** active profiles, **62** new sales in seven days, and **10** users with sign-ins in seven days. Latest recorded sale and login activity were both **2026-11-21**. Three active scheduled jobs include hourly sales-pace push, transfer-push retry and climate forecast. The live logs also showed ongoing request activity.
+- **Pausing Ken's Project would interrupt ongoing app logins, sales, inventory, notifications, and scheduled workloads**. Pausing `First Megasaver PTG` would likewise disrupt authentication/price tags and the planned Studio authorization authority. Neither is a disposable candidate.
+- Supabase billing documentation confirms **paused projects do not count** toward the Free Plan's two active projects, but this is irrelevant until the paused project is independently proven nonproduction. See: https://supabase.com/docs/guides/platform/billing-on-supabase
+- An alternative **Supabase development branch** under Primary was quoted at **USD $0.01344/hour** (estimated about $0.32/day at 24 hours), excluding any other charges. **No paid branch was authorized or created.** Creating a new separate staging project would require freeing a genuinely unused slot or upgrading the organization; neither should be done without separate owner approval of any nonzero price.
+- Keep all hosted staging tests and manual release workflows disabled. Continue synthetic local Supabase CI and draft UI/security development. Production Pages, Supabase, projects and customers remain untouched. The coordinated integration release is still on HOLD pending a real isolated backend and the remaining acceptance gates.
