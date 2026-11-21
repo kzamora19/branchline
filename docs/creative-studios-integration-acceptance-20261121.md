@@ -9,7 +9,7 @@
 | Branchline navigation | branchline #45 | Application hub CI passed; both Creative Studio cards use intended PTG launch portal | PTG /studios launcher is not live; do not merge navigation alone |
 | PTG Studio issuer | first-megasaver-ptg #40 | Up-to-date GitHub Pages branch, server-only role/session policy, exact issuer origin and ticket/continuation tests passed in CI | Live Edge function and ticket SQL not deployed; real roles, revoked sessions, replay and renewal untested |
 | MegaFlyer | flyer-studio #10 | Editor private-bundle, mock PTG/Supabase integration, print/export and saved project smoke tests staged | Full user authorization, origin isolation, cloud/Google Drive across-device acceptance, direct Pages editor cutover unverified |
-| MegaFrame | megaframe-studio #18 | Private package with SHA256-pinned CSP, mocked authorized editor load, photo upload and PNG download; forged hash and revoked session denied | **FAIL: sandboxed editor cannot persist local photo drafts; mandatory browser acceptance CI deliberately red**. Cloud templates, Google Drive, installed PWA and real account security also pending |
+| MegaFrame | megaframe-studio #18 | Private package with SHA256-pinned CSP, mocked authorized editor load, photo upload and PNG download; forged hash and revoked session denied | **STAGING PASS: AES-GCM local photo draft save/restore works across mocked PTG launches; separate account cannot read it.** Real PTG issuance, dedicated origin security, cloud templates, Google Drive, installed PWA and privacy acceptance still pending |
 
 ## Security commitments
 
@@ -30,3 +30,8 @@
 6. On any failing live smoke check, roll back the cross-app cutover together and preserve all photos, frames and saved projects.
 
 **No Vercel; no production changes from this release candidate.**
+
+## Secure recovery checkpoint
+- MegaFrame's mock browser run 44868201343 passed encrypted draft save/restore, account isolation, P-256 signing, photo PNG export and revocation checks; these are not real PTG accounts.
+- PTG gateway draft #40 passed 12 staging tests, including one-time draft key derivation; secret configuration and real role checks are not deployed.
+- The coordinated cutover remains ON HOLD until both Studio protected deliveries, existing public URL bypass, and real user/device acceptance are verified.
