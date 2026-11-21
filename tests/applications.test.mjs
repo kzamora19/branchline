@@ -40,6 +40,17 @@ test("external apps open verified HTTPS domains without credentials or OAuth sta
   assert.doesNotMatch(authSource.slice(authSource.indexOf("function renderApplicationsPage()"),authSource.indexOf("function dangerZonePanel()")), /access_token|sessionStorage|localStorage|refresh_token|apiKey|apikey/);
 });
 
+test("both Creative Studio cards route through PTG instead of bypassing its TL+ gate", () => {
+  const portal = "https://kzamora19.github.io/first-megasaver-ptg/studios/";
+  const studios = apps.filter(app => ["megaframe-studio", "flyer-studio"].includes(app.id));
+  assert.deepEqual(studios.map(app => app.url), [portal, portal]);
+  assert.deepEqual(studios.map(app => app.name), ["MegaFrame Studio", "MegaFlyer Studio"]);
+  assert.ok(studios.every(app => /PTG Team Leader, Branch Admin or System Admin/.test(app.access)));
+  assert.ok(studios.every(app => !/\\/(?:megaframe-studio|flyer-studio)\\/$/.test(app.url)));
+  // Authorization must still be enforced by PTG and the private studio delivery service.
+  assert.doesNotMatch(catalogSource, /vercel\\.app/);
+});
+
 test("every signed-in role can view the hub; independent app permissions are described", () => {
   for (const role of ["ps","manager","district_manager","admin","inventory_controller","stock_custodian"]) {
     const match = authSource.match(new RegExp("^\\s+" + role + ": \\[([^\\n]+)\\]", "m"));
