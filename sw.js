@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "branchline-shell-v188";
+const CACHE_NAME = "branchline-shell-v189";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
@@ -19,6 +19,9 @@ const APP_SHELL_URLS = [
   "./branchline-applications.js?v=ptg-pages-20261121",
   "./auth-app.js?v=apps-hub-20261119",
   "./auth-app.js?v=ps-equal-share-20261121",
+  "./auth-app.js?v=certificate-label-20261121",
+  "./ps-certificates.mjs?v=certificate-label-20261121",
+  "./certificate-periods.mjs?v=certificate-label-20261121",
   "./table-ui.js",
   "./promotion-review-ui.mjs",
   "./unified-import.mjs",
