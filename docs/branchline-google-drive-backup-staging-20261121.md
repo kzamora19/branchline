@@ -61,3 +61,19 @@ Do not merge any of the four draft PRs, enable Pages cutover approval variables,
 
 ### Restore-key continuity warning
 Google Drive backups are encrypted with a PTG-account/Studio-specific recovery key derived by the existing PTG gateway secret. If `PTG_STUDIO_DRAFT_RECOVERY_SECRET` is lost or rotated without a backwards-compatible key migration, these backups **could become impossible to decrypt**. Before rollout, the owner must establish secure secret backup, versioned key-rotation/recovery policy, and an actual cross-device restore rehearsal. Never export this secret into GitHub Pages or Drive.
+
+
+## Updated decision — CENTRAL owner's Google Drive supersedes browser Google sign-in
+
+**Final approved target:** `kennethalvinzamora19@gmail.com` is the centrally owned encrypted backup destination. **Staff must not sign into, share, or directly access that Google account.**
+
+- PTG development PR #40 now has `studio-central-drive.mjs` and a `drive` action requiring fresh one-use P-256 PTG authorization before list/write/read. Google OAuth refresh credentials are server-only PTG Edge secrets.
+- MegaFrame PR #18 and MegaFlyer PR #10 now route the protected launcher’s `Company Google Drive Backups` controls through their Studio Edge delivery functions to PTG. The staff-facing `central-drive.js` does not use browser Google OAuth.
+- The old `drive-backup.js` per-user OAuth prototype stays in development source only and is **not shipped** in the protected Pages cutover artifact. It is not the selected centralized deployment path.
+- The Central Drive folder is `Branchline Central Studio Backups`, with account/studio-scoped AES-GCM ciphertext and no overwrite of existing files. Every user remains isolated by their server-verified PTG identity.
+- Current **central backend** accepts the existing roughly **1.2 million character** encrypted cloud envelope. The earlier personal-Drive 150MB chunked upload implementation is *not* equivalent and should not be presented as central backup capacity.
+- GitHub CI tests the centralized UI failure-before-owner-consent, encrypted backup/retrieve, server-side owner identity verification and no-staff-token rule. These are mocked Google calls, **not actual owner authorization**.
+- For authoritative owner authorization and host secret setup, read [PTG central Drive guide](https://github.com/kzamora19/first-megasaver-ptg/blob/feature/studio-gateway-pages-refresh-20261121/docs/central-google-drive-owner-authorization.md).
+- Google Drive quota upgrades do not need to precede this stage. No owner access token, refresh token or secret was obtained; no current customer's backup has been uploaded to company Drive.
+
+**NOT YET LIVE:** The existing Supabase PTG project does not yet serve the `ptg-studio-access` gateway. Both existing Studio Supabase projects also lack their protected editor-delivery Edge functions; GitHub Pages still serves the earlier live apps. Install these only after the secrets, storage buckets, original-data preservation and real authorization acceptance tests are prepared. Never merge all four drafts merely to see the UI appear.
