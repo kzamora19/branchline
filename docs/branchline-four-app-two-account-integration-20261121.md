@@ -40,3 +40,13 @@ These entries share a **GitHub Pages web origin**, not a Supabase database. They
 - The **existing downloadable Windows installer** was built before this four-app web integration. Its contents have **not** been rebuilt. The browser/PWA Workspace is the four-module target; a new Windows package would need its own independent rebuild and compatibility tests.
 
 **Remaining release blockers:** hosted actual PTG/Studio role and revocation tests, provider OAuth/Google Drive and cross-device cloud Save/Retrieve, real device/physical printing, historical Pages/PWA bypass retirement under real URLs, customer backup/migration approval, and final coordinated production release permission. Without these, keep all four PRs DRAFT and the release ON HOLD.
+
+
+## MegaFlyer Smart Product Photo Library — added to this coordinated release
+
+- MegaFlyer draft [#10](https://github.com/kzamora19/flyer-studio/pull/10) now contains a PTG-gated private Product Photo Library client, its own private Supabase Storage bucket/migration and server-only photo gateway in the **existing Flyer Studio Supabase project**.
+- Barcode is primary, exact normalized brand + model is fallback, description matches are *suggestions requiring confirmation*. Imported photos are content-hash deduplicated with separate thumbnail and immutable source objects; cross-account reuse is scoped to active PTG TL+ sessions.
+- A protected-editor **Product Photos** panel and the native product-card upload support explicit opt-out. The library intentionally never inspects or automatically shares customer, freebie, generic asset, logo, or headline-photo upload inputs.
+- The separate product library Edge function validates a *fresh* PTG Auth user and PTG app session on every read/write; ordinary Branch Users and revoked accounts cannot use the gateway. Delete and replacement are Branch Admin/System Admin only.
+- Added [smart photo staging guide](https://github.com/kzamora19/flyer-studio/blob/feature/ptg-private-delivery-poc-20261121/docs/smart-product-photo-library-staging-20261121.md).
+- The feature is **development-only**; it was not deployed or migrated into production and still requires cloud, cross-device, real revoked-account, native uploader, print and PWA-cutover acceptance before the existing four-app release HOLD can be removed.
