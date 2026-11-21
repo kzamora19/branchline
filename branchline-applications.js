@@ -27,18 +27,18 @@
       name: "MegaFrame Studio",
       monogram: "MF",
       description: "Edit photos, build personalized frames and export print-ready layouts.",
-      access: "MegaFrame Studio sign-in and permissions apply",
+      access: "Requires active PTG Team Leader, Branch Admin or System Admin access",
       kind: "external",
-      url: "https://kzamora19.github.io/megaframe-studio/",
+      url: "https://kzamora19.github.io/first-megasaver-ptg/studios/", // unreleased PTG access portal; draft only
     },
     {
       id: "flyer-studio",
-      name: "Flyer Studio",
+      name: "MegaFlyer Studio",
       monogram: "FS",
       description: "Create promotional flyers, manage product bundles and export PDF artwork.",
-      access: "Flyer Studio sign-in and permissions apply",
+      access: "Requires active PTG Team Leader, Branch Admin or System Admin access",
       kind: "external",
-      url: "https://kzamora19.github.io/flyer-studio/",
+      url: "https://kzamora19.github.io/first-megasaver-ptg/studios/", // unreleased PTG access portal; draft only
     },
   ];
   for (const app of list) {
