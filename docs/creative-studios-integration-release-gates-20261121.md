@@ -33,3 +33,16 @@
 - MegaFlyer [protected Chromium/mock Cloud passed](https://github.com/kzamora19/flyer-studio/actions/runs/44869892335).
 - MegaFrame [protected named projects + Chromium passed](https://github.com/kzamora19/megaframe-studio/actions/runs/44876506308).
 - Browser origin isolation, provider OAuth, hosted deployment + real account acceptance, public asset cutover and real printing remain blocked; **DO NOT MERGE OR DEPLOY** until separately approved.
+
+
+## Approved unified Branchline UI standard — staged with integration
+
+- Branchline Workspace source remains the master styling reference, not a new theme: navy `#1d2836`, royal blue `#355ee8`, active blue `#2348c7`, soft blue `#eef2ff`, white surfaces `#fff` and border `#e9edf1`.
+- The Sales Tracker live and demo sidebars now render one `SALES TRACKER` label immediately beneath the existing Branchline logo. PTG and Data Desk preserve the `PRICE TAG GENERATOR` and `DATA DESK` logo labels.
+- The PTG admin/workspace UI (not price-tag outputs) uses Branchline navigation, button and module styling; access controls are untouched.
+- Protected MegaFrame preserves `Social Media Photo Frame Generator`. Protected MegaFlyer uses the approved `Promotional Flyer & Sale Artwork Generator` subtitle in its bundled UI. Both retain original app logos/icons and browser access isolation.
+- MegaFrame's private editor adopts the unified navy header, white text, royal-blue control styles and mobile spacing; MegaFlyer applies the same through the private-bundle builder, leaving its existing public editor source unchanged until atomic cutover.
+- Scope rule: no changes to print/tag SVG or PDF generation, customer photos, artwork canvases, saved project encryption, design templates, user permissions or cloud storage.
+- [Branchline application-hub CI](https://github.com/kzamora19/branchline/actions/runs/44877964628) passed desktop/mobile navigation and label checks. [MegaFrame protected CI](https://github.com/kzamora19/megaframe-studio/actions/runs/44878046953) passed browser and private package tests. [MegaFlyer protected CI](https://github.com/kzamora19/flyer-studio/actions/runs/44878095710) passed package and real browser export checks.
+- PTG unified-branding and real local Supabase checks run in draft #40 CI; see [PTG development PR](https://github.com/kzamora19/first-megasaver-ptg/pull/40) for the latest result.
+- **Production HOLD unchanged:** Do not deploy branding alone. Merge as part of the four-app coordinated release only after protected hosted staging, Google OAuth/Drive, real device/print, historic public-source/PWA bypass, role/security and rollback gates pass.
