@@ -66,7 +66,7 @@ test("each Studio cutover publishes a ticket-only loader, not a public editor",(
   assert.ok(retired.includes("first-megasaver-ptg/studios/"));
   assert.ok(!readdirSync(base).includes("editor.js"));
   assert.ok(!readdirSync(base).includes("site"));
- });
+ }
 });
 test("server-only verification bridges the two existing Supabase accounts, never client service keys",()=>{
  assert.match(ptgIssuer,/STUDIO_GRANT_LIFETIME_SECONDS/);
