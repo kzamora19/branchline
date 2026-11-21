@@ -902,17 +902,15 @@
     const branchTarget = liveData.targets
       .filter(row => row.branch_id === branchId && targetInPeriod(row.month))
       .reduce((total, row) => total + Number(row.amount), 0);
-    const assigned = ui.period !== "year" && (liveData.individualGoals || []).find(goal =>
-      goal.ps_id === currentProfile.id && goal.branch_id === branchId
-      && String(goal.month).slice(0, 7) === anchorMonth());
-    const explicit = assigned && Number(assigned.amount) > 0 ? Number(assigned.amount) : null;
-    const target = explicit ?? (activePsCount ? branchTarget / activePsCount : 0);
-    const targetSource = explicit !== null ? "individual" : "indicative";
+    // Equal store-target share is the approved PS goal. Saved manual overrides
+    // never change the achievement denominator.
+    const target = activePsCount && branchTarget > 0 ? branchTarget / activePsCount : 0;
+    const targetSource = "equal-share";
     const actual = liveData.sales
       .filter(sale => sale.ps_id === currentProfile.id
         && sale.branch_id === branchId
         && inStatus(sale.sold_on))
-      .reduce((total, sale) => total + saleTotal(sale, basis), 0);
+      .reduce((total, sale) => total + saleTotal(sale, "price"), 0);
     return { actual, target, branchTarget, activePsCount, targetSource };
   }
 
@@ -925,10 +923,9 @@
         currentLabel: "My sales",
         emptyText: "No branch target is set for this period yet.",
       }),
-      progressChart(personal.actual, personal.target, personal.targetSource === "individual"
-        ? `${scope} · assigned individual monthly sales target`
-        : `${scope} · indicative store target ÷ ${count} PS${count === 1 ? "" : "s"} in the branch`, {
-        title: personal.targetSource === "individual" ? "My sales vs assigned monthly target" : "My sales vs my indicative share",
+      progressChart(personal.actual, personal.target,
+        `${scope} · store target ÷ ${count} active PS${count === 1 ? "" : "s"} in the branch`, {
+        title: "My credited sales vs equal PS target",
         currentLabel: "My sales",
         emptyText: count ? "No branch target is set for this period yet." : "The Product Specialist count is unavailable, so your share cannot be calculated.",
       }),
@@ -1040,30 +1037,44 @@
     const ids = scope || scopeBranchIds();
     const filters = { brand: ui.rankBrand, category: ui.rankCategory, sub: ui.rankSub };
     const filtered = Boolean(filters.brand || filters.category || filters.sub);
-    const totals = new Map();
+    const totals = new Map(), creditedSales = new Map();
+    const profiles = new Map(liveData.profiles.map(person => [person.id, person]));
     liveData.sales.forEach(sale => {
-      if (!sale.ps_id) return;
-      const owner = liveData.profiles.find(item => item.id === sale.ps_id);
-      // A transferred PS starts over: only sales in their current branch count.
-      if (owner?.branch_id && owner.branch_id !== sale.branch_id) return;
-      if (!ids.has(sale.branch_id) || !inPeriod(sale.sold_on)) return;
+      const person = profiles.get(sale.ps_id);
+      if (!person || person.role !== "ps" || !person.active || isTestProfile(person)
+          || person.branch_id !== sale.branch_id || isTestSale(sale)
+          || !ids.has(sale.branch_id) || !inPeriod(sale.sold_on)) return;
       linesForSale(sale.id).forEach(line => {
-        if (lineMatches(line, filters)) addTo(totals, sale.ps_id, window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis));
+        if (!lineMatches(line, filters)) return;
+        addTo(totals, person.id, window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis));
+        addTo(creditedSales, person.id, window.BranchlineAnalytics.salesLineAmount(line, "price"));
       });
     });
     if (!filtered) {
-      liveData.profiles.forEach(profile => {
-        if (profile.role === "ps" && profile.active && !isTestProfile(profile) && ids.has(profile.branch_id) && !totals.has(profile.id)) totals.set(profile.id, 0);
+      liveData.profiles.forEach(person => {
+        if (person.role === "ps" && person.active && !isTestProfile(person)
+            && person.branch_id && ids.has(person.branch_id) && !totals.has(person.id)) {
+          totals.set(person.id, 0);
+        }
       });
     }
     return [...totals].map(([id, total]) => {
-      const profile = liveData.profiles.find(item => item.id === id);
+      const person = profiles.get(id);
+      const month = ui.month;
+      const count = !filtered && ui.period === "month"
+        ? liveData.profiles.filter(p => p.role === "ps" && p.active
+          && !isTestProfile(p) && p.branch_id === person?.branch_id).length : 0;
+      const storeTarget = count ? liveData.targets.filter(t =>
+        t.branch_id === person.branch_id && String(t.month).slice(0, 7) === month)
+        .reduce((sum, row) => sum + Number(row.amount || 0), 0) : 0;
+      const target = count && storeTarget > 0 ? storeTarget / count : null;
+      const achievement = target ? (creditedSales.get(id) || 0) / target * 100 : null;
       return {
-        id,
-        name: profile?.full_name || "Staff member",
-        brand: profile?.assigned_brand || "—",
-        branch: profile?.branch_id ? branchName(profile.branch_id) : "—",
-        total,
+        id, name: person?.full_name || "Staff member",
+        salesCode: person?.salesperson_code || "—",
+        brand: person?.assigned_brand || "—",
+        branch: person?.branch_id ? branchName(person.branch_id) : "—",
+        total, target, achievement,
       };
     }).sort((a, b) => b.total - a.total || natural(a.name, b.name))
       .map((row, index) => ({ ...row, rank: index + 1 }));
@@ -1089,7 +1100,7 @@
     const profiles = new Map(liveData.profiles.map(p => [p.id, p]));
     const testIds = new Set(liveData.profiles.filter(isTestProfile).map(p => p.id));
     const filters = { brand: ui.rankBrand, category: ui.rankCategory, sub: ui.rankSub };
-    const totals = new Map(), transactions = new Map(), dailyByPs = new Map();
+    const totals = new Map(), actualPriceTotals = new Map(), transactions = new Map(), dailyByPs = new Map();
     liveData.sales.forEach(sale => {
       const person = profiles.get(sale.ps_id);
       if (!person || person.role !== "ps" || person.active === false || isTestProfile(person)
@@ -1099,6 +1110,9 @@
         .reduce((total, line) => total + window.BranchlineAnalytics.salesLineAmount(line, ui.salesBasis), 0);
       if (!(sum > 0)) return;
       addTo(totals, sale.ps_id, sum);
+      const actualPrice = linesForSale(sale.id).filter(line => lineMatches(line, filters))
+        .reduce((total, line) => total + window.BranchlineAnalytics.salesLineAmount(line, "price"), 0);
+      addTo(actualPriceTotals, sale.ps_id, actualPrice);
       transactions.set(sale.ps_id, (transactions.get(sale.ps_id) || 0) + 1);
       if (!dailyByPs.has(sale.ps_id)) dailyByPs.set(sale.ps_id, new Map());
       addTo(dailyByPs.get(sale.ps_id), String(sale.sold_on).slice(0, 10), sum);
@@ -1131,11 +1145,8 @@
         t.branch_id === person.branch_id && String(t.month).slice(0, 7) === ui.month)
         .reduce((sum, t) => sum + Number(t.amount || 0), 0) : 0;
       const indicativeShare = showTarget && countPs && storeTarget > 0 ? storeTarget / countPs : null;
-      const assigned = showTarget ? (liveData.individualGoals || []).find(goal =>
-        goal.ps_id === id && goal.branch_id === person.branch_id && String(goal.month).slice(0, 7) === ui.month) : null;
-      const realTarget = assigned && Number(assigned.amount) > 0 ? Number(assigned.amount) : null;
-      const goal = realTarget ?? indicativeShare;
-      const targetLabel = realTarget !== null ? "Assigned PS target" : "Indicative branch share";
+      const goal = indicativeShare;
+      const targetLabel = "Equal share of monthly store target";
       const today = localISODate();
       const selectedMonth = ui.month;
       const pastMonthEnd = selectedMonth && /^\d{4}-\d{2}$/.test(selectedMonth)
@@ -1176,8 +1187,8 @@
         brand: person.assigned_brand || "—", branch: branchName(person.branch_id),
         total, transactions: count, avgTicket: count ? total / count : 0,
         assisted, conversion, trend, pace, monthProjection,
-        assignedTarget: realTarget, targetLabel,
-        targetShare: goal, progress: goal ? total / goal * 100 : null,
+        assignedTarget: null, targetLabel,
+        targetShare: goal, progress: goal ? (actualPriceTotals.get(id) || 0) / goal * 100 : null,
       };
     }).sort((a, b) => b.total - a.total || natural(a.name, b.name) || natural(a.id, b.id))
       .slice(0, 10).map((row, index) => ({ ...row, rank: index + 1 }));
@@ -1348,56 +1359,46 @@
       person.role === "ps" && person.active && !isTestProfile(person)
       && person.branch_id && ids.has(person.branch_id))
       .sort((a, b) => natural(branchName(a.branch_id), branchName(b.branch_id)) || natural(a.full_name, b.full_name));
-    const unavailable = !!liveData.individualGoalLoadError;
+    const counts = new Map(), goals = new Map(), sales = new Map();
+    people.forEach(person => counts.set(person.branch_id, (counts.get(person.branch_id) || 0) + 1));
+    liveData.targets.filter(target => ids.has(target.branch_id) && String(target.month).slice(0, 7) === ui.month)
+      .forEach(target => addTo(goals, target.branch_id, Number(target.amount || 0)));
+    const valid = new Map(people.map(person => [person.id, person]));
+    let missingCodes = 0;
+    liveData.sales.forEach(sale => {
+      const person = valid.get(sale.ps_id);
+      if (!person || person.branch_id !== sale.branch_id || String(sale.sold_on).slice(0, 7) !== ui.month
+          || isTestSale(sale)) return;
+      addTo(sales, person.id, saleTotal(sale, "price"));
+      if (!String(sale.salesperson_code || "").trim()) missingCodes++;
+    });
     const rows = people.map(person => {
-      const goal = (liveData.individualGoals || []).find(row =>
-        row.ps_id === person.id && row.branch_id === person.branch_id
-        && String(row.month).slice(0, 7) === ui.month);
-      return '<tr data-ps-goal-row><td><strong>' + escapeHTML(person.full_name) + '</strong></td>'
+      const storeTarget = goals.get(person.branch_id) || 0;
+      const target = storeTarget > 0 ? storeTarget / counts.get(person.branch_id) : null;
+      const credited = sales.get(person.id) || 0;
+      const achievement = target ? credited / target : null;
+      return '<tr><td><strong>' + escapeHTML(person.full_name) + '</strong></td>'
         + '<td>' + escapeHTML(branchName(person.branch_id)) + '</td>'
-        + '<td><label class="visually-hidden" for="goal-' + escapeHTML(person.id) + '">Monthly sales target for ' + escapeHTML(person.full_name) + '</label>'
-        + '<input id="goal-' + escapeHTML(person.id) + '" data-ps-goal-input type="number" min="0" max="9999999999" step="0.01"'
-        + ' placeholder="Not assigned" value="' + escapeHTML(goal?.amount == null ? "" : String(goal.amount)) + '"'
-        + (unavailable || demoStore ? " disabled" : "") + '></td>'
-        + '<td><button type="button" class="button button-outline" data-save-ps-goal="' + escapeHTML(person.id) + '"'
-        + (unavailable || demoStore ? " disabled" : "") + '>Save goal</button></td></tr>';
+        + '<td>' + escapeHTML(person.salesperson_code || "—") + '</td>'
+        + '<td>' + formatMoney(credited) + '</td>'
+        + '<td>' + (target ? formatMoney(target) : "—") + '</td>'
+        + '<td>' + (achievement === null ? "—" : percent(credited, target)) + '</td></tr>';
     }).join("");
-    const content = unavailable
-      ? '<p class="ps-award-note">Individual goals cannot be edited: the protected monthly-target table is unavailable. Apply and verify the staged RLS migration first.</p>'
-      : '<p class="ps-award-note">Set an individual monthly goal for each PS. A blank amount removes the goal and restores the clearly labeled indicative branch share. Only authorized managers can save changes.</p>';
+    const note = '<p class="ps-award-note">Automatic monthly PS target = store target ÷ active branch PS (including zero-sale PS).'
+      + ' Achievement = recorded selling-price sales attributed to the PS ÷ that equal target.'
+      + ' No manual target assignment or override is used.</p>'
+      + (missingCodes ? '<p class="ps-award-note">' + missingCodes
+        + ' sale(s) have a linked PS account but no Sales Code recorded on the sale.'
+        + ' These sales are attributed by PS account until source-code reconciliation is completed.</p>' : "");
     return panel(
-      "Individual Product Specialist monthly targets",
-      monthLabel(ui.month) + " · management-only, branch-scoped goals.",
-      content + '<div class="table-wrap ps-target-table"><table><thead><tr>'
-        + '<th>Product Specialist</th><th>Branch</th><th>Individual monthly target (₱)</th><th>Action</th>'
-        + '</tr></thead><tbody>' + (rows || '<tr><td colspan="4">No active Product Specialists in this scope.</td></tr>')
+      "Automatic Product Specialist targets and achievement",
+      monthLabel(ui.month) + " · equal store-target shares; read-only.",
+      note + '<div class="table-wrap ps-target-table"><table><thead><tr>'
+        + '<th>Product Specialist</th><th>Branch</th><th>Sales Code</th>'
+        + '<th>Credited sales</th><th>Equal PS target</th><th>Achievement</th>'
+        + '</tr></thead><tbody>' + (rows || '<tr><td colspan="6">No active Product Specialists in this scope.</td></tr>')
         + '</tbody></table></div>',
     );
-  }
-
-  async function saveIndividualPsMonthlyTarget(psId, raw) {
-    if (!["manager", "district_manager", "admin"].includes(currentProfile?.role) || demoStore
-        || liveData.individualGoalLoadError || ui.period !== "month") throw new Error("You cannot edit PS targets in this session.");
-    const person = liveData.profiles.find(p => p.id === psId && p.role === "ps"
-      && p.active && !isTestProfile(p) && scopeBranchIds().has(p.branch_id));
-    if (!person || !/^\d{4}-\d{2}$/.test(ui.month)) throw new Error("That PS or month is not available in your branch scope.");
-    const originalSession = currentProfile.id, sessionClient = client;
-    const monthDate = ui.month + "-01";
-    const text = String(raw || "").trim();
-    if (text && (!/^\d+(?:\.\d{1,2})?$/.test(text) || !Number.isFinite(Number(text))
-      || Number(text) <= 0 || Number(text) > 9999999999)) throw new Error("Enter a valid positive monthly goal with up to two decimal places, or leave blank to remove it.");
-    if (!text) {
-      const deleted = await client.from("ps_monthly_targets").delete()
-        .eq("dealer_id", currentProfile.dealer_id).eq("branch_id", person.branch_id)
-        .eq("ps_id", psId).eq("month", monthDate);
-      if (deleted.error) throw deleted.error;
-    } else {
-      const record = { dealer_id: currentProfile.dealer_id, branch_id: person.branch_id,
-        ps_id: psId, month: monthDate, amount: Number(text), updated_by: currentProfile.id };
-      const updated = await client.from("ps_monthly_targets").upsert(record, { onConflict: "branch_id,ps_id,month" });
-      if (updated.error) throw updated.error;
-    }
-    if (currentProfile?.id === originalSession && client === sessionClient) await refreshData();
   }
 
   // Local, per-account and per-day snooze. This changes only the manager's
@@ -1571,11 +1572,14 @@
       + (awardees.length ? "" : "disabled") + ' aria-label="Download printable Top 10 Product Specialist certificates">Print PS Certificates (PDF)</button>';
     const table = tableBlock(
       "psrank",
-      ["Rank", "Product Specialist", "Brand", "Branch", "Total sales"],
+      ["Rank", "Product Specialist", "Sales Code", "Brand", "Branch", "Total sales", "Equal PS target", "Achievement"],
       ranking,
       row => '<tr class="rank-row" data-ps-detail="' + escapeHTML(row.id) + '" tabindex="0"><td><strong>#'
         + row.rank + '</strong></td><td><strong>' + escapeHTML(row.name) + '</strong></td><td>'
-        + escapeHTML(row.brand) + '</td><td>' + escapeHTML(row.branch) + '</td><td>' + formatMoney(row.total) + '</td></tr>',
+        + escapeHTML(row.salesCode || "—") + '</td><td>' + escapeHTML(row.brand) + '</td><td>'
+        + escapeHTML(row.branch) + '</td><td>' + formatMoney(row.total) + '</td><td>'
+        + (row.target ? formatMoney(row.target) : "—") + '</td><td>'
+        + (row.achievement === null || row.achievement === undefined ? "—" : percent(row.achievement, 100)) + '</td></tr>',
       "No Product Specialists match this selection.",
     );
     return panel(
@@ -9087,16 +9091,6 @@
       if (!["manager", "district_manager", "admin"].includes(currentProfile?.role)) return;
       activePage = "analytics";
       renderConnected();
-      return;
-    }
-    const goalButton = event.target.closest("[data-save-ps-goal]");
-    if (goalButton) {
-      const input = goalButton.closest("[data-ps-goal-row]")?.querySelector("[data-ps-goal-input]");
-      if (!input || goalButton.disabled) return;
-      goalButton.disabled = true;
-      void saveIndividualPsMonthlyTarget(goalButton.dataset.savePsGoal, input.value)
-        .catch(error => { console.error("Individual PS target save failed.", error); exportError(error); })
-        .finally(() => { if (goalButton.isConnected) goalButton.disabled = false; });
       return;
     }
     const managementReport = event.target.closest("[data-management-report]");

@@ -50,7 +50,7 @@ test("the overview retains one ranking table, no top-performer cards or redundan
   const ui = { rankBrand: "OLD BRAND", rankCategory: "AIRCON", rankSub: "OLD SUB", rankBranch: "OLD BRANCH" };
   const { html, calls } = renderWith(ui);
   assert.equal(calls.table.key, "psrank");
-  assert.deepEqual([...calls.table.headings], ["Rank", "Product Specialist", "Brand", "Branch", "Total sales"]);
+  assert.deepEqual([...calls.table.headings], ["Rank", "Product Specialist", "Sales Code", "Brand", "Branch", "Total sales", "Equal PS target", "Achievement"]);
   assert.equal(calls.table.rows.length, 1);
   assert.match(html, /SAMPLE SPECIALIST/);
   assert.match(html, /data-table-key="psrank"/);
