@@ -16,6 +16,7 @@ test("catalog contains all four expected applications with no duplication", () =
     "sales-tracker", "price-tag-generator", "megaframe-studio", "flyer-studio"
   ]);
   assert.equal(apps[0].kind, "workspace");
+  assert.equal(apps[3].name, "MegaFlyer Studio");
   assert.equal(apps[0].url, "");
   assert.equal(Object.isFrozen(apps), true);
   assert.equal(apps.every(app => Object.isFrozen(app)), true);
@@ -24,9 +25,13 @@ test("catalog contains all four expected applications with no duplication", () =
 test("external apps open verified HTTPS domains without credentials or OAuth state", () => {
   assert.deepEqual(apps.slice(1).map(app => new URL(app.url).origin), [
     "https://first-megasaver-ptg.vercel.app",
-    "https://megaframe-studio.vercel.app",
+    "https://kzamora19.github.io",
     "https://kzamora19.github.io"
   ]);
+  assert.equal(apps[2].url, "https://kzamora19.github.io/first-megasaver-ptg/studios/");
+  assert.equal(apps[3].url, "https://kzamora19.github.io/first-megasaver-ptg/studios/");
+  assert.ok(apps[2].access.includes("Team Leader"));
+  assert.ok(apps[3].access.includes("Team Leader"));
   for (const app of apps.slice(1)) {
     assert.equal(app.kind, "external");
     const url = new URL(app.url);
