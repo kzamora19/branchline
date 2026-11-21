@@ -11,9 +11,9 @@
 
 ## Repository work and blockers
 1. Branchline: this draft routes both Creative Studio cards to the PTG launcher and labels TL+ access. No change to production navigation.
-2. PTG: draft #38 stages short-lived tickets and a portal, but is behind live GitHub Pages and not deployed. No Vercel issuer or destination may be used.
-3. MegaFlyer: draft #10 stages a private Supabase editor bundle and Edge delivery. The real browser/account/export/project-restore tests are not complete.
-4. MegaFrame: draft #16 depends on a Vercel proxy and MUST NOT be merged. Adapt the security design to Supabase private-bundle delivery; preserve existing MegaFrame app roles, cloud templates and backup workflows.
+2. PTG: draft #40 stages one-time tickets, P-256 signed continuation, strict role checks, and account-scoped draft recovery keys for BOTH Studios; staging CI passed, not deployed. No Vercel issuer or destination may be used.
+3. MegaFlyer: draft #10 stages private Supabase bundle delivery, integrity checks, an opaque-origin editor, AES-GCM local recovery, and cloud Save/Retrieve. Mock cloud retrieval and session restoration remain under browser regression; real PTG/Drive tests not complete.
+4. MegaFrame: draft #18 uses private Supabase bundle delivery without Vercel, reconciled latest emoji-cover editor changes into staging, and passed protected browser CI including encrypted draft restoration. The old Vercel-based #16 must NOT be merged. Live account, cloud templates and backup tests remain blocked.
 5. All apps under kzamora19.github.io share the same browser origin. Paths are not an isolation boundary; assess PTG token handling, iframe origin, and PWA caches.
 6. Before cutover: secure delivery for BOTH editors, protect source and assets, issue/revoke PTG tickets, test redirects, configure only server-side secrets and stage editor-free Pages entry points.
 
@@ -22,7 +22,7 @@
 - [ ] Direct URL requests for editor HTML, JS and images denied without PTG authorization; historic PWA cache and offline draft transitions reviewed.
 - [ ] Ticket expiry, renewal, replay/rate limits, forced logout and cross-app token isolation tested.
 - [ ] PDF/PNG output, photos, autosave, Supabase projects across devices and optional Google Drive backup tested with real accounts.
-- [ ] Each development branch rebased against live; coordinated CI and browser security checks passed.
+- [ ] Every development branch reconciled with current live and cross-app CI + browser security checks passed. MegaFrame #18 reconciliation/CI passed; MegaFlyer #10 cloud Save/Retrieve and local recovery still under regression.
 - [ ] Explicit separate approval received for production merge and GitHub Pages + Supabase cutover.
 
 **No Vercel deployment. No production app or Supabase change from this draft.**
