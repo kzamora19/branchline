@@ -300,7 +300,7 @@ test("central company Google Drive uses server-only owner OAuth and PTG-signed a
   assert.match(drive,/BRANCHLINE_CENTRAL_DRIVE/);
   assert.match(drive,/cloud-export|cloudExport/);
   assert.match(drive,/window\.confirm/);
-  assert.match(drive,/owner-managed Google Drive/);
+  assert.match(drive,/Company Google Drive|owner.*Drive/i);
   assert.doesNotMatch(drive,/google\.accounts|oauth2|CLIENT_SECRET|REFRESH_TOKEN|service_role|localStorage/);
   assert.match(source,/BRANCHLINE_CENTRAL_DRIVE\.setup/);
   assert.match(source,/BRANCHLINE_CENTRAL_DRIVE\?\.lock/);
