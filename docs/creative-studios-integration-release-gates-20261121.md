@@ -92,3 +92,16 @@
 - [ ] Existing Save/Retrieve and previously saved flyer copies verified unaffected by photo replacement and removal.
 
 Do not deploy this feature independently of the four-app cutover. No fifth Supabase project is required.
+
+
+## November 21 — Standalone MegaFlyer Smart Product Photos released (separate scope)
+
+- The owner requested **deploy MegaFlyer first, then continue four-app integration**. The independent [MegaFlyer PR #16](https://github.com/kzamora19/flyer-studio/pull/16) was squashed to `main` at `6fd07c46fcb83c978b2a5ba19096b2a26f3fab3b`; [GitHub Pages deployment #44888006747](https://github.com/kzamora19/flyer-studio/actions/runs/44888006747) passed. Live URL remains https://kzamora19.github.io/flyer-studio/.
+- Deployed **only** the additive product-photo feature; the public standalone editor remains available with existing Save/Retrieve and exports. The new photo gateway checks an active PTG session and role **on every request**, limiting shared photo content to Team Leader and higher. No other app or protected launcher was published.
+- Existing Flyer Studio Supabase project `tzklsscoiwnmeantcefw` now has a dedicated private `flyer-product-photos` bucket, RLS-restricted photo metadata tables and an ACTIVE `flyer-product-photos` Edge Function. Read-only post-deployment SQL verified `bucket_public=false`, no anon/authenticated photo SELECT grants, and service-only primary-photo RPC.
+- The new [release security workflow #44887913830](https://github.com/kzamora19/flyer-studio/actions/runs/44887913830) passed disposable PostgreSQL migration and primary-image checks, Deno typecheck, and **real hosted negative tests** that confirmed anonymous access is denied (401) and a foreign Origin is rejected (403). [Existing browser UI regression #44887913824](https://github.com/kzamora19/flyer-studio/actions/runs/44887913824) passed.
+- The standalone product-photo UI is delivered by `site/product-photo-standalone.js`, using only the existing current PTG browser login. The **protected editor deliberately skips** this public adapter and continues using its isolated MessagePort relay, preventing duplicate clients or ambient PTG token access.
+- The protected MegaFlyer integration [PR #10](https://github.com/kzamora19/flyer-studio/pull/10) has been reconciled with the released photo feature. Its private bundle delivery, PTG studio ticket login, shared-origin cutover and PWA retirement **remain development-only**.
+- **Outstanding acceptance** includes a verified live TL+/admin product-photo upload/recall across devices (not proven by anonymous denial alone), account revocation during an active Studio session, real Cloud Save/Retrieve, Google OAuth/Drive, physical prints, backups/migration, and the coordinated four-app access cutover.
+
+**Do not mistake the standalone photo-library release for completion of Branchline Unified Integration.** No extra Supabase project, subscription or Vercel deployment was created.
