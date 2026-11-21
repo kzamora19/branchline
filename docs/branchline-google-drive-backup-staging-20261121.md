@@ -43,3 +43,11 @@ Google account consent must be granted by the user in Google's popup. The connec
 
 ## No-production-change policy
 Do not merge any of the four draft PRs, enable Pages cutover approval variables, deploy protected Studio Edge functions or modify live Supabase project schemas merely because these local mock checks pass. The OAuth popup and Drive API were only simulated in CI. **Hosted Google account and Google Drive access is unverified.**
+
+## Additional recovery hardening (same development run)
+- Google Drive requests now reject non-Google API and upload-session hostnames before attaching an OAuth token; fetch redirects remain disallowed.
+- Encrypted Drive result listings scan up to 10 pages (maximum 1,000 candidate files), avoid duplicated IDs, and reject a repeating cursor. Never assume the first results page contains every backup.
+- Downloads use a bounded stream with a 150 MB cap before accepting JSON. Invalid or oversized files are rejected before importing local projects.
+- Concurrent Drive operations are disabled to avoid accidental double writes or conflicting restores.
+- An account-revocation generation guard prevents an asynchronous Drive panel setup from reactivating after a protected PTG launcher has locked.
+- CI now runs mocked MegaFrame **and** MegaFlyer backups, resumable-upload byte-range checks, paginated search, Drive retrieval, revoked PTG proof, and the initialization race. **These are not real Google OAuth or two-device acceptance tests.**
