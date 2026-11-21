@@ -81,3 +81,14 @@
 - Supabase billing documentation confirms **paused projects do not count** toward the Free Plan's two active projects, but this is irrelevant until the paused project is independently proven nonproduction. See: https://supabase.com/docs/guides/platform/billing-on-supabase
 - An alternative **Supabase development branch** under Primary was quoted at **USD $0.01344/hour** (estimated about $0.32/day at 24 hours), excluding any other charges. **No paid branch was authorized or created.** Creating a new separate staging project would require freeing a genuinely unused slot or upgrading the organization; neither should be done without separate owner approval of any nonzero price.
 - Keep all hosted staging tests and manual release workflows disabled. Continue synthetic local Supabase CI and draft UI/security development. Production Pages, Supabase, projects and customers remain untouched. The coordinated integration release is still on HOLD pending a real isolated backend and the remaining acceptance gates.
+
+
+## New MegaFlyer Product Photo Library release gate
+
+- [x] Staged product identity module, PTG-private server endpoint, content-addressed private Storage SQL and protected-only client in MegaFlyer #10; public GitHub Pages editor unchanged.
+- [ ] Native product photo import auto-save, opt-out, barcode/model/description suggestions and galleries verified through real hosted PTG/Storage accounts and a second device.
+- [ ] New Storage bucket policies/anon-direct-access reviewed against any existing broad policies; no customer image may leak into the shared product collection.
+- [ ] Duplicate upload concurrency, primary image uniqueness, cross-user view, admin-only replacement/removal, audit records and revocation under load tested.
+- [ ] Existing Save/Retrieve and previously saved flyer copies verified unaffected by photo replacement and removal.
+
+Do not deploy this feature independently of the four-app cutover. No fifth Supabase project is required.
