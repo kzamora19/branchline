@@ -65,16 +65,34 @@ test("every signed-in role can view the hub; independent app permissions are des
   assert.match(authSource, /does not share your Branchline password or session/);
 });
 
-test("new app script loads before workspace, and new shell is available offline", () => {
-  assert.ok(html.indexOf('branchline-applications.js?v=megaframe-pages-20261121') <
-            html.indexOf('auth-app.js?v=certificate-label-20261121'));
-  assert.match(serviceWorker, /branchline-shell-v190/);
-  assert.ok(serviceWorker.includes('auth-app.js?v=certificate-label-20261121'));
-  assert.ok(serviceWorker.includes("branchline-applications.js?v=megaframe-pages-20261121"));
+test("new app script loads before workspace, and current shell assets are available offline", () => {
+  const hubTag = html.match(/<script src="(branchline-applications\.js(?:\?[^"]+)?)"><\/script>/);
+  const appTag = html.match(/<script src="(auth-app\.js(?:\?[^"]+)?)"><\/script>/);
+  const styleTag = html.match(/<link rel="stylesheet" href="(styles\.css(?:\?[^"]+)?)">/);
+  assert.ok(hubTag && appTag && styleTag, "Versioned hub, app and stylesheet assets must exist");
+  assert.ok(html.indexOf(hubTag[0]) < html.indexOf(appTag[0]), "Hub must load before workspace");
+  assert.match(serviceWorker, /branchline-shell-v\d+/);
+  for (const resource of [hubTag[1], appTag[1], styleTag[1]]) {
+    assert.ok(serviceWorker.includes('"' + "./" + resource + '"'), resource + " must be cached for PWA offline use");
+  }
   assert.ok(styles.includes(".branchline-app-grid"));
   assert.ok(styles.includes("grid-template-columns:1fr"));
   assert.doesNotThrow(() => new Function(authSource));
   assert.doesNotThrow(() => new Function(catalogSource));
+});
+
+test("PS assist drilldown values are accessible, unboxed blue underlined text buttons", () => {
+  const style = styles.match(/\.traffic-table-wrap \.traffic-assist-link\s*\{([^}]+)\}/)?.[1];
+  assert.ok(style, "PS assistance link styling must exist");
+  assert.match(style, /border:\s*0\s*;/);
+  assert.match(style, /background:\s*transparent\s*;/);
+  assert.match(style, /padding:\s*0\s*;/);
+  assert.match(style, /color:\s*var\(--blue\)\s*;/);
+  assert.match(style, /text-decoration:\s*underline\s*;/);
+  assert.match(styles, /\.traffic-table-wrap \.traffic-assist-link:focus-visible/);
+  assert.match(authSource, /<button type="button" class="traffic-assist-link"/);
+  assert.match(authSource, /data-review-ps-day/);
+  assert.match(authSource, /data-ps-review-person/);
 });
 
 test("Sales Tracker is labeled immediately below both sidebar logo lockups",()=>{
