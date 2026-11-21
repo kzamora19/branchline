@@ -72,3 +72,14 @@ test("new app script loads before workspace, and new shell is available offline"
   assert.doesNotThrow(() => new Function(authSource));
   assert.doesNotThrow(() => new Function(catalogSource));
 });
+
+test("Sales Tracker is labeled immediately below both sidebar logo lockups",()=>{
+  assert.equal((html.match(/class="branchline-module-label">SALES TRACKER<\/div>/g)||[]).length,2);
+  assert.match(html,/<a class="brand" href="#" aria-label="Branchline home">[\s\S]*?<span class="brand-name">branchline[\s\S]*?<\/a>\s*<div class="branchline-module-label">SALES TRACKER<\/div>/);
+  assert.match(styles,/\.connected-sidebar \.branchline-module-label/);
+  assert.match(styles,/margin:7px 11px 0 48px/);
+  assert.match(styles,/color:var\(--blue-dark\)/);
+  assert.match(styles,/--blue: #355ee8/);
+  assert.match(styles,/--blue-dark: #2348c7/);
+  assert.match(styles,/--blue-soft: #eef2ff/);
+});

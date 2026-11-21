@@ -9,6 +9,11 @@ const assert = require("node:assert/strict");
   try {
     await page.goto("http://127.0.0.1:4173/", { waitUntil: "domcontentloaded" });
     await page.locator("#enter-demo").click();
+    assert.equal(await page.locator("#connected-shell .branchline-module-label").textContent(),"SALES TRACKER");
+    assert.equal(await page.locator("#sidebar .branchline-module-label").textContent(),"SALES TRACKER");
+    assert.equal(await page.locator("#connected-shell .brand-name").count(),1);
+    assert.equal(await page.locator("#connected-shell .branchline-module-label").count(),1);
+
     await page.locator('[data-live-page="apps"]').waitFor({state:"visible",timeout:25000});
     await page.locator('[data-live-page="apps"]').click();
     await page.getByRole("heading",{name:"Branchline Applications"}).waitFor();
@@ -33,6 +38,9 @@ const assert = require("node:assert/strict");
     await page.locator("#branchline-app-sales").click();
     assert.ok(await page.locator('[data-live-page="overview"].active').count());
     await page.setViewportSize({width:390,height:800});
+    assert.equal(await page.locator("#connected-shell .branchline-module-label").textContent(),"SALES TRACKER");
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth+2),true,"Sidebar label must not create mobile overflow.");
+
     await page.locator("#connected-menu").click();
     await page.locator('[data-live-page="apps"]').click();
     await page.locator(".branchline-app-card").first().waitFor();
