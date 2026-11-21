@@ -548,6 +548,28 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
 .ps-break .connected-table { min-width: 0; }
 .ps-lines { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
 .traffic-table-wrap { overflow-x: hidden; }
+.traffic-table-wrap .traffic-assist-link {
+  appearance: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--blue);
+  font: inherit;
+  font-weight: 700;
+  line-height: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.traffic-table-wrap .traffic-assist-link:hover { color: var(--blue-dark); }
+.traffic-table-wrap .traffic-assist-link:focus-visible {
+  outline: 2px solid var(--blue-dark);
+  outline-offset: 3px;
+}
+
 .traffic-table-wrap .connected-table {
   min-width: 0;
   width: 100%;
