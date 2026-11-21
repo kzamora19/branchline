@@ -245,3 +245,20 @@ test("Top PS certificate print action is displayed only to branch managers and h
   assert.match(panel, /const awardButton = !canPrintCertificates \? ""/);
   assert.match(source, /if \(!\["manager", "district_manager", "admin"\]\.includes\(currentProfile\?\.role\)/);
 });
+
+test("certificate renders every brand assignment in uppercase without mutating source data", async () => {
+  const { certificateDocument } = await import("./ps-certificates.mjs");
+  for (const [brand, expected] of [
+    ["Lg", "LG"], ["tCl", "TCL"], ["Samsung", "SAMSUNG"], ["La Germania", "LA GERMANIA"],
+    ["North Bayou", "NORTH BAYOU"], ["", "—"],
+  ]) {
+    const person = {
+      id: "ps1", rank: 1, name: "Sample Product Specialist", branch: "Santiago", brand, total: 1000,
+    };
+    const doc = certificateDocument([person], { period: "Year 2026 • Annual Performance" });
+    const line = doc.content[0].stack.find(row =>
+      typeof row.text === "string" && row.text.startsWith("Branch: ")).text;
+    assert.ok(line.endsWith("Brand assignment: " + expected), line);
+    assert.equal(person.brand, brand, "Original brand value must not be changed");
+  }
+});
