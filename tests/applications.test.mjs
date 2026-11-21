@@ -46,9 +46,9 @@ test("both Creative Studio cards route through PTG instead of bypassing its TL+ 
   assert.deepEqual(studios.map(app => app.url), [portal, portal]);
   assert.deepEqual(studios.map(app => app.name), ["MegaFrame Studio", "MegaFlyer Studio"]);
   assert.ok(studios.every(app => /PTG Team Leader, Branch Admin or System Admin/.test(app.access)));
-  assert.ok(studios.every(app => !/\\/(?:megaframe-studio|flyer-studio)\\/$/.test(app.url)));
+  assert.ok(studios.every(app => !["/megaframe-studio/", "/flyer-studio/"].includes(new URL(app.url).pathname)));
   // Authorization must still be enforced by PTG and the private studio delivery service.
-  assert.doesNotMatch(catalogSource, /vercel\\.app/);
+  assert.doesNotMatch(catalogSource, /vercel[.]app/);
 });
 
 test("every signed-in role can view the hub; independent app permissions are described", () => {
