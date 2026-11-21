@@ -7,9 +7,9 @@
 | Component | Development PR | Verified | Still blocked |
 |---|---|---|---|
 | Branchline navigation | branchline #45 | Application hub CI passed; both Creative Studio cards use intended PTG launch portal | PTG /studios launcher is not live; do not merge navigation alone |
-| PTG Studio issuer | first-megasaver-ptg #40 | Up-to-date GitHub Pages branch, server-only role/session policy, exact issuer origin and ticket/continuation tests passed in CI | Live Edge function and ticket SQL not deployed; real roles, revoked sessions, replay and renewal untested |
-| MegaFlyer | flyer-studio #10 | Opaque sandbox (no parent storage), SHA-256 bundle check, authenticated-in-frame mock cloud Save/Retrieve, PNG/PDF exports, and AES-GCM account-scoped local recovery passed mock CI run 44869790137; cross-account isolation being retested | Live PTG authorization, Google OAuth/Drive, cross-device recovery, physical printing and direct Pages editor cutover remain unverified |
-| MegaFrame | megaframe-studio #18 | Private package with SHA256-pinned CSP, mocked authorized editor load, photo upload and PNG download; forged hash and revoked session denied | **STAGING PASS: AES-GCM local photo draft save/restore works across mocked PTG launches; separate account cannot read it.** Real PTG issuance, dedicated origin security, cloud templates, Google Drive, installed PWA and privacy acceptance still pending |
+| PTG Studio issuer | first-megasaver-ptg #40 | Up-to-date GitHub Pages branch, server-only role/session policy, exact issuer origin and ticket/continuation tests passed in CI | Live Edge function and ticket SQL not deployed; actual hosted PTG roles and external revocation acceptance remain untested (local synthetic real GoTrue tests have passed) |
+| MegaFlyer | flyer-studio #10 | Opaque sandbox (no parent storage), SHA-256 bundle check, cloud Save/Retrieve, PNG/PDF, and AES-GCM account-scoped recovery including cross-account isolation passed mock CI run 44869892335 | Live PTG authorization, Google OAuth/Drive, cross-device recovery, physical printing and direct Pages editor cutover remain unverified |
+| MegaFrame | megaframe-studio #18 | New searchable emoji picker and named Save/Open Projects reconciled from current main; private AES-GCM vault preserves original photos and project names, and mock browser CI 44876506308 passed same-account restoration/cross-account denial; tampered bundle and revoked session denied | **STAGING PASS: AES-GCM local photo draft save/restore works across mocked PTG launches; separate account cannot read it.** Real PTG issuance, dedicated origin security, cloud templates, Google Drive, installed PWA and privacy acceptance still pending |
 
 ## Security commitments
 
@@ -37,3 +37,11 @@
 - MegaFrame's mock browser run 44868201343 passed encrypted draft save/restore, account isolation, P-256 signing, photo PNG export and revocation checks; these are not real PTG accounts.
 - PTG gateway draft #40 passed 12 staging tests, including one-time draft key derivation; secret configuration and real role checks are not deployed.
 - The coordinated cutover remains ON HOLD until both Studio protected deliveries, existing public URL bypass, and real user/device acceptance are verified.
+
+
+## Latest development verification — November 21
+- PTG #40: [four-job real local Supabase + PostgreSQL + HTTP test run 44876054055](https://github.com/kzamora19/first-megasaver-ptg/actions/runs/44876054055) passed. Atomic server-only launch quota: 12 per account per 60 seconds shared across both Studios. This is not hosted or production account acceptance.
+- MegaFlyer #10: [mock protected-editor and Chromium CI 44869892335](https://github.com/kzamora19/flyer-studio/actions/runs/44869892335) passed encrypted draft/account isolation and project Save/Retrieve/export; provider OAuth/Drive remains unverified in the opaque sandbox.
+- MegaFrame #18: [mock protected-editor and Chromium CI 44876506308](https://github.com/kzamora19/megaframe-studio/actions/runs/44876506308) passed new named-project Save/Open, encrypted local vault, different-account denial and searchable emoji retention.
+- Branchline #45: both Studio cards point to the PTG portal; no tokens forwarded, and existing sales modules remain unchanged.
+- **Still blocked for all four apps:** hosted PTG/Studio Edge + private Storage acceptance on a segregated test backend, real users/devices, cloud login OAuth/Google Drive and physical printing, independent-origin review, retirement of public editor routes and historical PWA/cached copies, rollback verification, and explicit coordinated release approval.
