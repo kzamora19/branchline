@@ -52,7 +52,7 @@ test("each Studio cutover publishes a ticket-only loader, not a public editor",(
   const base=join(studio.dir,studio.cutover);
   assert.ok(existsSync(join(base,"index.html")),"Missing retirement notice "+studio.id);
   assert.deepEqual(readdirSync(join(base,"studio")).sort(),
-    ["draft-vault.js","drive-backup.js","index.html","launch.js"]);
+    ["central-drive.js","draft-vault.js","index.html","launch.js"]);
   const html=read(base,"studio/index.html");
   const script=read(base,"studio/launch.js");
   const vault=read(base,"studio/draft-vault.js");
@@ -278,35 +278,38 @@ test("PTG-account cloud backups span both Studios without a fifth Supabase proje
  assert.doesNotMatch(plan,/create a fifth Supabase project|add a paid staging project/i);
 });
 
-test("manual Google Drive backup remains PTG-gated, opt-in and encrypted for both Studios",()=>{
+test("central company Google Drive uses server-only owner OAuth and PTG-signed actor scope",()=>{
+ const server=read(pathMap.ptg,"supabase/functions/_shared/studio-central-drive.mjs");
+ const endpoint=read(pathMap.ptg,"supabase/functions/ptg-studio-access/index.ts");
+ assert.match(server,/centralDriveOperation/);
+ assert.match(server,/kennethalvinzamora19@gmail.com/);
+ assert.match(server,/oauth2\.googleapis\.com\/token/);
+ assert.match(server,/ownerScope/);
+ assert.match(server,/validateCloudMutation/);
+ assert.match(server,/https:\/\/www\.googleapis\.com\/drive\/v3\/files/);
+ assert.match(endpoint,/const verified=await prove\(request,body\)/);
+ assert.match(endpoint,/BRANCHLINE_DRIVE_OAUTH_REFRESH_TOKEN/);
  for(const studio of studioCases){
-  const drive=read(studio.dir,"staging/studio-access/drive-backup.js");
+  const drive=read(studio.dir,"staging/studio-access/central-drive.js");
   const launcher=read(studio.dir,"staging/studio-access/index.html");
   const source=read(studio.dir,"staging/studio-access/launch.js");
-  const vault=read(studio.dir,"staging/studio-access/draft-vault.js");
+  const delivery=read(studio.dir,"supabase/functions/"+
+    (studio.id==="megaframe"?"megaframe-editor-delivery":"flyer-editor-delivery")+"/index.ts");
   const builder=read(studio.dir,studio.id==="megaframe"?
-   "staging/build-cutover-pages.mjs":"scripts/build-cutover-pages.mjs");
-  assert.match(drive,/https:\/\/www\.googleapis\.com\/drive\/v3\/files/);
-  assert.match(drive,/https:\/\/www\.googleapis\.com\/auth\/drive\.file/);
-  assert.match(drive,/BranchlineStudioDriveBackupV1/);
-  assert.match(drive,/uploadType=resumable/);
-  assert.match(drive,/async function uploadResumable/);
-  assert.match(drive,/bytes \*\//);
-  assert.match(drive,/response\.status===308/);
-  assert.match(drive,/body\.slice\(offset,end\)/);
-  assert.match(drive,/await context\.verify\(\)/);
-  assert.match(drive,/ownerScope/);
+    "staging/build-cutover-pages.mjs":"scripts/build-cutover-pages.mjs");
+  assert.match(drive,/BRANCHLINE_CENTRAL_DRIVE/);
+  assert.match(drive,/cloud-export|cloudExport/);
   assert.match(drive,/window\.confirm/);
-  assert.doesNotMatch(drive,/localStorage|sessionStorage|service_role|allow-same-origin/);
-  assert.match(source,/BRANCHLINE_GOOGLE_DRIVE_BACKUP\.setup/);
-  assert.match(source,/BRANCHLINE_GOOGLE_DRIVE_BACKUP\?\.lock/);
-  assert.match(launcher,/id="drivePanel"/);
-  assert.match(launcher,/id="driveConnect"/);
+  assert.match(drive,/owner-managed Google Drive/);
+  assert.doesNotMatch(drive,/google\.accounts|oauth2|CLIENT_SECRET|REFRESH_TOKEN|service_role|localStorage/);
+  assert.match(source,/BRANCHLINE_CENTRAL_DRIVE\.setup/);
+  assert.match(source,/BRANCHLINE_CENTRAL_DRIVE\?\.lock/);
+  assert.match(source,/action:['"]drive['"]|gateway\(["']drive["']/);
+  assert.match(delivery,/action==="drive"/);
   assert.match(launcher,/id="driveBackup"/);
   assert.match(launcher,/id="driveRestore"/);
-  assert.match(launcher,/drive-backup\.js/);
-  assert.match(builder,/drive-backup\.js/);
-  assert.match(vault,/options\.drive===true\?145_000_000:1_200_000/);
+  assert.match(launcher,/central-drive\.js/);
+  assert.match(builder,/central-drive\.js/);
   assert.doesNotMatch(read(studio.dir,studio.cutover+"/studio/index.html"),
    /CLIENT_SECRET|GOOGLE_DRIVE_REFRESH_TOKEN|PTG_STUDIO_DRAFT_RECOVERY_SECRET/);
  }
