@@ -8,7 +8,8 @@ test("monthly certificate uses selected month and does not relabel another ranki
   assert.match(complete.label,/October 2026.*Monthly Performance/);
   const current=certificatePeriodRange("monthly","2026-11","2026-11-19");
   assert.deepEqual([current.from,current.through],["2026-11-01","2026-11-19"]);
-  assert.match(current.label,/through 2026-11-19/);
+  assert.equal(current.label, "November 2026 • Monthly Performance");
+  assert.doesNotMatch(current.label, /\(through /i);
 });
 
 test("annual certificate uses Jan-Dec, marking current year as partial",()=>{
