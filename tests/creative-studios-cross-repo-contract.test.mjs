@@ -86,3 +86,24 @@ test("server-only verification bridges the two existing Supabase accounts, never
   assert.doesNotMatch(read(studio.dir,studio.cutover+"/studio/index.html"),/SERVICE_ROLE_KEY|SUPABASE_SECRET_KEY|PTG_STUDIO_GATEWAY_SECRET/);
  }
 });
+
+
+test("MegaFlyer Smart Product Photo Library stays private and uses existing Flyer Supabase backend",()=>{
+ const privateBuilder=read(pathMap.flyer,"scripts/build-private-flyer.mjs");
+ const photoClient=read(pathMap.flyer,"site/product-photo-library.js");
+ const photoBackend=read(pathMap.flyer,"supabase/functions/flyer-product-photos/index.ts");
+ const migration=read(pathMap.flyer,"supabase/migrations/202611210001_smart_product_photos.sql");
+ const publicPage=read(pathMap.flyer,"scripts/build-cutover-pages.mjs");
+ assert.match(privateBuilder,/product-photo-library\\.js/);
+ assert.match(privateBuilder,/product-photo-match\\.js/);
+ assert.doesNotMatch(publicPage,/product-photo-library\\.js/);
+ assert.match(photoClient,/Product Photo Library/);
+ assert.match(photoBackend,/await identity\\(req\\)/);
+ assert.match(photoBackend,/FLYER_PRODUCT_PHOTO_ALLOWED_ORIGIN/);
+ assert.match(photoBackend,/agknxlowackphvwyvxge/);
+ assert.match(photoBackend,/flyer-product-photos/);
+ assert.match(migration,/enable row level security/);
+ assert.match(migration,/flyer_product_photo_audit/);
+ assert.match(read(pathMap.flyer,"supabase/config.toml"),/\\[functions\\.flyer-product-photos\\]/);
+ assert.ok(!readdirSync(join(pathMap.flyer,"staging/.cross-repo-cutover/studio")).includes("product-photo-library.js"));
+});
