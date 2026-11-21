@@ -83,7 +83,7 @@ test("managers see scoped daily PS assistance before store walk-ins", () => {
   f.context.openWalkInDailyModal();
   const html = f.roots.at(-1).innerHTML;
   assert.match(html, /<th>Date<\/th><th>Day<\/th><th>PS inputs<\/th><th>FT TY<\/th>/);
-  assert.match(html, /<tr><td>2026-11-03<\/td><td>Tue<\/td><td>8<\/td><td>3<\/td>/);
+  assert.match(html, /<tr><td>2026-11-03<\/td><td>Tue<\/td><td><button[^>]*>8<\/button><\/td><td>3<\/td>/);
   assert.doesNotMatch(html, />108</);
 });
 
@@ -93,7 +93,7 @@ test("assistance comparison distinguishes missing counts from explicitly recorde
   assert.match(missing.roots.at(-1).innerHTML, /<tr><td>2026-11-03<\/td><td>Tue<\/td><td>—<\/td>/);
   const zero = fixture(false, [{ branch_id: "branch", counted_on: "2026-11-03", ps_id: "ps", clients_assisted: 0 }]);
   zero.context.openWalkInDailyModal();
-  assert.match(zero.roots.at(-1).innerHTML, /<tr><td>2026-11-03<\/td><td>Tue<\/td><td>0<\/td>/);
+  assert.match(zero.roots.at(-1).innerHTML, /<tr><td>2026-11-03<\/td><td>Tue<\/td><td><button[^>]*>0<\/button><\/td>/);
 });
 
 test("only managers and above receive the additional clients-assisted column", () => {
@@ -140,7 +140,7 @@ test("manager comparison uses store entries or imported history, never PS fallba
     f.context.window.BranchlineAnalytics.walkInSummary = A.walkInSummary;
     f.context.storeCountsFor = () => [...real, ...H.historyWalkins(history, real)];
     f.context.openWalkInDailyModal();
-    assert.ok(f.roots.at(-1).innerHTML.includes(`<tr><td>${date}</td><td>Tue</td><td>5</td><td>${expected}</td>`));
+    assert.ok(f.roots.at(-1).innerHTML.includes(`<tr><td>${date}</td><td>Tue</td><td><button type="button" class="traffic-assist-link" data-review-ps-day="${date}" aria-label="Review PS inputs for ${date}">5</button></td><td>${expected}</td>`));
   }
   const own = fixture(true, ps);
   own.context.window.BranchlineAnalytics.walkInSummary = A.walkInSummary;
@@ -172,3 +172,16 @@ test("range totals use summed counts and distinguish missing and zero baselines"
   assert.deepEqual(cells(f.roots.at(-1).innerHTML.match(/<tfoot>(.*?)<\/tfoot>/s)[1]),
     ["Total", "", "8", "—", "5", "—", "1", "1", "0.0%", "n/a", "20.0%", "—"]);
 });
+
+
+test("manager PS numbers are actionable, but missing dates stay a dash and PS users cannot drill in", () => {
+  const f = fixture(false);
+  f.context.openWalkInDailyModal();
+  const html = f.roots.at(-1).innerHTML;
+  assert.match(html, /data-review-ps-day="2026-11-03"/);
+  assert.match(html, /data-review-ps-monthly/);
+  const ps = fixture(true);
+  ps.context.openWalkInDailyModal();
+  assert.doesNotMatch(ps.roots.at(-1).innerHTML, /data-review-ps-day|data-review-ps-monthly/);
+});
+

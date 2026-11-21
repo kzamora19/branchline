@@ -6907,13 +6907,20 @@
     const label = isPs ? "Clients assisted" : "Walk-in traffic";
     const rate = value => value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
     const change = (ty, ly) => ty === null || ly === null ? "—" : growthCell(A.growth(ty, ly));
-    const metricCells = ([assisted, ftTy, ftLy, trTy, trLy], conversionTy, conversionLy) => {
+    const metricCells = ([assisted, ftTy, ftLy, trTy, trLy], conversionTy, conversionLy, date = null) => {
       const values = [
         ...(showAssistedComparison ? [assisted] : []),
         ftTy, ftLy, change(ftTy, ftLy), trTy, trLy, change(trTy, trLy),
         rate(conversionTy), rate(conversionLy), change(conversionTy, conversionLy),
       ];
-      return values.map(value => `<td>${value ?? "—"}</td>`).join("");
+      return values.map((value, index) => {
+        if (date && showAssistedComparison && index === 0 && value !== null) {
+          return '<td><button type="button" class="traffic-assist-link" data-review-ps-day="' +
+            escapeHTML(date) + '" aria-label="Review PS inputs for ' + escapeHTML(date) + '">' +
+            escapeHTML(String(value)) + '</button></td>';
+        }
+        return '<td>' + (value ?? "—") + '</td>';
+      }).join("");
     };
     const totals = [null, null, null, null, null];
     const rows = [];
@@ -6932,7 +6939,7 @@
       counts.forEach((count, index) => {
         if (count !== null) totals[index] = (totals[index] ?? 0) + count;
       });
-      rows.push(`<tr><td>${escapeHTML(day)}</td><td>${escapeHTML(weekday)}</td>${metricCells(counts, now.conversion, before.conversion)}</tr>`);
+      rows.push(`<tr><td>${escapeHTML(day)}</td><td>${escapeHTML(weekday)}</td>${metricCells(counts, now.conversion, before.conversion, day)}</tr>`);
     }
     const [, ftTy, ftLy, trTy, trLy] = totals;
     const body = rows.reverse().join("");
@@ -6950,12 +6957,17 @@
       <div class="dlg-form"><div class="dlg-head-actions walkin-actions">
         <label class="field"><span>From</span><input type="date" data-walkin-from value="${escapeHTML(monthStart)}" required></label>
         <label class="field"><span>To</span><input type="date" data-walkin-to value="${escapeHTML(through)}" required></label>
-        <button class="button button-outline button-small" type="button" data-walkin-entry>${isPs ? "Log clients assisted" : "Record store visitors"}</button></div>
-        <p class="an-note">${showAssistedComparison ? "PS inputs are shown separately from store visitors. " : "Visitors reflect your clients assisted. "}A dash indicates a missing count. N/A indicates a zero LY baseline or missing or zero traffic for conversion. Percentage changes compare TY with LY, including conversion rates. Totals use recorded counts across the selected dates.</p>
+        <button class="button button-outline button-small" type="button" data-walkin-entry>${isPs ? "Log clients assisted" : "Record store visitors"}</button>${showAssistedComparison ? '<button class="button button-outline button-small" type="button" data-review-ps-monthly>Monthly PS performance</button>' : ""}</div>
+        <p class="an-note">${showAssistedComparison ? "PS inputs are shown separately from store visitors. Select a PS inputs number to review staff entries, or open Monthly PS performance. " : "Visitors reflect your clients assisted. "}A dash indicates a missing count. N/A indicates a zero LY baseline or missing or zero traffic for conversion. Percentage changes compare TY with LY, including conversion rates. Totals use recorded counts across the selected dates.</p>
         <div class="ps-lines traffic-table-wrap"><table class="connected-table"><thead><tr>${headers.map(header => `<th>${escapeHTML(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody>${footer}</table></div>
       </div></div>`;
     document.body.appendChild(root);
     wireDialogExport(root, "Traffic and transactions by day");
+    if (showAssistedComparison) root.addEventListener("click", event => {
+      const dayButton = event.target.closest("[data-review-ps-day]");
+      if (dayButton) openPsAssistDailyReview(dayButton.dataset.reviewPsDay, { from: monthStart, to: through });
+      else if (event.target.closest("[data-review-ps-monthly]")) openPsAssistMonthlyReview(monthStart.slice(0, 7));
+    });
     root.querySelector(".dlg-close").addEventListener("click", closeModal);
     root.addEventListener("pointerdown", event => {
       if (event.target === root || event.target.closest("[data-modal-close]")) closeModal();
@@ -6976,6 +6988,225 @@
         return;
       }
       openWalkInDailyModal({ from: fromInput.value, to: toInput.value });
+    });
+  }
+
+
+  // Management review reuses existing PS day-level totals and real sale IDs.
+  // An assist is NOT an individual customer record; a sale cannot be linked
+  // to a specific assisted customer until a separate per-assist log exists.
+  function psAssistReviewAuthorized() {
+    return ["manager", "district_manager", "admin"].includes(currentProfile?.role);
+  }
+
+  function psAssistReviewFacts(from, to, requestedIds) {
+    if (!psAssistReviewAuthorized()) return [];
+    const allowed = scopeBranchIds();
+    const ids = new Set([...requestedIds].filter(id => allowed.has(id)));
+    const rows = new Map();
+    const profiles = new Map((liveData.profiles || []).map(person => [person.id, person]));
+    const key = (branch, ps, day) => JSON.stringify([branch, ps, day]);
+    const entryFor = (branch, ps, day, fallbackName = "") => {
+      const id = key(branch, ps, day);
+      if (!rows.has(id)) rows.set(id, {
+        branch, ps, day, name: profiles.get(ps)?.full_name || fallbackName || "Staff member",
+        assists: null, sales: new Map(),
+      });
+      return rows.get(id);
+    };
+    (liveData.psWalkins || []).forEach(item => {
+      const day = String(item.counted_on || "").slice(0, 10);
+      if (!ids.has(item.branch_id) || !item.ps_id || day < from || day > to) return;
+      const value = Number(item.clients_assisted);
+      if (!Number.isInteger(value) || value < 0) return;
+      const row = entryFor(item.branch_id, item.ps_id, day);
+      row.assists = (row.assists ?? 0) + value;
+    });
+    (liveData.sales || []).forEach(sale => {
+      const day = String(sale.sold_on || "").slice(0, 10);
+      if (!ids.has(sale.branch_id) || !sale.ps_id || day < from || day > to
+          || (typeof isTestSale === "function" && isTestSale(sale, liveData.testPsIds))) return;
+      entryFor(sale.branch_id, sale.ps_id, day, sale.ps_name).sales.set(sale.id, sale);
+    });
+    return [...rows.values()].sort((a, b) =>
+      natural(a.day, b.day) || natural(a.name, b.name) || natural(a.branch, b.branch));
+  }
+
+  function psAssistReviewRate(assists, transactions) {
+    if (assists === null || assists <= 0) return "n/a";
+    return (100 * transactions / assists).toFixed(1) + "%";
+  }
+
+  function psAssistReviewBackButton() {
+    return '<button type="button" class="button button-outline button-small" data-ps-review-back>← Back</button>';
+  }
+
+  function openPsAssistDailyReview(day, range) {
+    const context = walkInDailyCtx;
+    if (!psAssistReviewAuthorized() || !context || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
+    const rows = psAssistReviewFacts(day, day, context.ids);
+    const assistRows = rows.filter(row => row.assists !== null);
+    const total = assistRows.reduce((sum, row) => sum + row.assists, 0);
+    const totalSales = new Set(rows.flatMap(row => [...row.sales.keys()])).size;
+    const body = rows.length ? rows.map(row =>
+      '<tr><td>' + escapeHTML(row.name) + '</td><td>' + escapeHTML(branchName(row.branch)) +
+      '</td><td><button type="button" class="traffic-assist-link" data-ps-review-sales="' +
+      escapeHTML(row.ps) + '" data-ps-review-branch="' + escapeHTML(row.branch) + '">' +
+      (row.assists ?? "—") + '</button></td><td>' + row.sales.size + '</td><td>' +
+      psAssistReviewRate(row.assists, row.sales.size) + '</td></tr>').join("")
+      : '<tr><td colspan="5">No PS assistance or identified PS transactions for this day.</td></tr>';
+    openModal({
+      title: "PS assistance review · " + day, wide: true, readOnly: true,
+      body: psAssistReviewBackButton() +
+        '<p class="an-note">Recorded PS assists: ' + (assistRows.length ? total : "not recorded") +
+        ' · Identified PS transactions: ' + totalSales +
+        '. PS counts are self-reported assisted customers, not unique store visitors. Differences do not automatically mean an entry is wrong.</p>' +
+        '<div class="ps-lines traffic-table-wrap"><table class="connected-table"><thead><tr><th>Product Specialist</th><th>Branch</th><th>PS assists</th><th>Transactions</th><th>Transactions / assists</th></tr></thead><tbody>' +
+        body + '</tbody></table></div>',
+      onReady: form => form.addEventListener("click", event => {
+        if (event.target.closest("[data-ps-review-back]")) {
+          openWalkInDailyModal(range);
+          return;
+        }
+        const selected = event.target.closest("[data-ps-review-sales]");
+        if (selected) openPsAssistSalesLog(selected.dataset.psReviewSales, selected.dataset.psReviewBranch, day,
+          () => openPsAssistDailyReview(day, range));
+      }),
+    });
+  }
+
+  function openPsAssistSalesLog(ps, branch, day, back) {
+    const context = walkInDailyCtx;
+    if (!psAssistReviewAuthorized() || !context) return;
+    const row = psAssistReviewFacts(day, day, context.ids).find(item =>
+      item.ps === ps && item.branch === branch);
+    if (!row) return;
+    const sales = [...row.sales.values()].sort((a, b) =>
+      natural(a.invoice_number || a.id, b.invoice_number || b.id));
+    const body = sales.length ? sales.map(sale => {
+      const lines = linesForSale(sale.id);
+      const products = lines.map(line => (line.model_description || line.barcode || "Product") +
+        " × " + Number(line.quantity || 0)).join(", ");
+      return '<tr><td>' + escapeHTML(sale.invoice_number || sale.id) + '</td><td>' +
+        escapeHTML(sale.customer_name || "—") + '</td><td>' +
+        escapeHTML(products || "No item detail") + '</td><td>' +
+        escapeHTML(sale.payment_mode || "—") + '</td><td>' +
+        escapeHTML(formatMoney(saleTotal(sale, "price"))) + '</td></tr>';
+    }).join("") : '<tr><td colspan="5">No sales transactions recorded for this PS on this date.</td></tr>';
+    openModal({
+      title: "PS sales log · " + row.name + " · " + day, wide: true, readOnly: true,
+      body: psAssistReviewBackButton() +
+        '<p class="an-note">Clients assisted: ' + (row.assists ?? "not recorded") +
+        ' · Recorded transactions: ' + sales.length + '. Invoices below belong to this PS on the chosen date; they are not matched to individual assisted customers.</p>' +
+        '<div class="ps-lines traffic-table-wrap"><table class="connected-table"><thead><tr><th>Invoice</th><th>Customer</th><th>Products / quantity</th><th>Payment mode</th><th>Sales amount</th></tr></thead><tbody>' +
+        body + '</tbody></table></div>',
+      onReady: form => form.querySelector("[data-ps-review-back]").addEventListener("click", back),
+    });
+  }
+
+  function openPsAssistMonthlyReview(month, branchFilter = "", psFilter = "") {
+    const context = walkInDailyCtx;
+    if (!psAssistReviewAuthorized() || !context || !/^\d{4}-\d{2}$/.test(month)) return;
+    const from = month + "-01";
+    const monthEnd = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0))
+      .toISOString().slice(0, 10);
+    const until = month === currentMonth() ? localISODate() : monthEnd;
+    const authorized = scopeBranchIds();
+    const branches = (liveData.branches || []).filter(branch =>
+      context.ids.has(branch.id) && authorized.has(branch.id));
+    if (!branches.some(branch => branch.id === branchFilter)) branchFilter = "";
+    const ids = new Set(branches.filter(branch => !branchFilter || branch.id === branchFilter)
+      .map(branch => branch.id));
+    const daily = psAssistReviewFacts(from, until, ids);
+    const people = new Map();
+    daily.forEach(row => {
+      const key = JSON.stringify([row.branch, row.ps]);
+      if (!people.has(key)) people.set(key, {
+        ps: row.ps, branch: row.branch, name: row.name, assists: 0,
+        recordedDays: 0, sales: new Map(), coveredSales: new Map(), missingDays: new Set(),
+      });
+      const person = people.get(key);
+      if (row.assists !== null) {
+        person.assists += row.assists;
+        person.recordedDays++;
+        row.sales.forEach((sale, id) => person.coveredSales.set(id, sale));
+      } else if (row.sales.size) person.missingDays.add(row.day);
+      row.sales.forEach((sale, id) => person.sales.set(id, sale));
+    });
+    const allPeople = [...people.values()].sort((a, b) =>
+      b.assists - a.assists || natural(a.name, b.name));
+    if (psFilter && !allPeople.some(person => person.ps === psFilter)) psFilter = "";
+    const visible = allPeople.filter(person => !psFilter || person.ps === psFilter);
+    const branchOptions = ['<option value="">All authorized branches</option>']
+      .concat(branches.map(branch => '<option value="' + escapeHTML(branch.id) + '"' +
+        (branchFilter === branch.id ? ' selected' : '') + '>' + escapeHTML(branch.name) + '</option>')).join("");
+    const psOptions = ['<option value="">All Product Specialists</option>']
+      .concat(allPeople.map(person => '<option value="' + escapeHTML(person.ps) + '"' +
+        (psFilter === person.ps ? ' selected' : '') + '>' + escapeHTML(person.name) + '</option>')).join("");
+    const body = visible.length ? visible.map(person =>
+      '<tr><td>' + escapeHTML(person.name) + '</td><td>' + escapeHTML(branchName(person.branch)) +
+      '</td><td><button class="traffic-assist-link" type="button" data-ps-review-person="' +
+      escapeHTML(person.ps) + '" data-ps-review-person-branch="' + escapeHTML(person.branch) + '">' +
+      person.assists + '</button></td><td>' + person.sales.size + '</td><td>' +
+      person.coveredSales.size + '</td><td>' + psAssistReviewRate(person.assists, person.coveredSales.size) +
+      '</td><td>' + person.recordedDays + '</td><td>' + person.missingDays.size + '</td></tr>').join("")
+      : '<tr><td colspan="8">No PS assistance or identified transactions for the selected month.</td></tr>';
+    openModal({
+      title: "Monthly PS performance · " + monthLabel(month), wide: true, readOnly: true,
+      body: psAssistReviewBackButton() +
+        '<div class="dlg-head-actions walkin-actions"><label class="field"><span>Month</span><input type="month" data-ps-review-month value="' +
+        escapeHTML(month) + '"></label><label class="field"><span>Branch</span><select data-ps-review-month-branch>' +
+        branchOptions + '</select></label><label class="field"><span>Product Specialist</span><select data-ps-review-month-ps>' +
+        psOptions + '</select></label></div>' +
+        '<p class="an-note">Transactions / assists uses unique sales invoices ONLY on days with a recorded PS assistance count; this avoids treating missing entries as zero. Total transactions includes days with no assistance entry. A rate above 100% or an unlogged sale date merits review, not automatic correction. Click a PS assist count for daily details.</p>' +
+        '<div class="ps-lines traffic-table-wrap"><table class="connected-table"><thead><tr><th>Product Specialist</th><th>Branch</th><th>Assists</th><th>All transactions</th><th>Transactions on logged days</th><th>Transactions / assists</th><th>Days logged</th><th>Sale dates without PS entry</th></tr></thead><tbody>' +
+        body + '</tbody></table></div>',
+      onReady: form => {
+        form.querySelector("[data-ps-review-back]").addEventListener("click", () => openWalkInDailyModal());
+        form.querySelector("[data-ps-review-month]").addEventListener("change", event =>
+          openPsAssistMonthlyReview(event.target.value, branchFilter, psFilter));
+        form.querySelector("[data-ps-review-month-branch]").addEventListener("change", event =>
+          openPsAssistMonthlyReview(month, event.target.value, ""));
+        form.querySelector("[data-ps-review-month-ps]").addEventListener("change", event =>
+          openPsAssistMonthlyReview(month, branchFilter, event.target.value));
+        form.addEventListener("click", event => {
+          const selected = event.target.closest("[data-ps-review-person]");
+          if (selected) openPsAssistMonthlyPerson(selected.dataset.psReviewPerson,
+            selected.dataset.psReviewPersonBranch, month, branchFilter, psFilter);
+        });
+      },
+    });
+  }
+
+  function openPsAssistMonthlyPerson(ps, branch, month, branchFilter, psFilter) {
+    const context = walkInDailyCtx;
+    if (!psAssistReviewAuthorized() || !context) return;
+    const from = month + "-01";
+    const to = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0))
+      .toISOString().slice(0, 10);
+    const rows = psAssistReviewFacts(from, to, context.ids)
+      .filter(row => row.ps === ps && row.branch === branch);
+    if (!rows.length) return;
+    const body = rows.map(row =>
+      '<tr><td>' + escapeHTML(row.day) + '</td><td><button type="button" class="traffic-assist-link" data-ps-review-person-day="' +
+      escapeHTML(row.day) + '">' + (row.assists ?? "—") +
+      '</button></td><td>' + row.sales.size + '</td><td>' +
+      psAssistReviewRate(row.assists, row.sales.size) + '</td></tr>').join("");
+    openModal({
+      title: "PS daily performance · " + rows[0].name + " · " + monthLabel(month), wide: true, readOnly: true,
+      body: psAssistReviewBackButton() +
+        '<p class="an-note">Click the daily assist number to see this PS’s sales log for that date. A dash means no assistance count was submitted.</p>' +
+        '<div class="ps-lines traffic-table-wrap"><table class="connected-table"><thead><tr><th>Date</th><th>PS assists</th><th>Transactions</th><th>Transactions / assists</th></tr></thead><tbody>' +
+        body + '</tbody></table></div>',
+      onReady: form => {
+        form.querySelector("[data-ps-review-back]").addEventListener("click", () =>
+          openPsAssistMonthlyReview(month, branchFilter, psFilter));
+        form.addEventListener("click", event => {
+          const selected = event.target.closest("[data-ps-review-person-day]");
+          if (selected) openPsAssistSalesLog(ps, branch, selected.dataset.psReviewPersonDay, () =>
+            openPsAssistMonthlyPerson(ps, branch, month, branchFilter, psFilter));
+        });
+      },
     });
   }
 
