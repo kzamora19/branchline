@@ -37,7 +37,9 @@ test("external apps open verified HTTPS domains without credentials or OAuth sta
       app.id === "flyer-studio" ? "?studio=flyer" : "");
     assert.equal(url.hash, "");
   }
-  assert.match(authSource, /target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"/);
+  assert.match(authSource, /const actionTarget = openInside \? "_self" : "_blank"/);
+  assert.match(authSource, /target="\$\{actionTarget\}" rel="noopener noreferrer" referrerpolicy="no-referrer"/);
+  assert.match(authSource, /window\.matchMedia\("\(display-mode: standalone\)"\)/);
   assert.doesNotMatch(authSource.slice(authSource.indexOf("function renderApplicationsPage()"),authSource.indexOf("function dangerZonePanel()")), /access_token|sessionStorage|localStorage|refresh_token|apiKey|apikey/);
 });
 
@@ -79,6 +81,10 @@ test("new app script loads before workspace, and current shell assets are availa
   const launcher = readFileSync(path("apps/index.html"),"utf8");
   const pwa = JSON.parse(readFileSync(path("manifest.webmanifest"),"utf8"));
   assert.equal(pwa.start_url,"./apps/");
+  assert.equal(pwa.scope, "/", "Installed app scope must include sibling same-origin PTG/Studio paths");
+  const appOrigin = "https://kzamora19.github.io";
+  assert.ok(apps.slice(1).every(app => new URL(app.url).origin === appOrigin), "Every linked module must remain on the verified same origin");
+  assert.ok(apps.slice(1).every(app => new URL(app.url).pathname.startsWith(pwa.scope)), "Installed navigation stays in PWA scope");
   for(const app of apps)assert.ok(launcher.includes('data-app="'+app.id+'"'),"Missing launcher card: "+app.id);
   assert.ok(serviceWorker.includes('"./apps/"'));
   assert.ok(serviceWorker.includes('"./apps/index.html"'));
