@@ -143,3 +143,15 @@ These are **additive backend preparations**, not a GitHub Pages public cutover:
 - Four coordinated PR merges and Pages cutover still **NOT approved or deployed**. Keep all current users and independent apps working.
 
 This section supersedes earlier historical statements in this runbook that the additive private Supabase backend functions or buckets were not installed. It does **not** relax the explicit release security and data-preservation gates.
+
+
+## Coordinated rollout update — 22 Nov 2026 (controlled live test, NOT unified release)
+
+The original four Pages apps remain operational. To enable a non-destructive end-to-end test, three additive Pages commits were released after success in their draft CI:
+- MegaFrame `main` `4c4c4ebcde2ef6921d14db23af933de3b1fecbdf` — only secure `/studio/` launcher plus its build copy; legacy editor and PWA untouched.
+- MegaFlyer `main` `61463a196176ca5d8214da9f553b4e36bf819cb3` — only secure `/studio/` launcher; legacy editor untouched.
+- PTG `migration/github-pages` `5518c0f87ae8825fb69fdd43735555a7a2e18a3d` — additive `/studios/` role-gated portal and two exact protected destinations. Existing pricing and ordinary navigation untouched.
+
+The three Pages publish runs passed, and [production HTTP smoke 44980539481](https://github.com/kzamora19/first-megasaver-ptg/actions/runs/44980539481) confirmed all new launchers and both old public editors remained accessible. The two protected private HTML bundles remain in private Supabase buckets and do not appear in public Pages.
+
+**Explicit still-open blockers:** real PTG role/sign-in and immediate disable/revoke behavior, customer project import/recovery on two actual browsers/devices, printing/export/photo-library usage, old PWA/local draft preservation and security-first source retirement, long-term Google OAuth publishing status. The additive test route does not change the access properties of old standalone public Studio roots. No PR #45/#40/#18/#10 is merged; no coordinated source retirement or Branchline hub routing has occurred. Do not call this the unified production launch.
