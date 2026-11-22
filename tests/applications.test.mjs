@@ -33,7 +33,10 @@ test("external apps open verified HTTPS domains without credentials or OAuth sta
     assert.equal(url.protocol, "https:");
     assert.equal(url.username, "");
     assert.equal(url.password, "");
-    assert.equal(url.search, "");
+    const expectedStudio = app.id === "megaframe-studio" ? "megaframe" :
+      app.id === "flyer-studio" ? "flyer" : "";
+    assert.equal(url.search, expectedStudio ? "?studio=" + expectedStudio : "");
+    if (expectedStudio) assert.equal(url.pathname, "/first-megasaver-ptg/studios/");
     assert.equal(url.hash, "");
   }
   assert.match(authSource, /target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"/);
@@ -60,6 +63,15 @@ test("new app script loads before workspace, and current shell assets are availa
   for (const resource of [hubTag[1], appTag[1], styleTag[1]]) {
     assert.ok(serviceWorker.includes('"' + "./" + resource + '"'), resource + " must be cached for PWA offline use");
   }
+  const chooser = readFileSync(path("apps/index.html"), "utf8");
+  const pwaManifest = JSON.parse(readFileSync(path("manifest.webmanifest"), "utf8"));
+  assert.equal(pwaManifest.start_url, "./apps/");
+  assert.match(chooser, /Your apps/);
+  for (const app of apps) assert.ok(chooser.includes('data-app="' + app.id + '"'), "Launcher card: " + app.id);
+  assert.match(chooser, /\\?studio=megaframe/);
+  assert.match(chooser, /\\?studio=flyer/);
+  assert.ok(serviceWorker.includes('"./apps/"'));
+  assert.ok(serviceWorker.includes('"./apps/index.html"'));
   assert.ok(styles.includes(".branchline-app-grid"));
   assert.ok(styles.includes("grid-template-columns:1fr"));
   assert.doesNotThrow(() => new Function(authSource));
