@@ -75,6 +75,13 @@ test("new app script loads before workspace, and current shell assets are availa
   for (const resource of [hubTag[1], appTag[1], styleTag[1]]) {
     assert.ok(serviceWorker.includes('"' + "./" + resource + '"'), resource + " must be cached for PWA offline use");
   }
+
+  const launcher = readFileSync(path("apps/index.html"),"utf8");
+  const pwa = JSON.parse(readFileSync(path("manifest.webmanifest"),"utf8"));
+  assert.equal(pwa.start_url,"./apps/");
+  for(const app of apps)assert.ok(launcher.includes('data-app="'+app.id+'"'),"Missing launcher card: "+app.id);
+  assert.ok(serviceWorker.includes('"./apps/"'));
+  assert.ok(serviceWorker.includes('"./apps/index.html"'));
   assert.ok(styles.includes(".branchline-app-grid"));
   assert.ok(styles.includes("grid-template-columns:1fr"));
   assert.doesNotThrow(() => new Function(authSource));

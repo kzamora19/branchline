@@ -8,6 +8,8 @@ on:
       - 'auth-app.js'
       - 'branchline-applications.js'
       - 'index.html'
+      - 'apps/**'
+      - 'manifest.webmanifest'
       - 'styles.css'
       - 'sw.js'
       - 'tests/applications.test.mjs'
