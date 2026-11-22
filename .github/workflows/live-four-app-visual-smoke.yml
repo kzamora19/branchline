@@ -1,0 +1,21 @@
+name: Live Branchline four-app mobile and Studio toolbar smoke
+on:
+  push:
+    branches: [feature/creative-studios-ptg-portal-20261121]
+    paths:
+      - "tests/live-four-app-visual-smoke.mjs"
+      - ".github/workflows/live-four-app-visual-smoke.yml"
+permissions:
+  contents: read
+jobs:
+  live-mobile-preview:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: "22"}
+      - run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install chromium --only-shell
+      - run: node tests/live-four-app-visual-smoke.mjs
