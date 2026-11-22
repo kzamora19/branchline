@@ -155,3 +155,21 @@ The original four Pages apps remain operational. To enable a non-destructive end
 The three Pages publish runs passed, and [production HTTP smoke 44980539481](https://github.com/kzamora19/first-megasaver-ptg/actions/runs/44980539481) confirmed all new launchers and both old public editors remained accessible. The two protected private HTML bundles remain in private Supabase buckets and do not appear in public Pages.
 
 **Explicit still-open blockers:** real PTG role/sign-in and immediate disable/revoke behavior, customer project import/recovery on two actual browsers/devices, printing/export/photo-library usage, old PWA/local draft preservation and security-first source retirement, long-term Google OAuth publishing status. The additive test route does not change the access properties of old standalone public Studio roots. No PR #45/#40/#18/#10 is merged; no coordinated source retirement or Branchline hub routing has occurred. Do not call this the unified production launch.
+
+
+## Latest cross-repository reconciliation and current release hold — 22 Nov 2026
+
+Development PRs have been reconciled with the most recent live, non-disruptive Pages additions, preserving the four-choice installed Branchline home and the deployed protected Studio test routes:
+
+| Repository | PR | Reconciled branch head | Latest PR CI |
+| --- | --- | --- | --- |
+| Branchline | #45 | `093d331880bcf0c3944203480d358164fed5c93e` | Hub, cross-repo contract and PS awards: PASS |
+| PTG | #40 | `706ac4f3012ed1c79365228831de3589dd9c0ccc` | Price preflight and Studio auth: PASS |
+| MegaFrame | #18 | `32cfb5048447e27e758b9c118bd407885cc62709` | Pages verification and protected package: PASS |
+| MegaFlyer | #10 | `c92df47244828ded1b4aee4749fcac359782dbc0` | UI, photo library and private package: PASS |
+
+The older MegaFlyer shadow packaging test failed because it assumed no live `/studio/` directory. Both Studio shadow builders have been corrected to **preserve** an existing published protected launcher rather than overwriting it; tests compare non-Studio public files and already published Studio files byte-for-byte. All above CI checks passed after reconciliation. The old stand-alone public editor routes continue to operate, and the partial Branchline four-app chooser remains publicly available.
+
+**Do not merge draft PR #45/#40/#18/#10 as if that were final production readiness.** Automated CI verifies known code-level security and non-destructive packaging; it cannot exercise a real System Admin/Branch Admin/Team Leader login, forced logout from the actual account administration flow, end-user saved projects on distinct real devices, installed PWA draft migration or a physical printer. Source retirement is irreversible for active browser sessions and remains HOLD until those tests pass and rollback backups have been verified.
+
+The separately approved blue six-icon design source has been located as `Official Blue Icon Collection.png` in the user's Library. The user explicitly asked to finish the four-app integration. Preserve the approved design but do not use placeholder/recreated artwork or claim final visual standardization is complete before importing the actual image assets and passing responsive UI regression.
