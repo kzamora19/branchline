@@ -27,24 +27,29 @@
       name: "MegaFrame Studio",
       monogram: "MF",
       description: "Edit photos, build personalized frames and export print-ready layouts.",
-      access: "MegaFrame Studio sign-in and permissions apply",
+      access: "Requires active PTG Team Leader, Branch Admin or System Admin access",
       kind: "external",
-      url: "https://kzamora19.github.io/megaframe-studio/",
+      url: "https://kzamora19.github.io/first-megasaver-ptg/studios/?studio=megaframe", // PTG authorization; editor is never public
     },
     {
       id: "flyer-studio",
-      name: "Flyer Studio",
+      name: "MegaFlyer Studio",
       monogram: "FS",
       description: "Create promotional flyers, manage product bundles and export PDF artwork.",
-      access: "Flyer Studio sign-in and permissions apply",
+      access: "Requires active PTG Team Leader, Branch Admin or System Admin access",
       kind: "external",
-      url: "https://kzamora19.github.io/flyer-studio/",
+      url: "https://kzamora19.github.io/first-megasaver-ptg/studios/?studio=flyer", // PTG authorization; editor is never public
     },
   ];
   for (const app of list) {
     if (app.kind === "external") {
       const target = new URL(app.url);
-      if (target.protocol !== "https:" || target.username || target.password || target.hash || target.search)
+      const knownStudio = app.id === "megaframe-studio" ? "megaframe" :
+        app.id === "flyer-studio" ? "flyer" : "";
+      const query = knownStudio ? "?studio=" + knownStudio : "";
+      if (target.protocol !== "https:" || target.origin !== "https://kzamora19.github.io" ||
+          target.username || target.password || target.hash || target.search !== query ||
+          (knownStudio && target.pathname !== "/first-megasaver-ptg/studios/"))
         throw new Error("Unrecognized Branchline application URL.");
     }
     Object.freeze(app);

@@ -14,7 +14,7 @@ const assert = require("node:assert/strict");
     await page.getByRole("heading",{name:"Branchline Applications"}).waitFor();
     assert.equal(await page.locator(".branchline-app-card").count(), 4);
     assert.deepEqual(await page.locator(".branchline-app-card h2").allTextContents(), [
-      "Sales Tracker", "Price Tag Generator", "MegaFrame Studio", "Flyer Studio"
+      "Sales Tracker", "Price Tag Generator", "MegaFrame Studio", "MegaFlyer Studio"
     ]);
     const urls = await page.locator(".branchline-app-action a").evaluateAll(anchors =>
       anchors.map(a=>({
