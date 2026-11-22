@@ -37,6 +37,31 @@ const assert = require("node:assert/strict");
     }
     await page.locator("#branchline-app-sales").click();
     assert.ok(await page.locator('[data-live-page="overview"].active').count());
+
+    // Simulate the installed PWA; same-origin modules stay in one Branchline window.
+    // No external navigation occurs in this test, so PTG credentials are never handled.
+    await page.evaluate(() => {
+      const originalMatchMedia = window.matchMedia.bind(window);
+      window.matchMedia = query =>
+        query === "(display-mode: standalone)" ? { matches: true } : originalMatchMedia(query);
+      // CI serves on localhost; use same-origin synthetic destinations to exercise
+      // the installed-window behavior without changing the production origin check.
+      const catalog = window.BranchlineApplications.list;
+      const localApps = catalog.map(app => {
+        if (app.kind !== "external") return app;
+        const destination = new URL(app.url);
+        return Object.freeze({ ...app, url: window.location.origin + destination.pathname + destination.search });
+      });
+      window.BranchlineApplications = Object.freeze({ list: Object.freeze(localApps) });
+    });
+    await page.locator('[data-live-page="apps"]').click();
+    const installedTargets = await page.locator(".branchline-app-action a").evaluateAll(anchors =>
+      anchors.map(a => ({ target: a.target, referrerPolicy: a.referrerPolicy }))
+    );
+    assert.equal(installedTargets.length, 3);
+    assert.ok(installedTargets.every(a => a.target === "_self" && a.referrerPolicy === "no-referrer"));
+    await page.locator("#branchline-app-sales").click();
+
     await page.setViewportSize({width:390,height:800});
     assert.equal(await page.locator("#connected-shell .branchline-module-label").textContent(),"SALES TRACKER");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth+2),true,"Sidebar label must not create mobile overflow.");
