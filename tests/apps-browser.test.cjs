@@ -44,6 +44,15 @@ const assert = require("node:assert/strict");
       const originalMatchMedia = window.matchMedia.bind(window);
       window.matchMedia = query =>
         query === "(display-mode: standalone)" ? { matches: true } : originalMatchMedia(query);
+      // CI serves on localhost; use same-origin synthetic destinations to exercise
+      // the installed-window behavior without changing the production origin check.
+      const catalog = window.BranchlineApplications.list;
+      const localApps = catalog.map(app => {
+        if (app.kind !== "external") return app;
+        const destination = new URL(app.url);
+        return Object.freeze({ ...app, url: window.location.origin + destination.pathname + destination.search });
+      });
+      window.BranchlineApplications = Object.freeze({ list: Object.freeze(localApps) });
     });
     await page.locator('[data-live-page="apps"]').click();
     const installedTargets = await page.locator(".branchline-app-action a").evaluateAll(anchors =>
