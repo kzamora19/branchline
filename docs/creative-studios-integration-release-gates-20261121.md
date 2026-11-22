@@ -116,3 +116,30 @@ Do not deploy this feature independently of the four-app cutover. No fifth Supab
 - The latest [MegaFlyer proof-only browser CI](https://github.com/kzamora19/flyer-studio/actions/runs/44889656108) passed tests for real editor layout/export, product photo recall/upload/opt-out without iframe credentials, encrypted local draft restore, cloud Save/Retrieve mock and proof revocation closing the iframe. [Branchline cross-repository source policy](https://github.com/kzamora19/branchline/actions/runs/44889552406) also passed.
 
 **This does not authorize four-app deployment.** PTG hosting, real cloud project integration, Google OAuth/Drive, actual TL/admin/revocation and user recovery, PWA/public editor shutdown, exact SHA cross-repo regression and production rollback must pass before the unified cutover. Draft PR merge conflicts with active production branches must be reconciled in a separate reviewed step.
+
+
+## Live backend and owner Drive verified — 22 November 2026 (supersedes earlier "not installed" status)
+
+These are **additive backend preparations**, not a GitHub Pages public cutover:
+
+- Existing PTG Supabase has the service-only Studio ticket/proof and encrypted-cloud tables, plus the separately named `ptg-studio-access` Edge gateway. Its forged-origin/missing-login checks passed live.
+- Existing MegaFrame and MegaFlyer Supabase projects each contain a SHA-256-verified private editor HTML package in a new private bucket plus a protected `*-editor-delivery` Edge function. Both reject forged tickets and forged origins.
+- A live direct-URL check on [PTG CI run 44979169743](https://github.com/kzamora19/first-megasaver-ptg/actions/runs/44979169743) proved both private HTML objects were denied through public, publishable-key, browser bearer and `/object/public` paths.
+- The owner OAuth refresh token and Google Drive API passed read-only verification. **Actual encrypted Drive transport then passed:** a temporary GitHub-OIDC-attested canary performed real synthetic AES-256-GCM writes, lists, reads, decrypts and wrong-PTG-owner denials for *both* Studios; [run 44978909438](https://github.com/kzamora19/first-megasaver-ptg/actions/runs/44978909438) reported `megaframe:ok,flyer:ok HTTP 200`. Synthetic canary file removal was attempted; no cleanup error was reported. Temporary remote canary and upload diagnostic functions are disabled and their runner workflows removed.
+- No actual employee or customer backup was touched. Google Drive remains optional owner-managed backup in addition to the existing Supabase cloud project backend. Large photo-heavy Google Drive backups remain outside the current central 1.2M-ciphertext envelope limit.
+
+### Additive protected shadow-launch artifacts prepared, not published
+- MegaFrame development PR #18 has `staging/build-shadow-pages.mjs` + `staging/shadow-pages.test.mjs`: copies an exact build of the current public editor/PWA and adds only a secure `/studio/` launcher with a public publishable key.
+- MegaFlyer development PR #10 has `scripts/build-shadow-pages.mjs` + `tests/shadow-pages.test.mjs`: copies current public `site/` byte-for-byte, adding only `/studio/` launcher.
+- Preview builders refuse arbitrary target folders and require explicit `PTG_STUDIO_SHADOW_PREVIEW=1`; CI verifies root editor source and PWA files have not changed. These are **local CI artifacts**, not GitHub Pages preview deployments.
+- Ordinary GitHub Pages does not provide an independent PR preview deployment for these sites. Publishing hidden shadow launchers would be an additive change to the existing public Pages output. Do **not** publish them until a controlled acceptance arrangement is approved and no user-facing navigation is switched.
+- PTG `/studios/` route exists **in development PR #40 only**, and its launch URLs are fail-closed in the current production Pages build. Staff cannot use a hosted protected Studio launch URL yet.
+
+### Still-open release gates
+- Authenticated *real* PTG roles, disabled/revoked sessions and forced logout against the deployed gateways.
+- End-to-end editor access, Company Drive save and restore in a browser, customer/photo library permissions and project imports on Windows/mobile.
+- Preserve existing local/IndexedDB projects and PWA data before retiring original public editor sources; verify native PNG/PDF/physical printing.
+- Confirm Google OAuth application publishing status; **External Testing** refresh tokens for `drive.file` can expire in 7 days.
+- Four coordinated PR merges and Pages cutover still **NOT approved or deployed**. Keep all current users and independent apps working.
+
+This section supersedes earlier historical statements in this runbook that the additive private Supabase backend functions or buckets were not installed. It does **not** relax the explicit release security and data-preservation gates.
