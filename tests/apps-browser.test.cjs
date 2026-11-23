@@ -12,6 +12,15 @@ const assert = require("node:assert/strict");
     await page.locator('[data-live-page="apps"]').waitFor({state:"visible",timeout:25000});
     await page.locator('[data-live-page="apps"]').click();
     await page.getByRole("heading",{name:"Branchline Applications"}).waitFor();
+    const unifiedRail = page.locator(".connected-shell .bl-app-rail");
+    const workspaceSidebar = page.locator(".connected-shell .connected-sidebar");
+    await unifiedRail.waitFor({ state: "visible" });
+    assert.equal(await unifiedRail.locator(".bl-rail-link").count(), 4, "Desktop four-app rail is persistent.");
+    assert.equal(await workspaceSidebar.isVisible(), true, "The active application's workspace sidebar remains present.");
+    const railBox = await unifiedRail.boundingBox();
+    const menuBox = await workspaceSidebar.boundingBox();
+    assert.ok(railBox && menuBox && railBox.x + railBox.width <= menuBox.x + 2,
+      "The app rail must sit beside, not replace or overlap, the workspace menu.");
     assert.equal(await page.locator(".branchline-app-card").count(), 4);
     assert.deepEqual(await page.locator(".branchline-app-card h2").allTextContents(), [
       "Sales Tracker", "Price Tag Generator", "MegaFrame Studio", "MegaFlyer Studio"
@@ -31,6 +40,21 @@ const assert = require("node:assert/strict");
     await page.locator("#branchline-app-sales").click();
     assert.ok(await page.locator('[data-live-page="overview"].active').count());
     await page.setViewportSize({width:390,height:800});
+    const appSwitcher = page.locator(".connected-shell .bl-app-switcher");
+    assert.equal(await appSwitcher.isVisible(), true, "A separate mobile App Menu icon is visible.");
+    await appSwitcher.click();
+    assert.equal(await page.locator("#bl-app-drawer-connected").isVisible(), true);
+    assert.equal(await page.locator("#bl-app-drawer-connected .bl-drawer-link").count(),4);
+    await page.locator("#connected-menu").click();
+    assert.equal(await page.locator("#bl-app-drawer-connected").isVisible(), false,
+      "Opening the workspace menu closes the application drawer.");
+    assert.equal(await page.locator(".connected-sidebar.open").count(),1);
+    await appSwitcher.click();
+    assert.equal(await page.locator(".connected-sidebar.open").count(),0,
+      "Opening the app list closes the workspace menu.");
+    await appSwitcher.click();
+    assert.equal(await page.locator("#bl-app-drawer-connected").isVisible(), false);
+
     await page.locator("#connected-menu").click();
     await page.locator('[data-live-page="apps"]').click();
     await page.locator(".branchline-app-card").first().waitFor();
@@ -68,6 +92,9 @@ const assert = require("node:assert/strict");
     await chooser.locator("#mobileAppMenu").click();
     assert.equal(await chooser.locator("#mobileAppDrawer").isVisible(), false);
     await chooser.setViewportSize({width:1366,height:800});
+    assert.equal(await chooser.locator(".bl-launcher-rail .bl-app-rail").isVisible(), true,
+      "The launcher must retain its desktop app sidebar.");
+    assert.equal(await chooser.locator(".bl-launcher-rail .bl-rail-link").count(), 4);
     assert.equal(await chooser.locator("#mobileAppMenu").isVisible(), false);
     assert.equal(await chooser.locator(".cards .card").count(), 4);
     await chooser.close();
