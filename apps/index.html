@@ -61,14 +61,13 @@ footer p{margin:0}
 <span class="copy"><strong>MegaFlyer Studio</strong><small>Create flyers and promotional artwork</small></span><span class="arrow" aria-hidden="true">→</span></a>
 </nav>
 </main>
-<div id="mobileAppDrawer" class="app-drawer-overlay" hidden><div class="app-drawer" role="dialog" aria-modal="true" aria-labelledby="mobileAppDrawerTitle"><h2 id="mobileAppDrawerTitle">Branchline applications</h2><button id="mobileDrawerClose" class="drawer-close" type="button">Close menu ×</button><nav id="mobileDrawerApps" class="drawer-apps" aria-label="Branchline applications"></nav></div></div>
+<div id="mobileAppDrawer" class="app-drawer-overlay" hidden><aside class="app-drawer" aria-labelledby="mobileAppDrawerTitle"><h2 id="mobileAppDrawerTitle">Branchline applications</h2><nav id="mobileDrawerApps" class="drawer-apps" aria-label="Branchline applications"></nav></aside></div>
 <footer><p id="install-message">Open an app to continue.</p></footer>
 <script>
 /* The launcher remains the single source of destinations, including PTG Studio access. */
 const appMenuButton=document.getElementById("mobileAppMenu");
 const appDrawer=document.getElementById("mobileAppDrawer");
 const appDrawerLinks=document.getElementById("mobileDrawerApps");
-const appDrawerClose=document.getElementById("mobileDrawerClose");
 function showAppDrawer(){
   appDrawerLinks.replaceChildren();
   document.querySelectorAll(".cards a.card").forEach(source=>{
@@ -76,20 +75,24 @@ function showAppDrawer(){
     link.className="drawer-app";
     appDrawerLinks.appendChild(link);
   });
+  appDrawer.style.top=Math.max(0,document.querySelector("header").getBoundingClientRect().bottom)+"px";
   appDrawer.hidden=false;
   appMenuButton.setAttribute("aria-expanded","true");
-  appDrawerClose.focus();
+  appMenuButton.setAttribute("aria-label","Close application menu");
 }
 function hideAppDrawer(){
   appDrawer.hidden=true;
   appMenuButton.setAttribute("aria-expanded","false");
+  appMenuButton.setAttribute("aria-label","Open application menu");
   appMenuButton.focus();
 }
-appMenuButton.addEventListener("click",showAppDrawer);
-appDrawerClose.addEventListener("click",hideAppDrawer);
+appMenuButton.addEventListener("click",()=>appDrawer.hidden?showAppDrawer():hideAppDrawer());
 appDrawer.addEventListener("click",event=>{if(event.target===appDrawer)hideAppDrawer()});
 document.addEventListener("keydown",event=>{
   if(event.key==="Escape"&&!appDrawer.hidden)hideAppDrawer();
+});
+window.matchMedia("(min-width:681px)").addEventListener("change",event=>{
+  if(event.matches&&!appDrawer.hidden)hideAppDrawer();
 });
 if(window.matchMedia("(display-mode: standalone)").matches||navigator.standalone){
   document.getElementById("install-message").textContent="Branchline Workspace is installed on this device.";
