@@ -38,33 +38,48 @@ footer p{margin:0}
 @media(min-width:900px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:430px){header{padding:20px 18px}main{padding:28px 18px 20px}.card{grid-template-columns:60px minmax(0,1fr) 15px;gap:13px;padding:17px 15px;min-height:116px}.app-icon{width:60px;height:60px}.app-icon svg{width:40px;height:40px}.card strong{font-size:17px}.card small{font-size:15px}footer{padding:0 18px 36px}}
 </style>
+<link rel="stylesheet" href="branchline-ui-stage.css">
+<link rel="stylesheet" href="branchline-outlined-drawer.css">
+<link rel="stylesheet" href="../branchline-app-rail.css?v=ui-rail-20261123">
+<style>
+.bl-official-card-icon{width:56px;height:56px;display:inline-block;flex:0 0 56px;
+ background-image:url("../icons/official/four-apps.png")!important;
+ background-size:112px 112px!important;background-position:0 0!important;
+ background-color:transparent!important;border:0!important}
+.bl-official-card-icon.sales-tracker{background-position:-56px 0!important}
+.bl-official-card-icon.megaframe-studio{background-position:0 -56px!important}
+.bl-official-card-icon.flyer-studio{background-position:-56px -56px!important}
+</style>
 </head>
 <body>
-<header><div class="brand"><img src="../icons/icon-192.png" alt=""><strong>Branchline Workspace</strong></div></header>
+<header><div class="brand"><button id="mobileAppMenu" class="bl-mobile-brand" type="button" aria-expanded="false" aria-label="Open application list"><img src="../icons/official/branchline.png" alt="" aria-hidden="true"></button><img src="../icons/official/branchline.png" alt=""><span class="brand-copy"><strong>Branchline Workspace</strong><small>UNIFIED APPLICATIONS</small></span></div></header>
 <main>
-<h1>Your apps</h1>
-<p class="intro">Choose an app and sign in with the account assigned to you.</p>
+<section class="welcome"><h1>Your apps</h1><p class="intro">Choose an application to continue. Your existing sign-in and permissions still apply.</p></section>
+<p class="apps-label">AVAILABLE APPLICATIONS</p>
 <nav class="cards" aria-label="Branchline applications">
 <a class="card" data-app="sales-tracker" href="../" aria-label="Open Sales Tracker">
-<span class="app-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M12 35V24M24 35V12M36 35V18"/></svg></span>
+<span class="app-icon bl-official-card-icon sales-tracker" aria-hidden="true"></span>
 <span class="copy"><strong>Sales Tracker</strong><small>Track sales and review performance</small></span><span class="arrow" aria-hidden="true">→</span></a>
 <a class="card" data-app="price-tag-generator" href="https://kzamora19.github.io/first-megasaver-ptg/" referrerpolicy="no-referrer" aria-label="Open Price Tag Generator">
-<span class="app-icon ptg" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M8 12h18l13 14-14 14L8 23z"/><circle cx="18" cy="20" r="2" fill="currentColor" stroke="none"/></svg></span>
+<span class="app-icon bl-official-card-icon price-tag-generator" aria-hidden="true"></span>
 <span class="copy"><strong>Price Tag Generator</strong><small>Find products and prepare price tags</small></span><span class="arrow" aria-hidden="true">→</span></a>
 <a class="card" data-app="megaframe-studio" href="https://kzamora19.github.io/first-megasaver-ptg/studios/?studio=megaframe" referrerpolicy="no-referrer" aria-label="Open MegaFrame Studio through PTG">
-<span class="app-icon frame" aria-hidden="true"><svg viewBox="0 0 48 48"><rect x="6" y="9" width="35" height="30" rx="3"/><path d="M11 32l10-11 7 7 6-6 6 10"/><circle cx="16" cy="17" r="2"/></svg></span>
+<span class="app-icon bl-official-card-icon megaframe-studio" aria-hidden="true"></span>
 <span class="copy"><strong>MegaFrame Studio</strong><small>Create photo frames and personalized layouts</small></span><span class="arrow" aria-hidden="true">→</span></a>
 <a class="card" data-app="flyer-studio" href="https://kzamora19.github.io/first-megasaver-ptg/studios/?studio=flyer" referrerpolicy="no-referrer" aria-label="Open MegaFlyer Studio through PTG">
-<span class="app-icon flyer" aria-hidden="true"><svg viewBox="0 0 48 48"><rect x="8" y="6" width="31" height="36" rx="3"/><path d="M14 16h20M14 24h20M14 32h8"/><rect x="27" y="29" width="7" height="7" rx="1"/></svg></span>
+<span class="app-icon bl-official-card-icon flyer-studio" aria-hidden="true"></span>
 <span class="copy"><strong>MegaFlyer Studio</strong><small>Create flyers and promotional artwork</small></span><span class="arrow" aria-hidden="true">→</span></a>
 </nav>
 </main>
+
 <footer><p id="install-message">Open an app to continue.</p></footer>
+<script src="../branchline-applications.js?v=unified-four-apps-20261122"></script>
+<script src="../branchline-app-rail.js?v=ui-rail-20261123"></script>
 <script>
-if(window.matchMedia("(display-mode: standalone)").matches||navigator.standalone){
-  document.getElementById("install-message").textContent="Branchline Workspace is installed on this device.";
+if (window.matchMedia("(display-mode: standalone)").matches || navigator.standalone) {
+  document.getElementById("install-message").textContent = "Branchline Workspace is installed on this device.";
 }
-if("serviceWorker" in navigator)navigator.serviceWorker.register("../sw.js").catch(()=>{});
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("../sw.js").catch(() => {});
 </script>
 </body>
 </html>
