@@ -85,11 +85,11 @@ jobs:
         working-directory: branchline
         run: |
           node staging/assemble-candidate.mjs
-          cd staging/.candidate-bundle
+          cd staging/candidate-bundle
           sha256sum branchline/index.html first-megasaver-ptg/studios/index.html megaframe-studio/studio/index.html flyer-studio/studio/index.html > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: branchline-four-app-staging-candidate-NOT-DEPLOYED
-          path: branchline/staging/.candidate-bundle/
+          path: branchline/staging/candidate-bundle/
           if-no-files-found: error
           retention-days: 14
