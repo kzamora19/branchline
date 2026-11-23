@@ -43,6 +43,22 @@ test("PTG protected Studio URLs and role policies remain the only Studio choices
  assert.match(nav,/legacyRole\.trim\(\)\.toUpperCase\(\)==="TEAM LEADER"/);
 });
 
+test("Data Desk is an official System Admin-only PTG destination, not a public launcher app",()=>{
+ const layout=src(ptg,"components/workspace-layout.tsx");
+ const protectedPage=src(ptg,"app/data-desk/page.tsx");
+ const ptgCss=src(ptg,"app/official-navigation.css");
+ const icon=file(ptg,"public/icons/official/data-desk.png");
+ assert.ok(icon.subarray(0,8).equals(Buffer.from("89504e470d0a1a0a","hex")));
+ assert.match(layout,/session.role === "SYSTEM_ADMIN" \? \[\{id:"data-desk"/);
+ assert.match(layout,/withBasePath\("\/data-desk\/"\)/);
+ assert.match(layout,/const activeApp = desk \? "data-desk"/);
+ assert.match(protectedPage,/ClientSessionGate allowRoles=\{\["SYSTEM_ADMIN"\]\}/);
+ assert.match(ptgCss,/\.ptg-official-app-icon\.data-desk/);
+ assert.doesNotMatch(src(branch,"branchline-applications.js"),/id: "data-desk"/);
+ assert.doesNotMatch(src(frame,"staging/studio-access/unified-navigation.js"),/id:"data-desk"/);
+ assert.doesNotMatch(src(flyer,"staging/studio-access/unified-navigation.js"),/id:"data-desk"/);
+});
+
 test("branchline app list is logo-controlled while Sales Tracker retains its own workspace hamburger",()=>{
  const rail=src(branch,"branchline-app-rail.js");
  const html=src(branch,"index.html");
