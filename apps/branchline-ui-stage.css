@@ -11,8 +11,9 @@ main{max-width:1100px;padding:26px 24px 35px}
 .welcome .intro{margin:0;color:#e5f4ff;max-width:550px;font-size:clamp(15px,2.5vw,17px)}
 .apps-label{font-size:12px;font-weight:800;letter-spacing:.12em;color:#4e698a;margin:26px 0 14px}
 .cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
-.card{min-height:122px;display:flex;align-items:center;gap:16px;padding:19px;border-radius:16px;box-shadow:0 5px 14px #102c5610}
-.app-icon{display:block;width:77px;height:77px;flex:0 0 77px;object-fit:contain;border-radius:18px;background:white}
+.card{min-height:122px;display:flex;align-items:center;gap:16px;padding:19px;border-radius:16px;border:1px solid #79b9ee;background:transparent;box-shadow:none}
+.card:hover{background:transparent;border-color:#cbf3ff;box-shadow:none}
+.app-icon{display:block;width:77px;height:77px;flex:0 0 77px;object-fit:contain;border-radius:18px;background:transparent}
 .card .copy{min-width:0;flex:1}
 .card strong{font-size:clamp(17px,2.5vw,20px)}
 .card small{font-size:14px}
