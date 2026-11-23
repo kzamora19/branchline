@@ -40,8 +40,39 @@ const assert = require("node:assert/strict");
     assert.equal(grid,1,"The application hub uses one column on mobile.");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth+2),true,
       "No horizontal overflow on mobile");
+    // Verify the stand-alone app chooser and its mobile drawer, not just Sales Tracker.
+    const chooser = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    chooser.on("pageerror", e => failures.push(e.message));
+    await chooser.goto("http://127.0.0.1:4173/apps/", { waitUntil: "domcontentloaded" });
+    assert.equal(await chooser.locator(".cards .card").count(), 4);
+    const appearance = await chooser.locator(".cards .card").evaluateAll(cards =>
+      cards.map(card => {
+        const s = getComputedStyle(card);
+        return {background:s.backgroundColor,border:s.borderStyle,width:s.borderTopWidth};
+      })
+    );
+    for (const card of appearance) {
+      assert.equal(card.background, "rgba(0, 0, 0, 0)", "No solid tile background");
+      assert.equal(card.border, "solid", "Tile is outlined");
+      assert.equal(card.width, "1px", "Thin tile border");
+    }
+    const sourceLinks = await chooser.locator(".cards a.card").evaluateAll(links => links.map(a=>a.href));
+    await chooser.locator("#mobileAppMenu").click();
+    assert.equal(await chooser.locator("#mobileAppDrawer").isVisible(), true);
+    assert.equal(await chooser.locator(".drawer-app").count(), 4);
+    assert.deepEqual(await chooser.locator(".drawer-app").evaluateAll(links => links.map(a=>a.href)), sourceLinks,
+      "Drawer preserves the original app destinations");
+    await chooser.keyboard.press("Escape");
+    assert.equal(await chooser.locator("#mobileAppDrawer").isVisible(), false);
+    await chooser.locator("#mobileAppMenu").click();
+    await chooser.locator("#mobileDrawerClose").click();
+    assert.equal(await chooser.locator("#mobileAppDrawer").isVisible(), false);
+    await chooser.setViewportSize({width:1366,height:800});
+    assert.equal(await chooser.locator("#mobileAppMenu").isVisible(), false);
+    assert.equal(await chooser.locator(".cards .card").count(), 4);
+    await chooser.close();
     assert.deepEqual(failures,[],"Runtime errors: "+failures.join("; "));
-    console.log("PASS: demo navigation, four app cards, secure links and mobile layout.");
+    console.log("PASS: demo navigation, secure app links, outlined launcher cards and mobile drawer.");
   } finally {
     await browser.close();
   }
