@@ -9,12 +9,6 @@
   const order = ["price-tag-generator", "sales-tracker", "megaframe-studio", "flyer-studio"];
   const directory = order.map(id => catalog.find(app => app.id === id));
   if (directory.some(app => !app)) return;
-  const images = {
-    "price-tag-generator": "https://kzamora19.github.io/first-megasaver-ptg/icons/ptg-icon.svg",
-    "sales-tracker": "icons/icon-192.png",
-    "megaframe-studio": "https://kzamora19.github.io/megaframe-studio/icons/icon-192.png",
-    "flyer-studio": "https://kzamora19.github.io/flyer-studio/icons/flyer-studio-192.png"
-  };
   const shortNames = {
     "price-tag-generator": "PTG", "sales-tracker": "Sales",
     "megaframe-studio": "Frame", "flyer-studio": "Flyer"
@@ -39,9 +33,8 @@
       link.classList.add("is-active");
       link.setAttribute("aria-current", "page");
     }
-    const icon = document.createElement("img");
-    icon.src = app.id === "sales-tracker" ? base + images[app.id] : images[app.id];
-    icon.alt = "";
+    const icon = document.createElement("span");
+    icon.className = "bl-official-app-icon " + app.id;
     icon.setAttribute("aria-hidden", "true");
     const label = document.createElement("span");
     label.textContent = shortNames[app.id];
@@ -59,7 +52,7 @@
     button.setAttribute("aria-controls", drawerId);
     button.title = "Branchline applications";
     const image = document.createElement("img");
-    image.src = base + "icons/icon-192.png";
+    image.src = base + "icons/official/branchline.png";
     image.alt = "";
     image.setAttribute("aria-hidden", "true");
     button.append(image);

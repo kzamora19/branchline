@@ -114,3 +114,15 @@ body.bl-launcher-rail .bl-app-overlay{z-index:14}
    backwards-compatible route rather than the default navigation mechanism. */
 .bl-launcher-rail .bl-app-rail{position:fixed}
 .bl-app-drawer nav .bl-drawer-link{background:transparent;border:1px solid #79b9ee}
+
+
+/* Exact approved four-icon sprite cropped from the saved six-icon reference (no redesign). */
+.bl-official-app-icon{display:block;width:42px;height:42px;flex:0 0 42px;
+ background-image:url("./icons/official/four-apps.png");background-repeat:no-repeat;
+ background-size:84px 84px;background-position:0 0;border-radius:9px}
+.bl-official-app-icon.sales-tracker{background-position:-42px 0}
+.bl-official-app-icon.megaframe-studio{background-position:0 -42px}
+.bl-official-app-icon.flyer-studio{background-position:-42px -42px}
+.bl-launcher-rail .bl-official-app-icon{background-image:url("../icons/official/four-apps.png")}
+.bl-app-drawer .bl-official-app-icon{background-image:url("./icons/official/four-apps.png")}
+.bl-launcher-rail .bl-app-drawer .bl-official-app-icon{background-image:url("../icons/official/four-apps.png")}
