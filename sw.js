@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "branchline-shell-v197";
+const CACHE_NAME = "branchline-shell-v199";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
@@ -61,6 +61,8 @@ const APP_SHELL_URLS = [
   "./icons/maskable-192.png",
   "./icons/maskable-512.png",
   "./icons/apple-touch-icon.png",
+  "./icons/official/branchline.png",
+  "./icons/official/four-apps.png",
 ].map(path => new URL(path, self.registration.scope).href);
 const APP_SHELL = new Set(APP_SHELL_URLS);
 
