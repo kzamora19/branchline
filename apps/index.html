@@ -40,6 +40,7 @@ footer p{margin:0}
 </style>
 <link rel="stylesheet" href="branchline-ui-stage.css">
 <link rel="stylesheet" href="branchline-outlined-drawer.css">
+<link rel="stylesheet" href="../branchline-app-rail.css?v=ui-rail-20261123">
 </head>
 <body>
 <header><div class="brand"><button id="mobileAppMenu" class="mobile-app-menu" type="button" aria-controls="mobileAppDrawer" aria-expanded="false" aria-label="Open application menu">☰</button><img src="../icons/icon-192.png" alt=""><span class="brand-copy"><strong>Branchline Workspace</strong><small>UNIFIED APPLICATIONS</small></span></div></header>
@@ -63,6 +64,8 @@ footer p{margin:0}
 </main>
 <div id="mobileAppDrawer" class="app-drawer-overlay" hidden><aside class="app-drawer" aria-labelledby="mobileAppDrawerTitle"><h2 id="mobileAppDrawerTitle">Branchline applications</h2><nav id="mobileDrawerApps" class="drawer-apps" aria-label="Branchline applications"></nav></aside></div>
 <footer><p id="install-message">Open an app to continue.</p></footer>
+<script src="../branchline-applications.js?v=unified-four-apps-20261122"></script>
+<script src="../branchline-app-rail.js?v=ui-rail-20261123"></script>
 <script>
 /* The launcher remains the single source of destinations, including PTG Studio access. */
 const appMenuButton=document.getElementById("mobileAppMenu");
