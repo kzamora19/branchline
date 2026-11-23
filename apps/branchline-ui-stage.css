@@ -1,0 +1,34 @@
+/* Branchline approved launcher styling — development only. */
+:root { --bl-navy:#09264f; --bl-royal:#075cf5; --bl-cyan:#0dd9eb; --bl-teal:#00e4c1; }
+body{background:#f2f6fb}
+header{background:linear-gradient(110deg,#09264f,#0b3d80)}
+header .brand{min-height:72px;padding:12px 24px}
+.brand-copy{display:grid;gap:1px}
+.brand-copy small{color:#bceaff;font-size:10px;font-weight:800;letter-spacing:.13em}
+main{max-width:1100px;padding:26px 24px 35px}
+.welcome{padding:30px 32px;border-radius:18px;background:linear-gradient(115deg,#082957,#0752c8 70%,#0e92ce);color:#fff;box-shadow:0 12px 27px #08295727}
+.welcome h1{font-size:clamp(30px,5vw,44px);margin:0 0 10px;line-height:1.15}
+.welcome .intro{margin:0;color:#e5f4ff;max-width:550px;font-size:clamp(15px,2.5vw,17px)}
+.apps-label{font-size:12px;font-weight:800;letter-spacing:.12em;color:#4e698a;margin:26px 0 14px}
+.cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.card{min-height:122px;display:flex;align-items:center;gap:16px;padding:19px;border-radius:16px;border:1px solid #79b9ee;background:transparent;box-shadow:none}
+.card:hover{background:transparent;border-color:#cbf3ff;box-shadow:none}
+.app-icon{display:block;width:77px;height:77px;flex:0 0 77px;object-fit:contain;border-radius:18px;background:transparent;}
+.card .copy{min-width:0;flex:1}
+.card strong{font-size:clamp(17px,2.5vw,20px)}
+.card small{font-size:14px}
+.arrow{margin-left:auto}
+.card:focus-visible{outline:3px solid var(--bl-cyan)}
+@media(max-width:680px){
+  header .brand{min-height:64px;padding:9px 16px}
+  header .brand img{width:39px;height:39px}
+  main{padding:18px 14px 30px}
+  .welcome{padding:22px 20px;border-radius:15px}
+  .cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .card{min-height:162px;flex-direction:column;gap:7px;text-align:center;padding:14px 8px}
+  .app-icon{width:68px;height:68px;flex:0 0 68px}
+  .card strong{font-size:14px;line-height:1.25}
+  .card small{font-size:11px;line-height:1.35;margin-top:4px}
+  .arrow{display:none}
+}
+@media(prefers-reduced-motion:reduce){.card{transition:none}.card:hover{transform:none}}
