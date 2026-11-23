@@ -7,6 +7,8 @@ on:
     paths:
       - 'auth-app.js'
       - 'branchline-applications.js'
+      - 'branchline-app-rail.js'
+      - 'branchline-app-rail.css'
       - 'index.html'
       - 'apps/**'
       - 'manifest.webmanifest'
@@ -18,7 +20,10 @@ on:
   pull_request:
     paths:
       - 'auth-app.js'
+      - 'apps/**'
       - 'branchline-applications.js'
+      - 'branchline-app-rail.js'
+      - 'branchline-app-rail.css'
       - 'index.html'
       - 'styles.css'
       - 'sw.js'
@@ -39,6 +44,7 @@ jobs:
         run: |
           node --check auth-app.js
           node --check branchline-applications.js
+          node --check branchline-app-rail.js
           node --check sw.js
       - name: Verify application links, role navigation and offline cache
         run: node --test tests/applications.test.mjs
