@@ -3,7 +3,7 @@
 .mobile-app-menu{display:none;align-items:center;justify-content:center;width:43px;height:43px;
   border:1px solid #6c9bc7;border-radius:9px;background:#19578e;color:#fff;
   font-size:23px;line-height:1;flex:0 0 auto}
-.mobile-app-menu:focus-visible,.drawer-close:focus-visible,.drawer-app:focus-visible{
+.mobile-app-menu:focus-visible,.drawer-app:focus-visible{
   outline:3px solid #0dd9eb;outline-offset:2px}
 .app-drawer-overlay[hidden]{display:none!important}
 .app-drawer-overlay{position:fixed;inset:65px 0 0;background:#051e439e;z-index:60;
@@ -12,9 +12,6 @@
   background:linear-gradient(180deg,#0a2e60,#09264f);color:#fff;padding:19px 16px 28px;
   box-shadow:10px 0 28px #051b3552}
 .app-drawer h2{font-size:17px;line-height:1.3;margin:0 0 20px;letter-spacing:0;color:#fff}
-.drawer-close{width:100%;min-height:48px;margin-bottom:18px;padding:10px 15px;
-  border-radius:9px;border:1px solid #608ab4;background:#315d88;color:#fff;
-  font-weight:650;cursor:pointer}
 .drawer-apps{display:grid;align-content:start;gap:9px}
 .drawer-app{display:flex;align-items:center;gap:12px;min-height:62px;width:100%;padding:9px 12px;
   text-decoration:none;color:#fff;border:1px solid #79b9ee;background:transparent;border-radius:12px;
@@ -31,3 +28,6 @@
 }
 @media(min-width:681px){.app-drawer-overlay{display:none!important}}
 @media(prefers-reduced-motion:reduce){.drawer-app{transition:none}}
+
+/* Keep the hamburger available above the open overlay so it can close the drawer. */
+@media(max-width:680px){header{position:relative;z-index:65}.app-drawer-overlay{z-index:60}}
