@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: kzamora19/first-megasaver-ptg
-          ref: e1cdb0f7c4a7e4788148c5ed8c58bd401073fda0
+          ref: c7cc3b97efe09cd2d264f0ddb9dbb0c654cc5364
           path: first-megasaver-ptg
       - uses: actions/checkout@v4
         with:
