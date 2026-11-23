@@ -1,4 +1,4 @@
-/* Approved Branchline dual navigation — development only.
+/* Approved Branchline dual navigation — deployed Workspace.
    Persistent app rail + original application workspace sidebar. */
 :root{--bl-rail-width:78px;--bl-rail-navy:#082853;--bl-rail-cyan:#09cceb;}
 .bl-app-rail{
@@ -126,3 +126,30 @@ body.bl-launcher-rail .bl-app-overlay{z-index:14}
 .bl-launcher-rail .bl-official-app-icon{background-image:url("./icons/official/four-apps.png")}
 .bl-app-drawer .bl-official-app-icon{background-image:url("./icons/official/four-apps.png")}
 .bl-launcher-rail .bl-app-drawer .bl-official-app-icon{background-image:url("./icons/official/four-apps.png")}
+
+/* Installed Workspace: the desktop hamburger independently collapses the app's
+   own navigation. The always-visible application rail never collapses. */
+@media(min-width:761px){
+  .bl-has-app-rail .mobile-menu{display:inline-flex;align-items:center;justify-content:center;
+    min-width:42px;min-height:42px;cursor:pointer;border-radius:9px;
+    border:1px solid #79b9ee;background:#123e73;color:#fff;font-size:23px;line-height:1}
+  .bl-has-app-rail .mobile-menu:hover{border-color:#0dd9eb;background:#184e89}
+  .bl-has-app-rail .mobile-menu:focus-visible{outline:3px solid #0dd9eb;outline-offset:2px}
+  .bl-has-app-rail .connected-sidebar,.bl-has-app-rail>.sidebar{transition:transform .18s ease,visibility .18s}
+  .bl-has-app-rail.bl-workspace-collapsed .connected-sidebar,
+  .bl-has-app-rail.bl-workspace-collapsed>.sidebar{transform:translateX(-110%);visibility:hidden;pointer-events:none}
+  .bl-has-app-rail.bl-workspace-collapsed .connected-main,
+  .bl-has-app-rail.bl-workspace-collapsed>.main-area{margin-left:var(--bl-rail-width)}
+}
+/* A fresh installed launch presents the fixed app rail, not the legacy app grid.
+   The original links remain in markup as a fail-safe when JS is unavailable. */
+body.bl-launcher-rail nav.cards,body.bl-launcher-rail .apps-label{display:none}
+body.bl-launcher-rail .welcome h1{font-size:clamp(25px,4vw,38px)}
+body.bl-launcher-rail header .brand > img{display:none}
+body.bl-launcher-rail main:after{content:"Select Price Tag Generator, Sales Tracker, MegaFrame Studio, or MegaFlyer Studio using the Branchline logo on the left.";display:block;
+  max-width:580px;background:#fff;border:1px solid #c7dbea;border-radius:12px;
+  padding:20px 23px;color:#244364;font-size:16px;line-height:1.55}
+@media(max-width:760px){body.bl-launcher-rail main:after{content:"Tap the Branchline logo to choose an application."}}
+@media(prefers-reduced-motion:reduce){
+  .bl-has-app-rail .connected-sidebar,.bl-has-app-rail>.sidebar{transition:none}
+}

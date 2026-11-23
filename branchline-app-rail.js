@@ -1,4 +1,4 @@
-/* Universal Branchline application rail — development only.
+/* Universal Branchline application rail — deployed Workspace.
  * The logo (never the workspace hamburger) opens the application list.
  * The original BranchlineApplications directory owns all destinations;
  * authorization is checked by the destination app, never by this rail. */
@@ -15,15 +15,15 @@
   };
   const isLauncher = !!document.querySelector("nav.cards[aria-label='Branchline applications']");
   const base = isLauncher ? "../" : "./";
-  const installed = window.matchMedia("(display-mode: standalone)").matches ||
-    window.navigator.standalone === true;
+  // Application navigation must stay within the current Workspace window,
+  // including WebView2 installations where display-mode is not standalone.
 
   function appLink(app, compact) {
     const link = document.createElement("a");
     link.className = compact ? "bl-rail-link" : "bl-drawer-link";
     link.href = app.id === "sales-tracker" ? base : app.url;
     if (app.id !== "sales-tracker") {
-      link.target = installed ? "_self" : "_blank";
+      link.target = "_self";
       link.rel = "noopener noreferrer";
       link.referrerPolicy = "no-referrer";
     }
@@ -114,6 +114,7 @@
     function open() {
       // Only one drawer may be open; the workspace hamburger keeps its own role.
       root.querySelector(".connected-sidebar, .sidebar")?.classList.remove("open");
+      if (workspaceButtonSelector) header.querySelector(workspaceButtonSelector)?.setAttribute("aria-expanded", "false");
       overlay.hidden = false;
       root.classList.add("bl-app-menu-open");
       syncButtons(true);
@@ -128,7 +129,33 @@
       if (event.target.closest("a")) close();
     });
     if (workspaceButtonSelector) {
-      header.querySelector(workspaceButtonSelector)?.addEventListener("click", () => close());
+      const workspaceButton = header.querySelector(workspaceButtonSelector);
+      const sidebar = root.querySelector(".connected-sidebar, .sidebar");
+      const desktop = window.matchMedia("(min-width: 761px)");
+      if (workspaceButton) {
+        function syncWorkspaceButton() {
+          const expanded = desktop.matches
+            ? !root.classList.contains("bl-workspace-collapsed")
+            : !!sidebar?.classList.contains("open");
+          workspaceButton.setAttribute("aria-expanded", String(expanded));
+          workspaceButton.setAttribute("aria-label", expanded ? "Close workspace menu" : "Open workspace menu");
+          workspaceButton.title = expanded ? "Close workspace menu" : "Open workspace menu";
+        }
+        workspaceButton.addEventListener("click", () => {
+          close(); // Never allow both drawers at the same time.
+          if (desktop.matches) {
+            root.classList.toggle("bl-workspace-collapsed");
+            sidebar?.classList.remove("open");
+          } // Existing app handler owns the mobile sidebar toggle.
+          syncWorkspaceButton();
+        });
+        desktop.addEventListener?.("change", () => {
+          root.classList.remove("bl-workspace-collapsed");
+          sidebar?.classList.remove("open");
+          syncWorkspaceButton();
+        });
+        syncWorkspaceButton();
+      }
     }
     document.addEventListener("keydown", event => {
       if (event.key === "Escape" && !overlay.hidden) {
