@@ -65,7 +65,7 @@ const assert = require("node:assert/strict");
     await chooser.keyboard.press("Escape");
     assert.equal(await chooser.locator("#mobileAppDrawer").isVisible(), false);
     await chooser.locator("#mobileAppMenu").click();
-    await chooser.locator("#mobileDrawerClose").click();
+    await chooser.locator("#mobileAppMenu").click();
     assert.equal(await chooser.locator("#mobileAppDrawer").isVisible(), false);
     await chooser.setViewportSize({width:1366,height:800});
     assert.equal(await chooser.locator("#mobileAppMenu").isVisible(), false);
