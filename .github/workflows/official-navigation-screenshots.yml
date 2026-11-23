@@ -1,0 +1,42 @@
+name: Official Branchline navigation screenshots (NO DEPLOY)
+on:
+  push:
+    branches: [feature/official-logo-navigation-20261123]
+    paths:
+      - 'tests/apps-browser.test.cjs'
+      - 'branchline-app-rail.*'
+      - 'apps/**'
+      - 'icons/official/**'
+      - '.github/workflows/official-navigation-screenshots.yml'
+  pull_request:
+    paths:
+      - 'tests/apps-browser.test.cjs'
+      - 'branchline-app-rail.*'
+      - 'apps/**'
+      - 'icons/official/**'
+      - '.github/workflows/official-navigation-screenshots.yml'
+permissions:
+  contents: read
+jobs:
+  chromium-screens:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Install isolated Chromium
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install chromium --only-shell
+      - name: Capture desktop/mobile Sales Tracker demo and Workspace launcher
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 >/tmp/branchline-official-screens.log 2>&1 &
+          node tests/apps-browser.test.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: branchline-official-navigation-screenshots
+          path: artifacts/official-navigation/*.png
+          retention-days: 14
+          if-no-files-found: warn
