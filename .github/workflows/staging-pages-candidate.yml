@@ -1,0 +1,95 @@
+name: Build four-app isolated staging candidate (NO PAGES DEPLOY)
+on:
+  push:
+    branches: [feature/staging-bundle-20261123]
+    paths:
+      - 'staging/assemble-candidate.mjs'
+      - '.github/workflows/staging-pages-candidate.yml'
+      - 'staging/STAGING-RELEASE-NOTES.md'
+  pull_request:
+    paths:
+      - 'staging/assemble-candidate.mjs'
+      - '.github/workflows/staging-pages-candidate.yml'
+      - 'staging/STAGING-RELEASE-NOTES.md'
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      BRANCHLINE_STAGING_CANDIDATE: '1'
+      BRANCHLINE_REF: '476b513d111bcb4c07e233a81f87ff3561e49eec'
+      PTG_REF: '5b429bc10cbd3d324b34ff56189a864857e3f2c4'
+      MEGAFRAME_REF: '86fe050718d83007ac828d5a24c3a55a02551075'
+      MEGAFLYER_REF: '5ae36a0fff420b2645993c7b8c7262e2a02da505'
+      STAGING_SUPABASE_PUBLISHABLE_KEY: sb_publishable_esYvIjnW_CJiP09FN0Pwww_8okkANzw
+      NEXT_PUBLIC_SUPABASE_URL: https://rlfdvmiqkbitetatxkju.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_esYvIjnW_CJiP09FN0Pwww_8okkANzw
+      NEXT_PUBLIC_PTG_USE_EDGE_AUTH: 'true'
+      NEXT_PUBLIC_PTG_USE_EDGE_DATA: 'true'
+      NEXT_PUBLIC_PTG_USE_EDGE_ASSETS: 'true'
+      NEXT_PUBLIC_PTG_USE_EDGE_ACCOUNTS: 'true'
+      NEXT_PUBLIC_STUDIO_MEGAFRAME_LAUNCH_URL: ''
+      NEXT_PUBLIC_STUDIO_FLYER_LAUNCH_URL: ''
+      NEXT_PUBLIC_BASE_PATH: /first-megasaver-ptg
+      GITHUB_PAGES: 'true'
+      PTG_STUDIO_CUTOVER_PREVIEW: '1'
+      MEGAFRAME_STUDIO_PUBLISHABLE_KEY: sb_publishable_esYvIjnW_CJiP09FN0Pwww_8okkANzw
+      MEGAFLYER_STUDIO_PUBLISHABLE_KEY: sb_publishable_esYvIjnW_CJiP09FN0Pwww_8okkANzw
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: branchline
+      - uses: actions/checkout@v4
+        with:
+          repository: kzamora19/first-megasaver-ptg
+          ref: 5b429bc10cbd3d324b34ff56189a864857e3f2c4
+          path: first-megasaver-ptg
+      - uses: actions/checkout@v4
+        with:
+          repository: kzamora19/megaframe-studio
+          ref: 86fe050718d83007ac828d5a24c3a55a02551075
+          path: megaframe-studio
+      - uses: actions/checkout@v4
+        with:
+          repository: kzamora19/flyer-studio
+          ref: 5ae36a0fff420b2645993c7b8c7262e2a02da505
+          path: flyer-studio
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Validate Branchline development source (no live deployment)
+        working-directory: branchline
+        run: |
+          node --check branchline-app-rail.js
+          node --test calendar-daily-notices.test.cjs tests/applications.test.mjs
+      - name: Build PTG staging Supabase static export only
+        working-directory: first-megasaver-ptg
+        run: |
+          npm install --ignore-scripts --no-package-lock
+          npm run build
+          test -f out/studios/index.html
+      - name: Build MegaFrame public protected launcher (no private editor)
+        working-directory: megaframe-studio
+        run: |
+          node staging/build-cutover-pages.mjs staging/.candidate-cutover
+          test -f staging/.candidate-cutover/studio/index.html
+          test ! -e staging/.candidate-cutover/private/studio.html
+      - name: Build MegaFlyer public protected launcher (no private editor)
+        working-directory: flyer-studio
+        run: |
+          node scripts/build-cutover-pages.mjs staging/.candidate-cutover
+          test -f staging/.candidate-cutover/studio/index.html
+          test ! -e staging/.candidate-cutover/private/studio.html
+      - name: Assemble staging-only candidate and audit production backend config
+        working-directory: branchline
+        run: |
+          node staging/assemble-candidate.mjs
+          cd staging/.candidate-bundle
+          sha256sum branchline/index.html first-megasaver-ptg/studios/index.html megaframe-studio/studio/index.html flyer-studio/studio/index.html > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: branchline-four-app-staging-candidate-NOT-DEPLOYED
+          path: branchline/staging/.candidate-bundle/
+          if-no-files-found: error
+          retention-days: 14
