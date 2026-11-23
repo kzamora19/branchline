@@ -543,7 +543,7 @@
         renderConnected();
         autoRegisterPush();
         if (passwordRecoveryPending && !demoStore) openPasswordModal(true);
-        else await showInventoryReminder();
+        else await showOpeningReminders(sequence);
         return;
       }
       const isPsUser = profile.role === "ps";
@@ -743,12 +743,7 @@
         showPacePopup();
         autoRegisterPush();
       } else autoRegisterPush();
-      if (!passwordRecoveryPending) {
-        await showInventoryReminder();
-        if (sequence === loadSequence && currentSession && !passwordRecoveryPending) {
-          showOpeningCalendarEventNotices();
-        }
-      }
+      if (!passwordRecoveryPending) await showOpeningReminders(sequence);
     } catch (error) {
       if (sequence !== loadSequence) return;
       console.error("Unable to load the authenticated Branchline workspace.", error);
@@ -757,6 +752,13 @@
         document.querySelector("#reset-saved-demo").hidden = false;
       }
       showProfileError(error.message || "Unable to load your workspace. Try again or contact your administrator.");
+    }
+  }
+
+  async function showOpeningReminders(sequence) {
+    await showInventoryReminder();
+    if (sequence === loadSequence && currentSession && !passwordRecoveryPending) {
+      showOpeningCalendarEventNotices();
     }
   }
 
