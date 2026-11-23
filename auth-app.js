@@ -50,6 +50,7 @@
   let workspaceWrites = 0;
   let currentSession = null;
   let currentProfile = null;
+  const calendarNoticesShown = new Set();
   let liveData = null;
   let activePage = "overview";
   let loadSequence = 0;
@@ -221,6 +222,7 @@
   }
 
   function clearWorkspace() {
+    document.querySelector("[data-calendar-daily-notices]")?.remove();
     parkAccountControls();
     loadSequence += 1;
     currentSession = null;
@@ -743,7 +745,9 @@
       } else autoRegisterPush();
       if (!passwordRecoveryPending) {
         await showInventoryReminder();
-        showDailyCalendarEventNotices();
+        if (sequence === loadSequence && currentSession && !passwordRecoveryPending) {
+          showOpeningCalendarEventNotices();
+        }
       }
     } catch (error) {
       if (sequence !== loadSequence) return;
@@ -2153,11 +2157,10 @@
     return { events: events.data, adjustments: adjustments.data };
   }
 
-  // On-app-opening daily event notices; this is not a remote push or an ad.
   // Only events already accessible to this authenticated account can appear.
-  function showDailyCalendarEventNotices() {
+  function showOpeningCalendarEventNotices() {
     const profile = currentProfile, context = liveData?.calendar;
-    if (!profile?.id || !context || context.error || context.demo || demoStore) return;
+    if (!profile?.id || calendarNoticesShown.has(profile.id) || !context || context.error || context.demo || demoStore) return;
     const date = localISODate();
     const ids = scopeBranchIds();
     const events = (context.events || []).filter(row => !row.cancelled_at
@@ -2165,11 +2168,6 @@
       && (!row.branch_ids?.length || row.branch_ids.some(id => ids.has(id))))
       .sort((a, b) => String(a.title || "").localeCompare(String(b.title || "")));
     if (!events.length) return;
-    const storageKey = "branchline:calendar-notices:" + profile.id + ":" + date;
-    try { if (localStorage.getItem(storageKey) === "shown") return; }
-    catch { /* Restricted storage: still show this login's notices. */ }
-    try { localStorage.setItem(storageKey, "shown"); }
-    catch { /* Continue without persistence when storage is blocked. */ }
     let index = 0;
     const overlay = document.createElement("div");
     overlay.className = "dlg-backdrop calendar-daily-notice-backdrop";
@@ -2211,6 +2209,7 @@
       showNext();
     });
     document.body.append(overlay);
+    calendarNoticesShown.add(profile.id);
     showNext();
   }
 
