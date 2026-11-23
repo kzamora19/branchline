@@ -10,7 +10,7 @@ import {createHash} from "node:crypto";
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const parent=resolve(root,"..");
-const out=resolve(root,"staging",".candidate-bundle");
+const out=resolve(root,"staging","candidate-bundle");
 if(process.env.BRANCHLINE_STAGING_CANDIDATE!=="1")
   throw Error("Explicit staging candidate mode required");
 if(!process.env.STAGING_SUPABASE_PUBLISHABLE_KEY?.startsWith("sb_publishable_"))
