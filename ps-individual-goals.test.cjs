@@ -120,3 +120,21 @@ test("staged dashboard RPC returns the exact store-target share rather than roun
   assert.match(sql, /not public\.is_test_profile\(p\.full_name, p\.login_id\)/);
   assert.match(sql, /s\.ps_id = a\.id/);
 });
+
+
+test("follow-up RLS policy must correlate PS identity with the exact target dealer and branch", () => {
+  const patch = fs.readFileSync(path.join(__dirname,
+    "docs/ps-target-rls-scope-correction-20261120.sql"), "utf8");
+  for (const action of ["insert", "update"]) {
+    const start = patch.indexOf("create policy ps_monthly_targets_" + action);
+    const stop = patch.indexOf(";", start);
+    assert.ok(start > 0 && stop > start, "Missing " + action + " policy correction");
+    const rule = patch.slice(start, stop);
+    assert.match(rule, /target_ps\.dealer_id = ps_monthly_targets\.dealer_id/);
+    assert.match(rule, /target_ps\.branch_id = ps_monthly_targets\.branch_id/);
+    assert.match(rule, /target_ps\.id = ps_monthly_targets\.ps_id/);
+    assert.match(rule, /target_ps\.active = true/);
+    assert.match(rule, /public\.can_manage_branch\(ps_monthly_targets\.branch_id\)/);
+    assert.doesNotMatch(rule, /target_ps\.(?:dealer_id|branch_id) = (?:dealer_id|branch_id)(?!\.)/);
+  }
+});
