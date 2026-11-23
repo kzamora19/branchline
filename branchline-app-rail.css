@@ -77,3 +77,40 @@
 @media(prefers-reduced-motion:reduce){
   .bl-app-rail a,.bl-drawer-link{transition:none}
 }
+
+/* Official dual-control directive: clickable Branchline logo is the ONLY app-menu control. */
+.bl-app-rail .bl-rail-brand{display:flex;width:100%;align-items:center;justify-content:center;
+  flex:0 0 62px;min-height:62px;cursor:pointer;color:white;
+  background:transparent;border:1px solid transparent;border-bottom-color:#315786;
+  border-radius:10px;padding:7px 3px}
+.bl-app-rail .bl-rail-brand:hover,.bl-app-rail .bl-rail-brand.is-open{
+  border-color:#73c7f0;background:#103e70}
+.bl-app-rail .bl-rail-brand:focus-visible,.bl-mobile-brand:focus-visible{
+  outline:3px solid #0dd9eb;outline-offset:2px}
+.bl-mobile-brand{display:none;align-items:center;justify-content:center;width:44px;height:44px;
+  flex:0 0 44px;border-radius:10px;border:1px solid #79b9ee;
+  background:#123e73;padding:5px;cursor:pointer}
+.bl-mobile-brand img{display:block;width:33px;height:33px;object-fit:contain;border-radius:7px}
+.bl-mobile-brand:hover,.bl-mobile-brand.is-open{border-color:#0dd9eb;background:#184e89}
+.bl-app-switcher{display:none!important}
+@media(min-width:761px){
+  .bl-has-app-rail .bl-app-overlay{inset:0 0 0 var(--bl-rail-width);z-index:11}
+  .bl-has-app-rail .bl-app-rail{z-index:16}
+  .bl-has-app-rail .bl-app-drawer{width:290px;border-right:1px solid #2b5687}
+}
+@media(max-width:760px){
+  .bl-mobile-brand{display:inline-flex}
+  .bl-has-app-rail .bl-app-overlay{inset:var(--topbar-height,58px) 0 0;z-index:17}
+  .bl-has-app-rail .connected-topbar,.bl-has-app-rail .topbar{z-index:20}
+}
+body.bl-launcher-rail .bl-mobile-brand{display:none}
+body.bl-launcher-rail .bl-app-overlay{z-index:14}
+@media(max-width:760px){
+  body.bl-launcher-rail .bl-mobile-brand{display:inline-flex}
+  body.bl-launcher-rail header{position:relative;z-index:20}
+  body.bl-launcher-rail .bl-app-overlay{inset:65px 0 0}
+}
+/* The rail is permanent; the standalone app-card directory becomes a secondary,
+   backwards-compatible route rather than the default navigation mechanism. */
+.bl-launcher-rail .bl-app-rail{position:fixed}
+.bl-app-drawer nav .bl-drawer-link{background:transparent;border:1px solid #79b9ee}

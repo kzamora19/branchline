@@ -1,131 +1,161 @@
-/* Branchline application rail: navigation only, never handles user credentials.
-   The existing BranchlineApplications directory remains the destination source. */
+/* Universal Branchline application rail — development only.
+ * The logo (never the workspace hamburger) opens the application list.
+ * The original BranchlineApplications directory owns all destinations;
+ * authorization is checked by the destination app, never by this rail. */
 (() => {
   "use strict";
-  const directory = window.BranchlineApplications?.list;
-  if (!Array.isArray(directory) || directory.length !== 4) return;
-  const icons = {
-    "sales-tracker": "icons/icon-192.png",
+  const catalog = window.BranchlineApplications?.list;
+  if (!Array.isArray(catalog) || catalog.length !== 4) return;
+  const order = ["price-tag-generator", "sales-tracker", "megaframe-studio", "flyer-studio"];
+  const directory = order.map(id => catalog.find(app => app.id === id));
+  if (directory.some(app => !app)) return;
+  const images = {
     "price-tag-generator": "https://kzamora19.github.io/first-megasaver-ptg/icons/ptg-icon.svg",
+    "sales-tracker": "icons/icon-192.png",
     "megaframe-studio": "https://kzamora19.github.io/megaframe-studio/icons/icon-192.png",
     "flyer-studio": "https://kzamora19.github.io/flyer-studio/icons/flyer-studio-192.png"
   };
   const shortNames = {
-    "sales-tracker": "Sales",
-    "price-tag-generator": "PTG",
-    "megaframe-studio": "Frame",
-    "flyer-studio": "Flyer"
+    "price-tag-generator": "PTG", "sales-tracker": "Sales",
+    "megaframe-studio": "Frame", "flyer-studio": "Flyer"
   };
-  const launcher = Boolean(document.querySelector("nav.cards[data-app-rail-source], nav.cards[aria-label='Branchline applications']"));
-  const base = launcher ? "../" : "./";
-  function appLink(app, compact = false) {
-    const anchor = document.createElement("a");
-    anchor.className = compact ? "bl-rail-link" : "bl-drawer-link";
-    const isSales = app.id === "sales-tracker";
-    anchor.href = isSales ? base : app.url;
-    if (!isSales) {
-      anchor.target = "_blank";
-      anchor.rel = "noopener noreferrer";
-      anchor.referrerPolicy = "no-referrer";
+  const isLauncher = !!document.querySelector("nav.cards[aria-label='Branchline applications']");
+  const base = isLauncher ? "../" : "./";
+  const installed = window.matchMedia("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true;
+
+  function appLink(app, compact) {
+    const link = document.createElement("a");
+    link.className = compact ? "bl-rail-link" : "bl-drawer-link";
+    link.href = app.id === "sales-tracker" ? base : app.url;
+    if (app.id !== "sales-tracker") {
+      link.target = installed ? "_self" : "_blank";
+      link.rel = "noopener noreferrer";
+      link.referrerPolicy = "no-referrer";
     }
-    anchor.title = app.name;
-    anchor.setAttribute("aria-label", "Open " + app.name);
-    if (!launcher && isSales) {
-      anchor.classList.add("is-active");
-      anchor.setAttribute("aria-current", "page");
+    link.title = app.name;
+    link.setAttribute("aria-label", "Open " + app.name);
+    if (!isLauncher && app.id === "sales-tracker") {
+      link.classList.add("is-active");
+      link.setAttribute("aria-current", "page");
     }
     const icon = document.createElement("img");
-    icon.src = isSales ? base + icons[app.id] : icons[app.id];
+    icon.src = app.id === "sales-tracker" ? base + images[app.id] : images[app.id];
     icon.alt = "";
     icon.setAttribute("aria-hidden", "true");
     const label = document.createElement("span");
     label.textContent = shortNames[app.id];
-    anchor.append(icon, label);
-    return anchor;
+    link.append(icon, label);
+    return link;
   }
-  function createRail() {
+
+  function makeLogoButton(className, id, drawerId) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = className;
+    if (id) button.id = id;
+    button.setAttribute("aria-label", "Open application list");
+    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-controls", drawerId);
+    button.title = "Branchline applications";
+    const image = document.createElement("img");
+    image.src = base + "icons/icon-192.png";
+    image.alt = "";
+    image.setAttribute("aria-hidden", "true");
+    button.append(image);
+    return button;
+  }
+
+  function mount(root, header, key, workspaceButtonSelector) {
+    const drawerId = "bl-app-drawer-" + key;
+    root.classList.add("bl-has-app-rail");
+    if (isLauncher) root.classList.add("bl-launcher-rail");
     const rail = document.createElement("nav");
     rail.className = "bl-app-rail";
-    rail.setAttribute("aria-label", "Switch Branchline applications");
-    const brand = document.createElement("a");
-    brand.className = "bl-rail-brand";
-    brand.href = launcher ? "../apps/" : "./apps/";
-    brand.title = "Branchline application launcher";
-    brand.setAttribute("aria-label", "Branchline application launcher");
-    const brandIcon = document.createElement("img");
-    brandIcon.src = base + "icons/icon-192.png";
-    brandIcon.alt = "";
-    brand.append(brandIcon);
+    rail.setAttribute("aria-label", "Branchline applications");
+    const brand = makeLogoButton("bl-rail-brand", "", drawerId);
     rail.append(brand);
     for (const app of directory) rail.append(appLink(app, true));
-    return rail;
-  }
-  // The launcher retains its own hamburger-driven mobile drawer.
-  if (launcher) {
-    document.body.classList.add("bl-has-app-rail", "bl-launcher-rail");
-    document.body.prepend(createRail());
-    return;
-  }
-  for (const [selector, key, headerSelector, workspaceButtonSelector] of [
-    [".connected-shell", "connected", ".connected-topbar", "#connected-menu"],
-    ["#demo-app", "demo", ".topbar", "#mobile-menu"]
-  ]) {
-    const shell = document.querySelector(selector);
-    const header = shell?.querySelector(headerSelector);
-    if (!shell || !header) continue;
-    shell.classList.add("bl-has-app-rail");
-    shell.prepend(createRail());
-    const trigger = document.createElement("button");
-    trigger.type = "button";
-    trigger.className = "bl-app-switcher";
-    trigger.setAttribute("aria-label", "Open application list");
-    trigger.setAttribute("aria-expanded", "false");
-    trigger.setAttribute("aria-controls", "bl-app-drawer-" + key);
-    trigger.title = "Switch application";
-    trigger.textContent = "▦";
-    header.prepend(trigger);
+    root.prepend(rail);
+
+    let mobile = isLauncher ? document.getElementById("mobileAppMenu") : null;
+    if (!mobile) {
+      mobile = makeLogoButton("bl-mobile-brand", "", drawerId);
+      header.prepend(mobile);
+    } else {
+      // The launcher header is also an actual logo button, never a hamburger.
+      mobile.classList.add("bl-mobile-brand");
+      mobile.setAttribute("aria-controls", drawerId);
+    }
+
     const overlay = document.createElement("div");
-    overlay.id = "bl-app-drawer-" + key;
+    overlay.id = drawerId;
     overlay.className = "bl-app-overlay";
     overlay.hidden = true;
     const drawer = document.createElement("aside");
     drawer.className = "bl-app-drawer";
+    drawer.setAttribute("aria-label", "Branchline application list");
     const heading = document.createElement("h2");
     heading.textContent = "Branchline applications";
-    drawer.append(heading);
     const links = document.createElement("nav");
-    links.setAttribute("aria-label", "Branchline applications");
-    for (const app of directory) links.append(appLink(app));
-    drawer.append(links);
+    links.setAttribute("aria-label", "Choose an application");
+    for (const app of directory) links.append(appLink(app, false));
+    drawer.append(heading, links);
     overlay.append(drawer);
-    shell.append(overlay);
-    function closeAppDrawer(restoreFocus = false) {
+    root.append(overlay);
+
+    const triggers = [brand, mobile];
+    function syncButtons(open) {
+      for (const button of triggers) {
+        button.setAttribute("aria-expanded", String(open));
+        button.setAttribute("aria-label", open ? "Close application list" : "Open application list");
+        button.classList.toggle("is-open", open);
+      }
+    }
+    function close(restoreFocus = false, source = brand) {
       overlay.hidden = true;
-      shell.classList.remove("bl-app-menu-open");
-      trigger.setAttribute("aria-expanded", "false");
-      trigger.setAttribute("aria-label", "Open application list");
-      if (restoreFocus) trigger.focus();
+      root.classList.remove("bl-app-menu-open");
+      syncButtons(false);
+      if (restoreFocus) source.focus();
     }
-    function openAppDrawer() {
-      shell.querySelector(".connected-sidebar, .sidebar")?.classList.remove("open");
+    function open() {
+      // Only one drawer may be open; the workspace hamburger keeps its own role.
+      root.querySelector(".connected-sidebar, .sidebar")?.classList.remove("open");
       overlay.hidden = false;
-      shell.classList.add("bl-app-menu-open");
-      trigger.setAttribute("aria-expanded", "true");
-      trigger.setAttribute("aria-label", "Close application list");
+      root.classList.add("bl-app-menu-open");
+      syncButtons(true);
     }
-    trigger.addEventListener("click", () => overlay.hidden ? openAppDrawer() : closeAppDrawer(true));
+    for (const button of triggers) {
+      button.addEventListener("click", () => overlay.hidden ? open() : close(true, button));
+    }
     overlay.addEventListener("click", event => {
-      if (event.target === overlay) closeAppDrawer(true);
+      if (event.target === overlay) close(true, window.matchMedia("(max-width:760px)").matches ? mobile : brand);
     });
-    header.querySelector(workspaceButtonSelector)?.addEventListener("click", () => closeAppDrawer());
     links.addEventListener("click", event => {
-      if (event.target.closest("a")) closeAppDrawer();
+      if (event.target.closest("a")) close();
     });
+    if (workspaceButtonSelector) {
+      header.querySelector(workspaceButtonSelector)?.addEventListener("click", () => close());
+    }
     document.addEventListener("keydown", event => {
-      if (event.key === "Escape" && !overlay.hidden) closeAppDrawer(true);
+      if (event.key === "Escape" && !overlay.hidden) {
+        event.preventDefault();
+        close(true, window.matchMedia("(max-width:760px)").matches ? mobile : brand);
+      }
     });
-    window.matchMedia("(min-width:761px)").addEventListener("change", event => {
-      if (event.matches) closeAppDrawer();
-    });
+  }
+
+  if (isLauncher) {
+    const header = document.querySelector("header");
+    if (header) mount(document.body, header, "launcher", null);
+  } else {
+    for (const [selector, key, headerSelector, menu] of [
+      [".connected-shell", "connected", ".connected-topbar", "#connected-menu"],
+      ["#demo-app", "demo", ".topbar", "#mobile-menu"]
+    ]) {
+      const root = document.querySelector(selector);
+      const header = root?.querySelector(headerSelector);
+      if (root && header) mount(root, header, key, menu);
+    }
   }
 })();
