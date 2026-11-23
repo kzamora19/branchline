@@ -33,14 +33,28 @@ test("external apps open verified HTTPS domains without credentials or OAuth sta
     assert.equal(url.protocol, "https:");
     assert.equal(url.username, "");
     assert.equal(url.password, "");
-    const expectedStudio = app.id === "megaframe-studio" ? "megaframe" :
-      app.id === "flyer-studio" ? "flyer" : "";
-    assert.equal(url.search, expectedStudio ? "?studio=" + expectedStudio : "");
-    if (expectedStudio) assert.equal(url.pathname, "/first-megasaver-ptg/studios/");
+    assert.equal(url.search, app.id === "megaframe-studio" ? "?studio=megaframe" :
+      app.id === "flyer-studio" ? "?studio=flyer" : "");
     assert.equal(url.hash, "");
   }
-  assert.match(authSource, /target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"/);
+  assert.match(authSource, /const actionTarget = openInside \? "_self" : "_blank"/);
+  assert.match(authSource, /target="\$\{actionTarget\}" rel="noopener noreferrer" referrerpolicy="no-referrer"/);
+  assert.match(authSource, /window\.matchMedia\("\(display-mode: standalone\)"\)/);
   assert.doesNotMatch(authSource.slice(authSource.indexOf("function renderApplicationsPage()"),authSource.indexOf("function dangerZonePanel()")), /access_token|sessionStorage|localStorage|refresh_token|apiKey|apikey/);
+});
+
+test("both Creative Studio cards route through PTG instead of bypassing its TL+ gate", () => {
+  const portal = "https://kzamora19.github.io/first-megasaver-ptg/studios/?studio=";
+  const studios = apps.filter(app => ["megaframe-studio", "flyer-studio"].includes(app.id));
+  assert.deepEqual(studios.map(app => app.url), [portal + "megaframe", portal + "flyer"]);
+  assert.deepEqual(studios.map(app => app.name), ["MegaFrame Studio", "MegaFlyer Studio"]);
+  assert.ok(studios.every(app => /PTG Team Leader, Branch Admin or System Admin/.test(app.access)));
+  assert.ok(studios.every(app => !["/megaframe-studio/", "/flyer-studio/"].includes(new URL(app.url).pathname)));
+  assert.equal(new URL(studios[0].url).searchParams.get("studio"),"megaframe");
+  assert.equal(new URL(studios[1].url).searchParams.get("studio"),"flyer");
+  assert.ok(studios.every(app=>!new URL(app.url).searchParams.has("ticket")));
+  // Authorization must still be enforced by PTG and the private studio delivery service.
+  assert.doesNotMatch(catalogSource, /vercel[.]app/);
 });
 
 test("every signed-in role can view the hub; independent app permissions are described", () => {
@@ -63,13 +77,15 @@ test("new app script loads before workspace, and current shell assets are availa
   for (const resource of [hubTag[1], appTag[1], styleTag[1]]) {
     assert.ok(serviceWorker.includes('"' + "./" + resource + '"'), resource + " must be cached for PWA offline use");
   }
-  const chooser = readFileSync(path("apps/index.html"), "utf8");
-  const pwaManifest = JSON.parse(readFileSync(path("manifest.webmanifest"), "utf8"));
-  assert.equal(pwaManifest.start_url, "./apps/");
-  assert.match(chooser, /Your apps/);
-  for (const app of apps) assert.ok(chooser.includes('data-app="' + app.id + '"'), "Launcher card: " + app.id);
-  assert.match(chooser, /\\?studio=megaframe/);
-  assert.match(chooser, /\\?studio=flyer/);
+
+  const launcher = readFileSync(path("apps/index.html"),"utf8");
+  const pwa = JSON.parse(readFileSync(path("manifest.webmanifest"),"utf8"));
+  assert.equal(pwa.start_url,"./apps/");
+  assert.equal(pwa.scope, "/", "Installed app scope must include sibling same-origin PTG/Studio paths");
+  const appOrigin = "https://kzamora19.github.io";
+  assert.ok(apps.slice(1).every(app => new URL(app.url).origin === appOrigin), "Every linked module must remain on the verified same origin");
+  assert.ok(apps.slice(1).every(app => new URL(app.url).pathname.startsWith(pwa.scope)), "Installed navigation stays in PWA scope");
+  for(const app of apps)assert.ok(launcher.includes('data-app="'+app.id+'"'),"Missing launcher card: "+app.id);
   assert.ok(serviceWorker.includes('"./apps/"'));
   assert.ok(serviceWorker.includes('"./apps/index.html"'));
   assert.ok(styles.includes(".branchline-app-grid"));
@@ -90,4 +106,15 @@ test("PS assist drilldown values are accessible, unboxed blue underlined text bu
   assert.match(authSource, /<button type="button" class="traffic-assist-link"/);
   assert.match(authSource, /data-review-ps-day/);
   assert.match(authSource, /data-ps-review-person/);
+});
+
+test("Sales Tracker is labeled immediately below both sidebar logo lockups",()=>{
+  assert.equal((html.match(/class="branchline-module-label">SALES TRACKER<\/div>/g)||[]).length,2);
+  assert.match(html,/<a class="brand" href="#" aria-label="Branchline home">[\s\S]*?<span class="brand-name">branchline[\s\S]*?<\/a>\s*<div class="branchline-module-label">SALES TRACKER<\/div>/);
+  assert.match(styles,/\.connected-sidebar \.branchline-module-label/);
+  assert.match(styles,/margin:7px 11px 0 48px/);
+  assert.match(styles,/color:var\(--blue-dark\)/);
+  assert.match(styles,/--blue: #355ee8/);
+  assert.match(styles,/--blue-dark: #2348c7/);
+  assert.match(styles,/--blue-soft: #eef2ff/);
 });

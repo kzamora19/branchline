@@ -2087,9 +2087,15 @@
     const catalog = window.BranchlineApplications?.list || [];
     const cards = catalog.map(app => {
       const isCurrent = app.kind === "workspace";
+      // Only the installed Branchline PWA navigates approved same-origin apps in-place.
+      // Normal browser tabs keep opening separately; no credentials are forwarded.
+      const installedPwa = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+      const openInside = installedPwa && !isCurrent && new URL(app.url).origin === window.location.origin;
+      const actionTarget = openInside ? "_self" : "_blank";
+      const actionLabel = openInside ? "in the installed Branchline window" : "in a new tab";
       const action = isCurrent
         ? '<button class="button button-primary" type="button" id="branchline-app-sales">Open Sales Tracker</button>'
-        : `<a class="button button-outline" href="${escapeHTML(app.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" aria-label="Open ${escapeHTML(app.name)} in a new tab">Open ${escapeHTML(app.name)} ↗</a>`;
+        : `<a class="button button-outline" href="${escapeHTML(app.url)}" target="${actionTarget}" rel="noopener noreferrer" referrerpolicy="no-referrer" aria-label="Open ${escapeHTML(app.name)} ${actionLabel}">Open ${escapeHTML(app.name)} ↗</a>`;
       return `<article class="branchline-app-card" aria-label="${escapeHTML(app.name)}">
         <div class="branchline-app-card-top">
           <span class="branchline-app-monogram" aria-hidden="true">${escapeHTML(app.monogram)}</span>

@@ -1,0 +1,51 @@
+name: Cross-repository Branchline 4-app integration contract (draft only)
+on:
+  pull_request:
+    paths:
+      - 'branchline-applications.js'
+      - 'tests/creative-studios-cross-repo-contract.test.mjs'
+      - '.github/workflows/creative-studios-cross-repo-ci.yml'
+  push:
+    branches: [feature/creative-studios-ptg-portal-20261121]
+    paths:
+      - 'branchline-applications.js'
+      - 'tests/creative-studios-cross-repo-contract.test.mjs'
+      - '.github/workflows/creative-studios-cross-repo-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  integrate-without-deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: branchline
+      - uses: actions/checkout@v4
+        with:
+          repository: kzamora19/first-megasaver-ptg
+          ref: feature/studio-gateway-pages-refresh-20261121
+          path: first-megasaver-ptg
+      - uses: actions/checkout@v4
+        with:
+          repository: kzamora19/megaframe-studio
+          ref: feature/ptg-private-pages-package-20261121
+          path: megaframe-studio
+      - uses: actions/checkout@v4
+        with:
+          repository: kzamora19/flyer-studio
+          ref: feature/ptg-private-delivery-poc-20261121
+          path: flyer-studio
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate editor-free MegaFrame cutover locally; never publish
+        working-directory: megaframe-studio
+        run: PTG_STUDIO_CUTOVER_PREVIEW=1 node staging/build-cutover-pages.mjs staging/.cross-repo-cutover
+      - name: Generate editor-free MegaFlyer cutover locally; never publish
+        working-directory: flyer-studio
+        run: PTG_STUDIO_CUTOVER_PREVIEW=1 node scripts/build-cutover-pages.mjs staging/.cross-repo-cutover
+      - name: Verify 4-app routes, public/private boundaries and two-account backend agreement
+        working-directory: branchline
+        run: node --test tests/creative-studios-cross-repo-contract.test.mjs
