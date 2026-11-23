@@ -1,0 +1,55 @@
+name: Official 4-app navigation release contract (NO DEPLOY)
+on:
+  push:
+    branches: [feature/official-logo-navigation-20261123]
+    paths:
+      - 'tests/official-navigation-cross-repo.test.mjs'
+      - '.github/workflows/official-four-app-contract.yml'
+      - 'branchline-app-rail.*'
+      - 'icons/official/**'
+  pull_request:
+    paths:
+      - 'tests/official-navigation-cross-repo.test.mjs'
+      - '.github/workflows/official-four-app-contract.yml'
+      - 'branchline-app-rail.*'
+      - 'icons/official/**'
+permissions:
+  contents: read
+jobs:
+  synchronized-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: branchline
+      - uses: actions/checkout@v4
+        with:
+          repository: kzamora19/first-megasaver-ptg
+          ref: e1cdb0f7c4a7e4788148c5ed8c58bd401073fda0
+          path: first-megasaver-ptg
+      - uses: actions/checkout@v4
+        with:
+          repository: kzamora19/megaframe-studio
+          ref: 86fe050718d83007ac828d5a24c3a55a02551075
+          path: megaframe-studio
+      - uses: actions/checkout@v4
+        with:
+          repository: kzamora19/flyer-studio
+          ref: 5ae36a0fff420b2645993c7b8c7262e2a02da505
+          path: flyer-studio
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Build both editor-free protected Pages launchers in disposable runner
+        run: |
+          (cd megaframe-studio && PTG_STUDIO_CUTOVER_PREVIEW=1 node staging/build-cutover-pages.mjs staging/.cross-repo-cutover)
+          (cd flyer-studio && PTG_STUDIO_CUTOVER_PREVIEW=1 node scripts/build-cutover-pages.mjs staging/.cross-repo-cutover)
+      - name: Verify official source icons and cross-app navigation ownership
+        working-directory: branchline
+        run: node --test tests/official-navigation-cross-repo.test.mjs
+      - name: Verify original cross-app signed gateway contracts
+        working-directory: branchline
+        run: node --test tests/creative-studios-cross-repo-contract.test.mjs
+      - name: Verify completed Promotion/Event popup and original workspace controls
+        working-directory: branchline
+        run: node --test calendar-daily-notices.test.cjs tests/applications.test.mjs
