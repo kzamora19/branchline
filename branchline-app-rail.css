@@ -54,7 +54,10 @@
   .bl-has-app-rail .connected-main,.bl-has-app-rail>.main-area{margin-left:0}
   .bl-app-switcher{display:inline-grid;place-items:center;flex:0 0 41px;
     color:#fff;background:#184e89}
-  .bl-has-app-rail .connected-topbar,.bl-has-app-rail .topbar{gap:10px}
+  .bl-has-app-rail .connected-topbar,.bl-has-app-rail .topbar{
+    gap:10px;z-index:20;position:sticky;top:0
+  }
+  /* Keep both menu triggers above the workspace drawer, not only the app drawer. */
   .bl-app-menu-open .connected-topbar,.bl-app-menu-open .topbar{z-index:20}
   .bl-app-overlay{inset:var(--topbar-height,58px) 0 0}
   .bl-app-drawer nav{display:grid}
