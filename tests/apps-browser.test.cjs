@@ -1,5 +1,9 @@
 const { chromium } = require("playwright");
 const assert = require("node:assert/strict");
+const { mkdirSync } = require("node:fs");
+const { join } = require("node:path");
+const screenshotFolder = join("artifacts","official-navigation");
+mkdirSync(screenshotFolder,{recursive:true});
 
 (async () => {
   const browser = await chromium.launch({ headless: true });
@@ -22,6 +26,7 @@ const assert = require("node:assert/strict");
     assert.equal(await page.locator("#connected-shell .brand-name").count(),1);
     assert.equal(await page.locator("#connected-shell .branchline-module-label").count(),1);
 
+    await page.screenshot({path:join(screenshotFolder,"sales-tracker-desktop.png"),fullPage:true});
     await page.locator('[data-live-page="apps"]').waitFor({state:"visible",timeout:25000});
     await page.locator('[data-live-page="apps"]').click();
     await page.getByRole("heading",{name:"Branchline Applications"}).waitFor();
@@ -72,6 +77,7 @@ const assert = require("node:assert/strict");
 
     await page.setViewportSize({width:390,height:800});
     assert.equal(await page.locator(".connected-shell .bl-app-switcher").count(),0);
+    await page.screenshot({path:join(screenshotFolder,"sales-tracker-mobile.png"),fullPage:true});
     const appLogo = page.locator(".connected-shell .bl-mobile-brand");
     assert.equal(await appLogo.isVisible(),true,"Mobile logo is the app-menu control.");
     assert.equal(await appLogo.locator("img").count(),1);
@@ -79,6 +85,7 @@ const assert = require("node:assert/strict");
     assert.equal(await page.locator("#bl-app-drawer-connected").isVisible(),true);
     assert.equal(await page.locator("#bl-app-drawer-connected .bl-drawer-link").count(),4);
     assert.deepEqual(await page.locator("#bl-app-drawer-connected .bl-drawer-link").allTextContents(),["PTG","Sales","Frame","Flyer"]);
+    await page.screenshot({path:join(screenshotFolder,"sales-tracker-mobile-apps.png"),fullPage:true});
     await page.locator("#connected-menu").click();
     assert.equal(await page.locator("#bl-app-drawer-connected").isVisible(),false);
     assert.equal(await page.locator(".connected-sidebar.open").count(),1);
@@ -117,11 +124,13 @@ const assert = require("node:assert/strict");
       assert.equal(card.border, "solid", "Tile is outlined");
       assert.equal(card.width, "1px", "Thin tile border");
     }
+    await chooser.screenshot({path:join(screenshotFolder,"workspace-launcher-mobile.png"),fullPage:true});
     const chooserLogo = chooser.locator("#mobileAppMenu");
     assert.equal(await chooserLogo.locator("img").count(),1);
     await chooserLogo.click();
     assert.equal(await chooser.locator("#bl-app-drawer-launcher").isVisible(),true);
     assert.deepEqual(await chooser.locator("#bl-app-drawer-launcher .bl-drawer-link").allTextContents(),["PTG","Sales","Frame","Flyer"]);
+    await chooser.screenshot({path:join(screenshotFolder,"workspace-launcher-mobile-apps.png"),fullPage:true});
     await chooser.keyboard.press("Escape");
     assert.equal(await chooser.locator("#bl-app-drawer-launcher").isVisible(),false);
     await chooserLogo.click();
@@ -131,6 +140,7 @@ const assert = require("node:assert/strict");
     assert.equal(await chooser.locator(".bl-launcher-rail .bl-app-rail").isVisible(),true);
     assert.equal(await chooser.locator(".bl-launcher-rail .bl-rail-link").count(),4);
     assert.equal(await chooser.locator("#mobileAppMenu").isVisible(),false);
+    await chooser.screenshot({path:join(screenshotFolder,"workspace-launcher-desktop.png"),fullPage:true});
     await chooser.locator(".bl-launcher-rail .bl-rail-brand").click();
     assert.equal(await chooser.locator("#bl-app-drawer-launcher").isVisible(),true);
     await chooser.locator(".bl-launcher-rail .bl-rail-brand").click();
