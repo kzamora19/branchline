@@ -1,16 +1,21 @@
 "use strict";
 
-const CACHE_NAME = "branchline-shell-v193";
+const CACHE_NAME = "branchline-shell-v197";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
   "./install.html",
   "./apps/",
   "./apps/index.html",
+  "./apps/branchline-ui-stage.css",
+  "./apps/branchline-outlined-drawer.css",
+  "./branchline-app-rail.css?v=ui-rail-20261123",
+  "./branchline-app-rail.js?v=ui-rail-20261123",
   "./styles.css",
   "./styles.css?v=ps-ranking-table-20261119",
   "./styles.css?v=apps-hub-20261119",
   "./styles.css?v=ps-assist-link-20261121",
+  "./styles.css?v=unified-ui-20261123",
   "./auth-app.js",
   "./ps-certificates.mjs",
   "./management-reports.mjs",
@@ -25,6 +30,7 @@ const APP_SHELL_URLS = [
   "./auth-app.js?v=ps-equal-share-20261121",
   "./auth-app.js?v=certificate-label-20261121",
   "./auth-app.js?v=ps-assist-review-20261121",
+  "./auth-app.js?v=calendar-notices-on-open-20261123",
   "./ps-certificates.mjs?v=certificate-label-20261121",
   "./certificate-periods.mjs?v=certificate-label-20261121",
   "./table-ui.js",

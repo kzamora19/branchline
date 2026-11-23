@@ -118,3 +118,24 @@ test("Sales Tracker is labeled immediately below both sidebar logo lockups",()=>
   assert.match(styles,/--blue-dark: #2348c7/);
   assert.match(styles,/--blue-soft: #eef2ff/);
 });
+
+test("launcher app cards and mobile drawer are transparent with visible outlines", () => {
+  const launcher = readFileSync(path("apps/branchline-ui-stage.css"), "utf8");
+  const drawer = readFileSync(path("apps/branchline-outlined-drawer.css"), "utf8");
+  const html = readFileSync(path("apps/index.html"), "utf8");
+  const card = launcher.match(/\.card\{([^}]+)\}/)?.[1];
+  const icon = launcher.match(/\.app-icon\{([^}]+)\}/)?.[1];
+  const drawerCard = drawer.match(/\.drawer-app\{([^}]+)\}/)?.[1];
+  for (const [name, rule] of [["launcher card", card], ["app icon", icon], ["drawer card", drawerCard]]) {
+    assert.ok(rule, name + " style exists");
+    assert.match(rule, /background:\s*transparent\s*;/, name + " must not have a solid fill");
+  }
+  assert.match(card, /border:\s*1px\s+solid\s+#[0-9a-f]+\s*;/i);
+  assert.match(drawerCard, /border:\s*1px\s+solid\s+#[0-9a-f]+\s*;/i);
+  for (const sheet of ["branchline-ui-stage.css", "branchline-outlined-drawer.css"]) {
+    assert.ok(serviceWorker.includes('"./apps/' + sheet + '"'), "Installed PWA must cache " + sheet);
+  }
+  for (const id of ["sales-tracker", "price-tag-generator", "megaframe-studio", "flyer-studio"]) {
+    assert.ok(html.includes('data-app="' + id + '"'), "Existing app route retained: " + id);
+  }
+});

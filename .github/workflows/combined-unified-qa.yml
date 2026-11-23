@@ -1,0 +1,75 @@
+name: Combined Branchline 4-app release QA (NO DEPLOY)
+on:
+  push:
+    branches: [feature/combined-ui-and-ptg-studios-20261123]
+    paths:
+      - '**'
+  pull_request:
+    paths:
+      - 'auth-app.js'
+      - 'apps/**'
+      - 'branchline-app-rail.*'
+      - 'styles.css'
+      - 'sw.js'
+      - 'tests/**'
+      - '.github/workflows/combined-unified-qa.yml'
+permissions:
+  contents: read
+jobs:
+  security-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: branchline
+      - uses: actions/checkout@v4
+        with:
+          repository: kzamora19/first-megasaver-ptg
+          ref: 8f32629e15ab42e1cbe9921d3b5dd5d5d7968eb5
+          path: first-megasaver-ptg
+      - uses: actions/checkout@v4
+        with:
+          repository: kzamora19/megaframe-studio
+          ref: f8934ee1a3a161ea4eb46ac118baad1e454717ae
+          path: megaframe-studio
+      - uses: actions/checkout@v4
+        with:
+          repository: kzamora19/flyer-studio
+          ref: 8906c710de8f72f0607109c142518588df87e207
+          path: flyer-studio
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build editor-free MegaFrame cutover in disposable runner only
+        working-directory: megaframe-studio
+        run: PTG_STUDIO_CUTOVER_PREVIEW=1 node staging/build-cutover-pages.mjs staging/.cross-repo-cutover
+      - name: Build editor-free MegaFlyer cutover in disposable runner only
+        working-directory: flyer-studio
+        run: PTG_STUDIO_CUTOVER_PREVIEW=1 node scripts/build-cutover-pages.mjs staging/.cross-repo-cutover
+      - name: Verify four-app contracts, no direct editor links and signed PTG role gates
+        working-directory: branchline
+        run: node --test tests/creative-studios-cross-repo-contract.test.mjs
+      - name: Verify completed on-open notices and app hub
+        working-directory: branchline
+        run: node --test calendar-daily-notices.test.cjs tests/applications.test.mjs
+  responsive-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          node --check auth-app.js
+          node --check branchline-app-rail.js
+          node --check sw.js
+      - name: Install isolated headless Chromium
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install chromium --only-shell
+      - name: Test combined desktop/mobile app rail and protected launcher
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 >/tmp/branchline-combined.log 2>&1 &
+          node tests/apps-browser.test.cjs

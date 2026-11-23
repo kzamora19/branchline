@@ -947,3 +947,44 @@ input[name="salesperson_code"], .bulk-grid-sales-code input[name$="_4"], .salesp
   .connected-sidebar .branchline-module-label,
   #sidebar .branchline-module-label{margin-left:48px;font-size:10px}
 }
+
+/* BRANCHLINE UNIFIED UI STAGE — 2026-11-23: visual-only, development branch. */
+:root{
+  --branchline-navy:#09264f;--branchline-royal:#075cf5;
+  --branchline-cyan:#0dd9eb;--branchline-teal:#00e4c1;
+  --blue:#075cf5;--blue-dark:#0046bf;--blue-soft:#eaf2ff;
+}
+.connected-sidebar,.app-shell>.sidebar{
+  background:linear-gradient(180deg,#0b305e 0%,var(--branchline-navy) 100%);
+  border-right:1px solid #1b4473;color:#f7fbff;
+}
+.connected-sidebar .brand,.app-shell>.sidebar .brand{color:#fff;}
+.connected-sidebar .brand-name,.app-shell>.sidebar .brand-name{color:#fff;}
+.connected-sidebar .brand-period,.app-shell>.sidebar .brand-period{color:var(--branchline-cyan);}
+.connected-sidebar .workspace-label,.app-shell>.sidebar .workspace-label{color:#a9c5e4;}
+.connected-nav-link,.app-shell>.sidebar .nav-link{color:#d9e7f6;min-height:43px;}
+.connected-nav-link:hover,.app-shell>.sidebar .nav-link:hover{background:#174674;color:#fff;}
+.connected-nav-link.active,.app-shell>.sidebar .nav-link.active{
+  background:#0756ce;color:#fff;box-shadow:inset 3px 0 var(--branchline-cyan);
+}
+.connected-sidebar .connected-account{border-color:#275078;}
+.connected-sidebar .connected-account small{color:#b9cfe5;}
+.connected-sidebar .connected-account .button-outline{
+  background:#103d70;color:#fff;border-color:#557ca6;
+}
+.connected-sidebar .connected-account .button-outline:hover{background:#18548f;}
+.connected-topbar,.app-shell .topbar{border-bottom:2px solid #cde4ff;}
+.connected-content .card,.app-shell .metric-card,.app-shell .panel{
+  border-radius:12px;
+}
+.connected-nav-link:focus-visible,.app-shell>.sidebar .nav-link:focus-visible,
+.connected-sidebar button:focus-visible,.app-shell button:focus-visible{
+  outline:3px solid var(--branchline-cyan);outline-offset:2px;
+}
+@media(max-width:760px){
+  .connected-sidebar,.app-shell>.sidebar{max-width:min(83vw,300px);}
+  .connected-topbar,.app-shell .topbar{padding-left:16px;padding-right:16px;}
+}
+@media(prefers-reduced-motion:reduce){
+  .connected-nav-link,.app-shell>.sidebar .nav-link{transition:none;}
+}

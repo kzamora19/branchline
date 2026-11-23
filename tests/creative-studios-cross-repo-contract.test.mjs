@@ -230,7 +230,9 @@ test("latest live MegaFrame and MegaFlyer editor interfaces survive private pack
  assert.match(branchAuth,/data-review-ps-day/);
  const branchTests=read(branchline,"tests/applications.test.mjs");
  assert.match(branchTests,/PS assist drilldown values/);
- assert.match(read(branchline,"index.html"),/auth-app\.js\?v=ps-assist-review-20261121/);
+ assert.match(read(branchline,"index.html"),/auth-app\.js\?v=calendar-notices-on-open-20261123/);
+ assert.match(branchAuth,/calendarNoticesShown\.add\(profile\.id\)/);
+ assert.match(branchAuth,/showOpeningCalendarEventNotices/);
 });
 
 test("PTG-account cloud backups span both Studios without a fifth Supabase project",()=>{
