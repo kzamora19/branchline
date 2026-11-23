@@ -1,0 +1,119 @@
+/* Mobile Branchline home — approved phone reference adapted to four real apps.
+   Data Desk stays within PTG, never a fifth global application. */
+@media (max-width:760px) {
+  html,body {overflow-x:hidden;}
+  body.bl-launcher-rail {background:#eaf2fa;color:#102b4d;min-width:320px;}
+  body.bl-launcher-rail header {
+    position:relative;z-index:20;min-height:82px;
+    padding:14px max(16px,env(safe-area-inset-left));
+    background:linear-gradient(120deg,#092858,#102e60 75%,#063e75);
+    border-bottom:2px solid #08caeb;box-shadow:none;
+  }
+  body.bl-launcher-rail header .brand {
+    display:flex;align-items:center;gap:13px;max-width:none;padding-left:0!important;
+  }
+  body.bl-launcher-rail #mobileAppMenu {
+    display:inline-flex!important;align-items:center;justify-content:center;
+    flex:0 0 46px;width:46px;height:46px;border:1px solid #3469a0;
+    color:#fff;border-radius:12px;background:#123f78;
+    box-shadow:none;font:700 24px/1 system-ui;cursor:pointer;
+  }
+  body.bl-launcher-rail #mobileAppMenu img {display:none!important;}
+  body.bl-launcher-rail .brand-copy {display:flex;flex-direction:column;min-width:0}
+  body.bl-launcher-rail .brand-copy strong {
+    font:800 clamp(22px,6.8vw,32px)/1.15 system-ui,-apple-system,Segoe UI,sans-serif;
+    color:#fff;letter-spacing:-.06em;position:relative;white-space:nowrap;
+  }
+  body.bl-launcher-rail .brand-copy strong::after {
+    content:"";display:block;position:absolute;left:10%;right:3%;height:15px;
+    bottom:-11px;border-top:4px solid #14d4e8;border-radius:53% 53% 0 0;
+    transform:rotate(-2deg);pointer-events:none;
+  }
+  body.bl-launcher-rail .bl-brand-dot {
+    display:inline-block;width:.15em;height:.15em;vertical-align:baseline;
+    margin-left:.08em;background:#3272ff;border-radius:50%;
+  }
+  body.bl-launcher-rail .brand-copy small {
+    margin-top:13px;color:#bcddff;font:700 9px/1.3 system-ui;
+    letter-spacing:.12em;
+  }
+  body.bl-launcher-rail main {
+    margin:0!important;width:100%!important;max-width:none!important;
+    padding:0 16px 32px!important;
+  }
+  body.bl-launcher-rail .welcome {
+    margin:0 -16px 20px;padding:22px 20px 27px;
+    background:linear-gradient(120deg,#103e8b,#145bb0 68%,#04a1cc);
+    border-radius:0 0 26px 26px;color:#fff;box-shadow:none;
+  }
+  body.bl-launcher-rail .welcome h1 {
+    margin:0 0 6px;font-size:clamp(24px,7vw,32px);font-weight:850;color:#fff;
+  }
+  body.bl-launcher-rail .welcome .intro {
+    margin:0;color:#e2f2ff;font-size:14px;line-height:1.45;
+  }
+  body.bl-launcher-rail .apps-label {
+    display:block!important;margin:20px 0 11px;color:#163a70;
+    letter-spacing:.08em;font-size:12px;font-weight:800;
+  }
+  body.bl-launcher-rail nav.cards {
+    display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:12px;background:transparent;
+  }
+  body.bl-launcher-rail nav.cards .card {
+    display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+    min-height:169px;min-width:0;padding:15px 8px 13px;gap:9px;
+    text-align:center;border-radius:16px;background:#fff;
+    border:1px solid #cbdced;box-shadow:0 4px 11px #193b6814;
+    color:#133a69;transform:none;
+  }
+  body.bl-launcher-rail nav.cards .card:hover,
+  body.bl-launcher-rail nav.cards .card:focus-visible {
+    border-color:#13cdeb;box-shadow:0 4px 14px #173b6940;
+  }
+  body.bl-launcher-rail nav.cards .app-icon {
+    flex:none;width:77px;height:77px;background-size:154px 154px!important;
+    border:0!important;border-radius:15px;background-color:transparent!important;
+    object-fit:contain;filter:none;box-shadow:none;
+  }
+  body.bl-launcher-rail nav.cards .sales-tracker {background-position:-77px 0!important}
+  body.bl-launcher-rail nav.cards .megaframe-studio {background-position:0 -77px!important}
+  body.bl-launcher-rail nav.cards .flyer-studio {background-position:-77px -77px!important}
+  body.bl-launcher-rail nav.cards .card .copy {
+    display:block;width:100%;min-width:0;text-align:center;
+  }
+  body.bl-launcher-rail nav.cards .copy strong {
+    margin:0 0 4px;font-size:14px;line-height:1.25;font-weight:800;
+    overflow-wrap:anywhere;
+  }
+  body.bl-launcher-rail nav.cards .copy small {
+    font-size:12px;line-height:1.35;color:#526f8d;
+  }
+  body.bl-launcher-rail nav.cards .arrow {display:none!important}
+  body.bl-launcher-rail main:after {display:none!important}
+  body.bl-launcher-rail footer {
+    margin:0!important;padding:5px 17px 25px;text-align:center;
+    font-size:12px;color:#6a7c92;
+  }
+  body.bl-launcher-rail .bl-app-overlay {
+    position:fixed;z-index:19;inset:82px 0 0;
+    background:#041a397d;backdrop-filter:none!important;
+  }
+  body.bl-launcher-rail .bl-app-drawer {
+    width:min(86vw,320px);background:#0c2c59;box-shadow:8px 0 18px #061a3645;
+    border-right:1px solid #35649a;color:#fff;
+  }
+  body.bl-launcher-rail .bl-drawer-link {
+    background:transparent!important;color:#ecf7ff!important;
+    border:1px solid #315f99;box-shadow:none;
+  }
+  body.bl-launcher-rail .bl-drawer-link:hover,
+  body.bl-launcher-rail .bl-drawer-link.is-active {
+    background:#1253a0!important;border-color:#12d5e9;box-shadow:inset 3px 0 #12d5e9;
+  }
+}
+@media (max-width:360px) {
+  body.bl-launcher-rail nav.cards {gap:9px}
+  body.bl-launcher-rail nav.cards .card {padding:11px 6px;min-height:161px}
+  body.bl-launcher-rail nav.cards .copy small {font-size:11px}
+}
