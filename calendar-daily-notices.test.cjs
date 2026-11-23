@@ -6,15 +6,14 @@ const path = require("node:path");
 
 const source = fs.readFileSync(path.join(__dirname, "auth-app.js"), "utf8");
 const migration = fs.readFileSync(path.join(__dirname, "supabase/migrations/20261119170000_customer_master_address_required.sql"), "utf8");
-const start = source.indexOf("  function showDailyCalendarEventNotices()");
+const start = source.indexOf("  function showOpeningCalendarEventNotices()");
 const end = source.indexOf("  function calendarClosures()",start);
 const functionBody = source.slice(start,end);
 
-test("daily calendar notices are per-account, date-scoped, sequential and read-only", () => {
+test("calendar notices repeat on a fresh opening and stay dismissed per account within the same opening", () => {
   assert.ok(start > 0 && end > start);
-  const storage = new Map();
   const overlays = [];
-  const context = vm.createContext({
+  const fixture = {
     currentProfile: { id: "ps-one", role:"ps" },
     demoStore: null,
     liveData: {
@@ -23,12 +22,17 @@ test("daily calendar notices are per-account, date-scoped, sequential and read-o
         {id:"1",title:"Event 1",kind:"promotion",starts_on:"2026-11-01",ends_on:"2026-11-30",branch_ids:["STG"],memo_links:[]},
         {id:"2",title:"Event 2",kind:"promotion",starts_on:"2026-11-01",ends_on:"2026-11-30",branch_ids:[],memo_links:[]},
         {id:"3",title:"Other branch",kind:"promotion",starts_on:"2026-11-01",ends_on:"2026-11-30",branch_ids:["CAU"],memo_links:[]},
+        {id:"4",title:"Expired",kind:"promotion",starts_on:"2026-11-01",ends_on:"2026-11-18",branch_ids:[],memo_links:[]},
+        {id:"5",title:"Cancelled",kind:"promotion",starts_on:"2026-11-01",ends_on:"2026-11-30",branch_ids:[],cancelled_at:"2026-11-17",memo_links:[]},
       ]}
     },
     window: { BranchlineAnalytics: {calendarOccursOn:(row,day)=>row.starts_on<=day&&row.ends_on>=day} },
     localISODate:()=>"2026-11-19",
     scopeBranchIds:()=>new Set(["STG"]),
-    localStorage: {getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)},
+    localStorage: {
+      getItem: () => "shown",
+      setItem: () => assert.fail("Opening notices should not persist dismissal"),
+    },
     escapeHTML:v=>String(v),
     calendarScheduleLabel:()=>"Every day in the range",
     calendarMemoLinks:()=>"",
@@ -39,9 +43,17 @@ test("daily calendar notices are per-account, date-scoped, sequential and read-o
       }),
       body:{append(element){overlays.push(element)}}
     }
-  });
-  vm.runInContext(functionBody,context);
-  vm.runInContext("showDailyCalendarEventNotices()",context);
+  };
+  const state = source.match(/^  const calendarNoticesShown = new Set\(\);$/m);
+  assert.ok(state);
+  const openApp = () => {
+    const context = vm.createContext({ ...fixture });
+    vm.runInContext(state[0] + "\n" + functionBody, context);
+    return context;
+  };
+  const show = context => vm.runInContext("showOpeningCalendarEventNotices()", context);
+  const context = openApp();
+  show(context);
   assert.equal(overlays.length,1);
   assert.match(overlays[0].innerHTML,/Event 1 of 2/);
   assert.doesNotMatch(overlays[0].innerHTML,/Other branch/);
@@ -49,11 +61,14 @@ test("daily calendar notices are per-account, date-scoped, sequential and read-o
   assert.match(overlays[0].innerHTML,/Event 2 of 2/);
   overlays[0].click({target:{closest:()=>true}});
   assert.equal(overlays[0].removed,true);
-  vm.runInContext("showDailyCalendarEventNotices()",context);
-  assert.equal(overlays.length,1,"same account and day are notified only once");
+  show(context);
+  assert.equal(overlays.length,1,"refreshing workspace data does not reopen notices");
   context.currentProfile={id:"ps-two",role:"ps"};
-  vm.runInContext("showDailyCalendarEventNotices()",context);
+  show(context);
   assert.equal(overlays.length,2,"each user receives their own event notice");
+  show(openApp());
+  assert.equal(overlays.length,3,"a fresh app opening shows notices for the original account on the same date");
+  assert.match(overlays[2].innerHTML,/Event 1 of 2/);
   assert.doesNotMatch(functionBody,/\.rpc\(|\.from\(|fetch\(/,"calendar notices do not write database records");
 });
 
