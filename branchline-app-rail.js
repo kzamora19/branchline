@@ -143,7 +143,8 @@
     overlay.append(drawer);
     root.append(overlay);
 
-    const triggers = [brand, mobile];
+    const workspaceLogo = !nativeHost && !!workspaceButtonSelector && header.querySelector(workspaceButtonSelector);
+    const triggers = workspaceLogo ? [mobile] : [brand, mobile];
     function syncButtons(open) {
       for (const button of triggers) {
         button.setAttribute("aria-expanded", String(open));
@@ -186,6 +187,15 @@
           workspaceButton.setAttribute("aria-expanded", String(expanded));
           workspaceButton.setAttribute("aria-label", expanded ? "Close workspace menu" : "Open workspace menu");
           workspaceButton.title = expanded ? "Close workspace menu" : "Open workspace menu";
+          if (workspaceLogo) {
+            brand.setAttribute("aria-expanded", String(expanded));
+            brand.setAttribute("aria-label", workspaceButton.title);
+            brand.title = workspaceButton.title;
+          }
+        }
+        if (workspaceLogo) {
+          brand.removeAttribute("aria-controls");
+          brand.addEventListener("click", () => workspaceButton.click());
         }
         workspaceButton.addEventListener("click", () => {
           close(); // Never allow both drawers at the same time.
