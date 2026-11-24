@@ -11,19 +11,20 @@
         "/branchline/apps/"
       ],
       "stamp": "script",
-      "sequence": 2026112410
+      "sequence": 2026112411
     },
     {
       "app": "ptg",
       "name": "Price Tag Generator",
       "manifest": "/first-megasaver-ptg/updates/release.json",
       "entries": [
+        "/first-megasaver-ptg/",
         "/first-megasaver-ptg/products/",
         "/first-megasaver-ptg/workspace/mobile/",
         "/first-megasaver-ptg/studios/"
       ],
       "stamp": "meta",
-      "sequence": 2026112410
+      "sequence": 2026112411
     },
     {
       "app": "megaframe",
@@ -33,7 +34,7 @@
         "/megaframe-studio/studio/"
       ],
       "stamp": "script",
-      "sequence": 2026112409
+      "sequence": 2026112411
     },
     {
       "app": "flyer",
@@ -43,8 +44,8 @@
         "/flyer-studio/studio/"
       ],
       "stamp": "script",
-      "sequence": 2026112409
+      "sequence": 2026112411
     }
   ],
-  "workspaceVersion": "2026.11.24.10"
+  "workspaceVersion": "2026.11.24.11"
 }

@@ -11,8 +11,20 @@
   "theme_color": "#355ee8",
   "icons": [
     {
-      "src": "icons/r6/Approved.branchline.png?v=r6-install-20261124",
+      "src": "icons/r6/Approved.branchline.png?v=r6-install-20261124-11",
       "sizes": "360x360",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/r6/Approved.branchline-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/r6/Approved.branchline-512.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     }

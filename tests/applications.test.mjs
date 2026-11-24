@@ -66,7 +66,7 @@ test("new app script loads before workspace, and current shell assets are availa
   const chooser = readFileSync(path("apps/index.html"), "utf8");
   const pwaManifest = JSON.parse(readFileSync(path("manifest.webmanifest"), "utf8"));
   assert.equal(pwaManifest.start_url, "./apps/");
-  assert.match(chooser, /Your apps/);
+  assert.match(chooser, /Welcome to Branchline Workspace/);
   for (const app of apps) assert.ok(chooser.includes('data-app="' + app.id + '"'), "Launcher card: " + app.id);
   assert.match(chooser, /\\?studio=megaframe/);
   assert.match(chooser, /\\?studio=flyer/);

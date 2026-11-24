@@ -83,7 +83,7 @@
   flex:0 0 62px;min-height:62px;cursor:pointer;color:white;
   background:transparent;border:1px solid transparent;border-bottom-color:#315786;
   border-radius:10px;padding:7px 3px}
-.bl-app-rail .bl-rail-brand:hover,.bl-app-rail .bl-rail-brand.is-open{
+.bl-app-rail .bl-rail-brand:hover{
   border-color:#73c7f0;background:#103e70}
 .bl-app-rail .bl-rail-brand:focus-visible,.bl-mobile-brand:focus-visible{
   outline:3px solid #0dd9eb;outline-offset:2px}
@@ -91,7 +91,7 @@
   flex:0 0 44px;border-radius:10px;border:1px solid #79b9ee;
   background:#123e73;padding:5px;cursor:pointer}
 .bl-mobile-brand img{display:block;width:33px;height:33px;object-fit:contain;border-radius:7px}
-.bl-mobile-brand:hover,.bl-mobile-brand.is-open{border-color:#0dd9eb;background:#184e89}
+.bl-mobile-brand:hover{border-color:#0dd9eb;background:#184e89}
 .bl-app-switcher{display:none!important}
 @media(min-width:761px){
   .bl-has-app-rail .bl-app-overlay{inset:0 0 0 var(--bl-rail-width);z-index:11}
@@ -240,4 +240,17 @@ body.bl-launcher-rail main:after{content:"Select Price Tag Generator, Sales Trac
 }
 @media(min-width:761px){
  .bl-web-r6 .connected-topbar #connected-menu,.bl-web-r6 .topbar #mobile-menu{display:none}
+}
+
+/* Same-origin navigation uses a short browser-managed transition. */
+@view-transition { navigation: auto; }
+@media (prefers-reduced-motion: no-preference) {
+  .bl-web-r6 > .bl-app-rail, body.bl-launcher-rail > header { view-transition-name: branchline-header; }
+  ::view-transition-group(root) { animation-duration: 120ms; }
+  ::view-transition-old(branchline-header) { display: none; }
+  ::view-transition-group(branchline-header),
+  ::view-transition-new(branchline-header) { animation-duration: 0s; }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*) { animation-duration: 0s; }
 }

@@ -536,6 +536,7 @@
         document.querySelector("#connected-user-name").textContent = connectedUserLabel();
         document.querySelector("#connected-user-role").textContent = roleLabels[profile.role];
         refreshPushButton(false);
+        requestedSalesPage();
         if (!rolePageAllowed(activePage)) activePage = "inventory";
         if (location.hash === "#inventory") ui.invView = "transfers";
         await loading.finish();
@@ -733,6 +734,7 @@
       if (location.hash === "#inventory") { activePage = "inventory"; ui.invView = "transfers"; }
       if (!ui.month) ui.month = currentMonth();
       sanitizeAccountScope();
+      requestedSalesPage();
       activePage = rolePageAllowed(activePage) ? activePage : "overview";
       await loading.finish();
       if (sequence !== loadSequence || !currentSession) return;
@@ -2059,6 +2061,11 @@
     }
   }
 
+  function requestedSalesPage() {
+    const requested = new URLSearchParams(location.search).get("continue");
+    if (requested && !demoStore && rolePageAllowed(requested)) activePage = requested;
+  }
+
   function renderConnected() {
     if (!currentProfile || !liveData) return;
     parkAccountControls();
@@ -2079,6 +2086,14 @@
     else renderOverview();
     renderDemoControls();
     renderTransferAlerts();
+    if (!demoStore && currentSession?.user?.id === currentProfile.id && pages.includes(activePage)) {
+      try {
+        localStorage.setItem("branchline-recent-sales:" + currentProfile.id,
+          JSON.stringify({ page: activePage, label: pageLabels[activePage] }));
+      } catch {
+        // The workspace still works when browser storage is unavailable.
+      }
+    }
   }
 
   // The application hub links independent deployments without exporting

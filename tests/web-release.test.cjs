@@ -27,11 +27,19 @@ test("existing manifest identity and start URL unchanged; shared-origin scope an
   assert.equal(target.origin,scope.origin);
   assert.ok(target.pathname.startsWith(scope.pathname));
  }
- assert.deepEqual(m.icons,[{src:"icons/r6/Approved.branchline.png?v=r6-install-20261124",sizes:"360x360",type:"image/png",purpose:"any"}]);
+ assert.deepEqual(m.icons,[
+   {src:"icons/r6/Approved.branchline.png?v=r6-install-20261124-11",sizes:"360x360",type:"image/png",purpose:"any"},
+   ...[192,512].map(size=>({src:"icons/r6/Approved.branchline-"+size+".png",sizes:size+"x"+size,type:"image/png",purpose:"any"}))
+ ]);
+ for(const size of [192,512]){
+   const png=require("node:fs").readFileSync("icons/r6/Approved.branchline-"+size+".png");
+   assert.equal(png.readUInt32BE(16),size);
+   assert.equal(png.readUInt32BE(20),size);
+ }
  const png=fs.readFileSync(path.join(__dirname,"..",m.icons[0].src.split("?")[0]));
  assert.equal(png.readUInt32BE(16),360);assert.equal(png.readUInt32BE(20),360);
- for(const p of ["index.html","apps/index.html","install.html","oauth-consent.html"])assert.ok(read(p).includes("icons/r6/Approved.branchline.png?v=r6-install-20261124"),p);
- assert.ok(read("sw.js").includes("./icons/r6/Approved.branchline.png?v=r6-install-20261124"));
+ for(const p of ["index.html","apps/index.html","install.html","oauth-consent.html"])assert.ok(read(p).includes("icons/r6/Approved.branchline.png?v=r6-install-20261124-11"),p);
+ assert.ok(read("sw.js").includes("./icons/r6/Approved.branchline.png?v=r6-install-20261124-11"));
  for(const name of ["index.html","apps/index.html"]){
   const body=read(name);
   assert.ok(body.includes('data-sequence="'+release.sequence+'"'));
