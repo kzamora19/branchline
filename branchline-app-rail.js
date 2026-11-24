@@ -91,10 +91,14 @@
       megasaver.src = artwork + "FirstMegasaverHeader.png";
       megasaver.alt = "1st Megasaver";
       const wordmark = document.createElement("img");
-      wordmark.className = "bl-r6-branchline-wordart";
+      const home = document.createElement("a");
+      home.href = "/branchline/apps/";
+      home.className = "bl-r6-branchline-wordart";
+      home.setAttribute("aria-label", "Branchline Workspace Home");
       wordmark.src = artwork + "BranchlineWordartFull.png";
       wordmark.alt = "Branchline";
-      brand.after(wordmark, megasaver);
+    home.append(wordmark);
+      brand.after(home, megasaver);
       const account=root.querySelector(".connected-account");
       if(account){
         const originalParent=account.parentElement;

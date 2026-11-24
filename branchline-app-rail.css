@@ -247,10 +247,32 @@ body.bl-launcher-rail main:after{content:"Select Price Tag Generator, Sales Trac
 @media (prefers-reduced-motion: no-preference) {
   .bl-web-r6 > .bl-app-rail, body.bl-launcher-rail > header { view-transition-name: branchline-header; }
   ::view-transition-group(root) { animation-duration: 120ms; }
-  ::view-transition-old(branchline-header) { display: none; }
+  ::view-transition-old(branchline-header) { animation-duration: 120ms; }
   ::view-transition-group(branchline-header),
   ::view-transition-new(branchline-header) { animation-duration: 0s; }
 }
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-group(*) { animation-duration: 0s; }
 }
+
+.bl-r6-branchline-wordart img{display:block;width:100%;height:100%;object-fit:contain;border-radius:0}
+.bl-r6-branchline-wordart:focus-visible{outline:2px solid #12d3e4;outline-offset:3px}
+
+.branchline-module-label{display:flex;align-items:center;gap:8px}
+.branchline-module-label img{width:32px;height:32px;object-fit:contain}
+
+.bl-startup-host{padding-top:96px}
+.bl-startup-header{position:fixed;inset:0 0 auto;z-index:60;box-sizing:border-box;height:96px;display:flex;align-items:center;gap:8px;padding:8px 16px;background:#102847;view-transition-name:branchline-header}
+.bl-startup-header img{display:block;object-fit:contain;max-width:100%;height:auto}
+.bl-startup-header .bl-startup-icon{flex:0 0 clamp(36px,6vw,64px)}
+.bl-startup-header .bl-startup-home{flex:0 1 22%;min-width:0}
+.bl-startup-header .bl-startup-megasaver{min-width:0;max-height:76px;flex:1 1 410px}
+.bl-startup-header .bl-startup-spacer{flex:0 1 160px}
+.bl-startup-header a:focus-visible{outline:2px solid #12d3e4;outline-offset:3px}
+@media(max-width:760px){
+ .bl-startup-host{padding-top:62px}
+ .bl-startup-header{height:62px;padding:6px 8px;gap:5px}
+ .bl-startup-header .bl-startup-spacer,.bl-startup-header .bl-startup-home{display:none}
+}
+@media print{.bl-startup-host{display:none!important}}
+body:has(#connected-shell:not([hidden]),#demo-app:not([hidden])) > .bl-startup-host{display:none}
