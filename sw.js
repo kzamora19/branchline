@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "branchline-shell-v199-web-2026112409";
+const CACHE_NAME = "branchline-shell-v199-web-2026112410";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
@@ -15,6 +15,7 @@ const APP_SHELL_URLS = [
   "./branchline-app-rail.js?v=r6-web-2026112409a",
   "./icons/official/branchline.png",
   "./icons/r6/Approved.branchline.png",
+  "./icons/r6/Approved.branchline.png?v=r6-install-20261124",
   "./icons/r6/Approved.ptg.png",
   "./icons/r6/Approved.sales.png",
   "./icons/r6/Approved.megaframe.png",
@@ -63,8 +64,8 @@ const APP_SHELL_URLS = [
   "./sales-history.js",
   "./daily-history.js",
   "./supabase-config.js",
-  "./updates/check.js?v=2026112409",
-  "./updates/check.css?v=2026112409",
+  "./updates/check.js?v=2026112410",
+  "./updates/check.css?v=2026112410",
   "./manifest.webmanifest",
   "./icon.svg",
   "./icons/icon-192.png",
@@ -93,8 +94,8 @@ self.addEventListener("push", event => {
   try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data ? event.data.text() : "" }; }
   event.waitUntil(self.registration.showNotification(data.title || "Branchline", {
     body: data.body || "",
-    icon: new URL("./icons/icon-192.png", self.registration.scope).href,
-    badge: new URL("./icons/icon-192.png", self.registration.scope).href,
+    icon: new URL("./icons/r6/Approved.branchline.png?v=r6-install-20261124", self.registration.scope).href,
+    badge: new URL("./icons/r6/Approved.branchline.png?v=r6-install-20261124", self.registration.scope).href,
     tag: data.tag || "branchline",
     data: { url: data.url || "./" },
   }));

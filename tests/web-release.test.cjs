@@ -16,9 +16,22 @@ test("same established app routes only",()=>{
  assert.equal(restartPath("/first-megasaver-ptg/"),null);
  assert.equal(restartPath("/branchline/other/"),null);
 });
-test("existing manifest identity and routes unchanged; all release stamps match",()=>{
+test("existing manifest identity and start URL unchanged; shared-origin scope and release stamps match",()=>{
  const m=JSON.parse(read("manifest.webmanifest"));
- assert.equal(m.id,"./");assert.equal(m.start_url,"./apps/");assert.equal(m.scope,"./");
+ assert.equal(m.id,"./");assert.equal(m.start_url,"./apps/");assert.equal(m.scope,"/");assert.equal(m.display,"standalone");
+ const manifestURL="https://kzamora19.github.io/branchline/manifest.webmanifest";
+ const scope=new URL(m.scope,manifestURL);
+ const catalogWindow={};vm.runInNewContext(read("branchline-applications.js"),{window:catalogWindow,URL});
+ for(const app of catalogWindow.BranchlineApplications.list){
+  const target=new URL(app.url||"/branchline/",manifestURL);
+  assert.equal(target.origin,scope.origin);
+  assert.ok(target.pathname.startsWith(scope.pathname));
+ }
+ assert.deepEqual(m.icons,[{src:"icons/r6/Approved.branchline.png?v=r6-install-20261124",sizes:"360x360",type:"image/png",purpose:"any"}]);
+ const png=fs.readFileSync(path.join(__dirname,"..",m.icons[0].src.split("?")[0]));
+ assert.equal(png.readUInt32BE(16),360);assert.equal(png.readUInt32BE(20),360);
+ for(const p of ["index.html","apps/index.html","install.html","oauth-consent.html"])assert.ok(read(p).includes("icons/r6/Approved.branchline.png?v=r6-install-20261124"),p);
+ assert.ok(read("sw.js").includes("./icons/r6/Approved.branchline.png?v=r6-install-20261124"));
  for(const name of ["index.html","apps/index.html"]){
   const body=read(name);
   assert.ok(body.includes('data-sequence="'+release.sequence+'"'));
