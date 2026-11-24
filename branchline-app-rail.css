@@ -188,3 +188,11 @@ body.bl-launcher-rail main:after{content:"Select Price Tag Generator, Sales Trac
  .bl-web-r6>.bl-app-rail{gap:3px;padding:7px}
  .bl-web-r6 .bl-r6-account{max-width:140px}
 }
+
+/* Mobile app menu and notification belong together at the right edge. */
+@media(max-width:760px){
+ .bl-has-app-rail .connected-topbar,.bl-has-app-rail .topbar{justify-content:flex-start;gap:8px}
+ .bl-has-app-rail .connected-topbar>span,.bl-has-app-rail .topbar .breadcrumb{flex:1 1 auto;min-width:0}
+ .bl-has-app-rail .connected-topbar #connected-menu,.bl-has-app-rail .topbar #mobile-menu{margin-left:auto;flex:0 0 auto}
+ .bl-has-app-rail .connected-topbar #bl-release-check,.bl-has-app-rail .topbar #bl-release-check{margin-left:0;flex:0 0 auto}
+}
