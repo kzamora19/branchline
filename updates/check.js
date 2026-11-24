@@ -48,9 +48,9 @@
     function escape(e){if(e.key==="Escape"&&!panel.hidden){togglePanel(false);bell.focus();}}
     doc.addEventListener("click",outside);doc.addEventListener("keydown",escape);
     function mountBell(){
-      const selectors=["#connected-shell:not([hidden]) .connected-topbar","#demo-app:not([hidden]) .topbar","body.bl-launcher-rail header .brand"];
+      const selectors=["#connected-shell.bl-web-r6:not([hidden]) > .bl-app-rail","#demo-app.bl-web-r6:not([hidden]) > .bl-app-rail","body.bl-web-r6.bl-launcher-rail > .bl-app-rail","#connected-shell:not([hidden]) .connected-topbar","#demo-app:not([hidden]) .topbar","body.bl-launcher-rail header .brand"];
       const header=selectors.map(s=>doc.querySelector(s)).find(e=>e&&e.getClientRects().length);
-      if(header){if(box.parentElement!==header)header.append(box);box.classList.remove("bl-bell-fallback");}
+      if(header){if(box.parentElement!==header){const account=header.querySelector(".bl-r6-account");if(account)header.insertBefore(box,account);else header.append(box);}box.classList.remove("bl-bell-fallback");}
       else{if(box.parentElement!==doc.body)doc.body.append(box);box.classList.add("bl-bell-fallback");}
     }
     mountBell();

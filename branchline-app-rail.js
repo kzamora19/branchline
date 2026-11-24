@@ -70,6 +70,33 @@
     rail.append(brand);
     for (const app of directory) rail.append(appLink(app, true));
     root.prepend(rail);
+    // The browser-installed workspace uses the R6 top application bar.
+    // Native WebView2 keeps its own original window chrome and app shortcuts.
+    if(!window.chrome?.webview){
+      root.classList.add("bl-web-r6");
+      const wordmark=document.createElement("span");wordmark.className="bl-r6-wordmark";wordmark.textContent="Branchline";
+      brand.after(wordmark);
+      const account=root.querySelector(".connected-account");
+      if(account){
+        const originalParent=account.parentElement;
+        const details=document.createElement("details");details.className="bl-r6-account";
+        const summary=document.createElement("summary");
+        const name=document.createElement("strong"),role=document.createElement("small");
+        summary.append(name,role);details.append(summary);rail.append(details);
+        const sync=()=>{
+          name.textContent=account.querySelector("#connected-user-name")?.textContent?.trim()||"Account";
+          role.textContent=account.querySelector("#connected-user-role")?.textContent?.trim()||"";
+          role.hidden=!role.textContent;
+        };
+        new MutationObserver(sync).observe(account,{childList:true,characterData:true,subtree:true});
+        sync();
+        const desktop=window.matchMedia("(min-width:761px)");
+        const place=()=>{if(desktop.matches){details.append(account);}else{details.open=false;originalParent.append(account);}};
+        desktop.addEventListener?.("change",place);place();
+        document.addEventListener("click",e=>{if(details.open&&!details.contains(e.target))details.open=false;});
+      }
+    }
+
 
     let mobile = isLauncher ? document.getElementById("mobileAppMenu") : null;
     if (!mobile) {
