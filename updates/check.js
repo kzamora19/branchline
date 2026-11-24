@@ -32,17 +32,51 @@
     about.textContent=version;about.title="Current web release (not Windows launcher version)";
     const restart=doc.createElement("button");restart.type="button";restart.id="bl-release-restart";restart.textContent="Update & Restart";restart.hidden=true;
     const dismiss=doc.createElement("button");dismiss.type="button";dismiss.textContent="Later";dismiss.hidden=true;
-    box.append(about,status,check,restart,dismiss);doc.body.append(box);
+    const bell=doc.createElement("button");bell.type="button";bell.className="bl-update-bell";
+    bell.setAttribute("aria-label","Software update notifications");bell.setAttribute("aria-controls","bl-update-dropdown");bell.setAttribute("aria-expanded","false");
+    const glyph=doc.createElementNS("http://www.w3.org/2000/svg","svg");
+    glyph.setAttribute("viewBox","0 0 24 24");glyph.setAttribute("width","22");glyph.setAttribute("height","22");glyph.setAttribute("fill","none");glyph.setAttribute("stroke","currentColor");glyph.setAttribute("stroke-width","1.8");glyph.setAttribute("aria-hidden","true");
+    const path=doc.createElementNS("http://www.w3.org/2000/svg","path");path.setAttribute("d","M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4");glyph.append(path);bell.append(glyph);
+    const panel=doc.createElement("div");panel.id="bl-update-dropdown";panel.className="bl-update-dropdown";panel.hidden=true;
+    const suite=doc.createElement("small");suite.className="bl-workspace-version";suite.textContent="Published workspace version not checked";
+    about.textContent="This module: "+version;
+    const note=doc.createElement("small");note.textContent="Web module only — native launcher and other installed modules are checked separately.";
+    panel.append(suite,about,note,status,check,restart,dismiss);box.append(bell,panel);doc.body.append(box);
+    function togglePanel(open){panel.hidden=!open;bell.setAttribute("aria-expanded",String(open));}
+    bell.addEventListener("click",()=>togglePanel(panel.hidden));
+    function outside(e){if(!box.contains(e.target))togglePanel(false);}
+    function escape(e){if(e.key==="Escape"&&!panel.hidden){togglePanel(false);bell.focus();}}
+    doc.addEventListener("click",outside);doc.addEventListener("keydown",escape);
+    function mountBell(){
+      const selectors=["#connected-shell.bl-web-r6:not([hidden]) > .bl-app-rail","#demo-app.bl-web-r6:not([hidden]) > .bl-app-rail","body.bl-web-r6.bl-launcher-rail > .bl-app-rail","#connected-shell:not([hidden]) .connected-topbar","#demo-app:not([hidden]) .topbar","body.bl-launcher-rail header .brand"];
+      const header=selectors.map(s=>doc.querySelector(s)).find(e=>e&&e.getClientRects().length);
+      if(header){if(box.parentElement!==header){const account=header.querySelector(".bl-r6-account");if(account)header.insertBefore(box,account);else header.append(box);}box.classList.remove("bl-bell-fallback");}
+      else{if(box.parentElement!==doc.body)doc.body.append(box);box.classList.add("bl-bell-fallback");}
+    }
+    mountBell();
+    const observer=new MutationObserver(()=>mountBell());observer.observe(doc.body,{subtree:true,childList:true,attributes:true,attributeFilter:["hidden"]});
+    async function publishedWorkspace(){
+      try{
+        const r=await root.fetch("/branchline/updates/index.json",{cache:"no-store",credentials:"omit",redirect:"error"});
+        if(!r.ok)throw Error("registry unavailable");
+        const registry=await r.json();
+        if(registry.schema!==1||registry.channel!=="production"||typeof registry.workspaceVersion!=="string"||!Array.isArray(registry.modules))throw Error("registry invalid");
+        const expected=registry.modules.find(m=>m.app==="sales");
+        if(!expected||!VERSION(expected.sequence))throw Error("module mapping missing");
+        suite.textContent="Published workspace: "+registry.workspaceVersion+(expected.sequence===running?" • matching module release":" • module release differs");
+      }catch{suite.textContent="Published workspace version not verified";}
+    }
     let checking=false, restarting=false, available=null, dismissed=null, confirmRestart=false;
     function resetConfirmation(){confirmRestart=false;restart.dataset.confirm="false";restart.textContent="Update & Restart";}
     function promptUpdate(){
       resetConfirmation();
       status.textContent="Branchline Workspace Update Available. Save your work before restarting to load the new web version.";
-      status.hidden=false;restart.hidden=!restartPath(root.location.pathname);dismiss.hidden=false;box.classList.add("bl-update-available");
+      status.hidden=false;restart.hidden=!restartPath(root.location.pathname);dismiss.hidden=false;box.classList.add("bl-update-available");bell.classList.add("has-update");
     }
     async function refresh(manual){
       if(checking||restarting||(!manual&&(doc.visibilityState==="hidden"||confirmRestart)))return;
       checking=true;check.disabled=true;
+      void publishedWorkspace();
       try{
         const response=await root.fetch("/branchline/updates/release.json",{cache:"no-store",credentials:"omit",redirect:"error"});
         if(!response.ok)throw Error("Release request failed");
@@ -55,15 +89,15 @@
             promptUpdate();
           }
         }else{
-          available=null;dismissed=null;resetConfirmation();restart.hidden=true;dismiss.hidden=true;box.classList.remove("bl-update-available");
-          status.hidden=!manual;if(manual)status.textContent="This web workspace is up to date.";
+          available=null;dismissed=null;resetConfirmation();restart.hidden=true;dismiss.hidden=true;box.classList.remove("bl-update-available");bell.classList.remove("has-update");
+          status.hidden=!manual;if(manual)status.textContent="This web module is up to date. Native launcher version not checked.";
         }
       }catch{
         if(manual){resetConfirmation();restart.hidden=true;dismiss.hidden=true;status.hidden=false;status.textContent="Could not check for updates. Try again when connected.";}
       }finally{checking=false;check.disabled=false;}
     }
     check.addEventListener("click",()=>refresh(true));
-    dismiss.addEventListener("click",()=>{if(restarting)return;dismissed=available;resetConfirmation();status.hidden=true;restart.hidden=true;dismiss.hidden=true;box.classList.remove("bl-update-available");});
+    dismiss.addEventListener("click",()=>{if(restarting)return;dismissed=available;togglePanel(false);resetConfirmation();status.hidden=true;restart.hidden=true;dismiss.hidden=true;box.classList.remove("bl-update-available");bell.classList.remove("has-update");});
     restart.addEventListener("click",async()=>{
       if(checking||restarting||!available)return;
       const target=restartPath(root.location.pathname);
