@@ -1,2 +1,14 @@
-.bl-release-check{position:fixed;right:12px;bottom:max(12px,env(safe-area-inset-bottom));z-index:10000;display:flex;align-items:center;gap:8px;max-width:min(420px,calc(100vw - 24px));flex-wrap:wrap;padding:6px;border-radius:8px;background:#102847;color:#fff;font:13px/1.45 system-ui,sans-serif;box-shadow:0 2px 8px #0003}.bl-release-check button{background:#fff;color:#102847;border:0;border-radius:5px;padding:7px 10px;cursor:pointer;font:inherit}.bl-release-check button:focus-visible{outline:2px solid #52d4ee;outline-offset:2px}.bl-release-check [hidden]{display:none!important}.bl-release-check.bl-update-available{padding:12px}.bl-release-check span{flex-basis:100%}
-.bl-release-version{font-size:11px;opacity:.85;flex-basis:100%}.bl-release-check button:disabled{opacity:.6;cursor:default}.bl-release-check button:not([hidden]):nth-of-type(2){background:#d2f5ff;color:#102847;font-weight:600}
+/* Compact header bell. The dropdown is never permanently visible. */
+.bl-release-check{position:relative;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;z-index:10000;color:inherit;font:13px/1.45 system-ui,sans-serif;text-transform:none;margin-left:6px}
+.bl-release-check.bl-bell-fallback{position:fixed;top:max(8px,env(safe-area-inset-top));right:12px}
+.bl-release-check button{background:#fff;color:#102847;border:0;border-radius:6px;padding:7px 10px;cursor:pointer;font:inherit;text-transform:none}
+.bl-release-check .bl-update-bell{display:grid;place-items:center;width:40px;height:40px;padding:0;color:inherit;background:transparent;border:1px solid #7894b3;position:relative}
+.bl-update-bell.has-update:after{content:"";position:absolute;right:6px;top:5px;width:9px;height:9px;background:#10c8e8;border-radius:100%;border:1px solid #102847}
+.bl-update-dropdown{position:absolute;top:calc(100% + 8px);right:0;width:min(340px,calc(100vw - 24px));max-height:70dvh;overflow:auto;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:8px;padding:12px;border-radius:10px;background:#102847;color:#fff;box-shadow:0 5px 20px #0004;text-align:left}
+.bl-update-dropdown small,.bl-update-dropdown [role=status]{flex-basis:100%;font-size:12px;line-height:1.4}
+.bl-update-dropdown .bl-workspace-version{font-weight:700}
+.bl-release-check [hidden]{display:none!important}
+.bl-release-check button:focus-visible{outline:2px solid #52d4ee;outline-offset:2px}
+.bl-release-check button:disabled{opacity:.6;cursor:default}
+@media print{#bl-release-check{display:none!important}}
+@media(max-width:720px){.bl-update-dropdown{position:fixed;top:60px;right:8px;width:min(340px,calc(100vw - 16px))}}

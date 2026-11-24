@@ -10,7 +10,8 @@
         "/branchline/",
         "/branchline/apps/"
       ],
-      "stamp": "script"
+      "stamp": "script",
+      "sequence": 2026112403
     },
     {
       "app": "ptg",
@@ -21,7 +22,8 @@
         "/first-megasaver-ptg/workspace/mobile/",
         "/first-megasaver-ptg/studios/"
       ],
-      "stamp": "meta"
+      "stamp": "meta",
+      "sequence": 2026112403
     },
     {
       "app": "megaframe",
@@ -30,7 +32,8 @@
       "entries": [
         "/megaframe-studio/studio/"
       ],
-      "stamp": "script"
+      "stamp": "script",
+      "sequence": 2026112403
     },
     {
       "app": "flyer",
@@ -39,7 +42,9 @@
       "entries": [
         "/flyer-studio/studio/"
       ],
-      "stamp": "script"
+      "stamp": "script",
+      "sequence": 2026112403
     }
-  ]
+  ],
+  "workspaceVersion": "2026.11.24.3"
 }

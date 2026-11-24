@@ -153,3 +153,5 @@ body.bl-launcher-rail main:after{content:"Select Price Tag Generator, Sales Trac
 @media(prefers-reduced-motion:reduce){
   .bl-has-app-rail .connected-sidebar,.bl-has-app-rail>.sidebar{transition:none}
 }
+
+@media(max-width:760px){html.bl-mobile-embedded .bl-mobile-brand,html.bl-mobile-embedded .bl-app-overlay{display:none!important}}
