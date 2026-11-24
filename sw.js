@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "branchline-shell-v197-web-2026112403";
+const CACHE_NAME = "branchline-shell-v197-web-2026112404";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
@@ -11,8 +11,8 @@ const APP_SHELL_URLS = [
   "./styles.css?v=unified-ui-20261123",
   "./apps/branchline-ui-stage.css",
   "./apps/branchline-outlined-drawer.css",
-  "./branchline-app-rail.css?v=ui-r6-web-20261124",
-  "./branchline-app-rail.js?v=ui-r6-web-20261124",
+  "./branchline-app-rail.css?v=ui-r6-web-20261124b",
+  "./branchline-app-rail.js?v=ui-r6-web-20261124b",
   "./icons/official/branchline.png",
   "./icons/official/four-apps.png",
   "./styles.css?v=ps-ranking-table-20261119",
@@ -56,8 +56,8 @@ const APP_SHELL_URLS = [
   "./sales-history.js",
   "./daily-history.js",
   "./supabase-config.js",
-  "./updates/check.js?v=2026112403",
-  "./updates/check.css?v=2026112403",
+  "./updates/check.js?v=2026112404",
+  "./updates/check.css?v=2026112404",
   "./manifest.webmanifest",
   "./icon.svg",
   "./icons/icon-192.png",
