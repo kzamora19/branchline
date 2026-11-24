@@ -13,6 +13,10 @@ on:
       - 'styles.css'
       - 'sw.js'
       - 'tests/applications.test.mjs'
+      - 'updates/**'
+      - 'scripts/prepare-web-release.py'
+      - 'tests/web-release.test.cjs'
+      - 'tests/web-release-browser.mjs'
       - 'tests/apps-browser.test.cjs'
       - '.github/workflows/branchline-apps-ci.yml'
   pull_request:
@@ -23,6 +27,10 @@ on:
       - 'styles.css'
       - 'sw.js'
       - 'tests/applications.test.mjs'
+      - 'updates/**'
+      - 'scripts/prepare-web-release.py'
+      - 'tests/web-release.test.cjs'
+      - 'tests/web-release-browser.mjs'
       - 'tests/apps-browser.test.cjs'
       - '.github/workflows/branchline-apps-ci.yml'
 permissions:
@@ -41,7 +49,7 @@ jobs:
           node --check branchline-applications.js
           node --check sw.js
       - name: Verify application links, role navigation and offline cache
-        run: node --test tests/applications.test.mjs
+        run: node --test tests/applications.test.mjs tests/web-release.test.cjs
       - name: Install browser smoke test dependencies
         run: |
           npm install --no-save --no-package-lock playwright@1.56.1
@@ -50,3 +58,4 @@ jobs:
         run: |
           python3 -m http.server 4173 --bind 127.0.0.1 >/tmp/branchline-app-hub-server.log 2>&1 &
           node tests/apps-browser.test.cjs
+          node tests/web-release-browser.mjs

@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "branchline-shell-v196";
+const CACHE_NAME = "branchline-shell-v197-web-2026112401";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
@@ -56,6 +56,8 @@ const APP_SHELL_URLS = [
   "./sales-history.js",
   "./daily-history.js",
   "./supabase-config.js",
+  "./updates/check.js?v=2026112401",
+  "./updates/check.css?v=2026112401",
   "./manifest.webmanifest",
   "./icon.svg",
   "./icons/icon-192.png",
@@ -74,7 +76,7 @@ self.addEventListener("install", event => {
 self.addEventListener("activate", event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(key => key.startsWith("branchline-") && key !== CACHE_NAME).map(key => caches.delete(key))))
+      .then(keys => Promise.all(keys.filter(key => key.startsWith("branchline-shell-") && key !== CACHE_NAME).map(key => caches.delete(key))))
       .then(() => self.clients.claim()),
   );
 });
@@ -115,10 +117,10 @@ self.addEventListener("fetch", event => {
         return response;
       })
       .catch(async () => {
-        const cached = await caches.match(request);
+        const cached = await (await caches.open(CACHE_NAME)).match(request);
         if (cached) return cached;
         if (request.mode === "navigate") {
-          const appShell = await caches.match(new URL("./index.html", self.registration.scope).href);
+          const appShell = await (await caches.open(CACHE_NAME)).match(new URL("./index.html", self.registration.scope).href);
           if (appShell) return appShell;
         }
         return new Response("", { status: 503, statusText: "Unavailable offline" });
