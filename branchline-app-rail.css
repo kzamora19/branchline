@@ -276,3 +276,23 @@ body.bl-launcher-rail main:after{content:"Select Price Tag Generator, Sales Trac
 }
 @media print{.bl-startup-host{display:none!important}}
 body:has(#connected-shell:not([hidden]),#demo-app:not([hidden])) > .bl-startup-host{display:none}
+
+/* Reserve the same desktop header columns on every Workspace route. */
+@media(min-width:1010px){
+ html{scrollbar-gutter:stable}
+ .bl-web-r6 > .bl-app-rail, .bl-startup-header{display:grid!important;grid-template-columns:clamp(44px,5vw,64px) minmax(0,22vw) minmax(0,1fr) repeat(4,clamp(44px,5vw,64px)) 44px clamp(110px,13vw,180px);align-items:center;column-gap:clamp(6px,1vw,16px);padding:8px 16px!important;box-sizing:border-box}
+
+ .bl-web-r6 > .bl-app-rail > .bl-rail-brand, .bl-startup-header > .bl-startup-icon:first-child{grid-column:1;grid-row:1;justify-self:center}
+ .bl-web-r6 > .bl-app-rail > .bl-r6-branchline-wordart, .bl-startup-header > .bl-startup-home{grid-column:2;grid-row:1;width:100%;min-width:0;margin:0!important;padding:0!important;border:0}
+ .bl-web-r6 > .bl-app-rail > .bl-r6-megasaver, .bl-startup-header > .bl-startup-megasaver{grid-column:3;grid-row:1;width:100%;min-width:0;margin:0!important;max-height:76px;object-position:center}
+ .bl-web-r6 > .bl-app-rail > .bl-rail-link{grid-row:1;justify-self:center}
+ .bl-web-r6 > .bl-app-rail > .bl-rail-link:nth-of-type(2), .bl-startup-header > .bl-startup-icon:nth-of-type(3){grid-column:4;grid-row:1;justify-self:center}
+ .bl-web-r6 > .bl-app-rail > .bl-rail-link:nth-of-type(3), .bl-startup-header > .bl-startup-icon:nth-of-type(4){grid-column:5;grid-row:1;justify-self:center}
+ .bl-web-r6 > .bl-app-rail > .bl-rail-link:nth-of-type(4), .bl-startup-header > .bl-startup-icon:nth-of-type(5){grid-column:6;grid-row:1;justify-self:center}
+ .bl-web-r6 > .bl-app-rail > .bl-rail-link:nth-of-type(5), .bl-startup-header > .bl-startup-icon:nth-of-type(6){grid-column:7;grid-row:1;justify-self:center}
+ .bl-web-r6 > .bl-app-rail > #bl-release-check{grid-row:1;grid-column:8;justify-self:center;margin:0!important}
+ .bl-web-r6 > .bl-app-rail > .bl-r6-account{grid-row:1;grid-column:9;min-width:0;width:100%;margin:0!important}
+ .bl-startup-header > .bl-startup-spacer{grid-column:9;grid-row:1}
+}
+
+@media(min-width:1010px){.bl-startup-header > .bl-startup-megasaver img{width:100%;height:76px;object-fit:contain}}
