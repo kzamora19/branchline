@@ -4,7 +4,7 @@
   const VERSION=value=>Number.isSafeInteger(value)&&value>0;
   function inspect(manifest, running){
     if(!VERSION(running)||!manifest||manifest.schema!==1||
-       manifest.channel!=="production"||!VERSION(manifest.sequence)) return "invalid";
+       manifest.channel!=="production"||manifest.app!=="sales"||!VERSION(manifest.sequence)) return "invalid";
     return manifest.sequence===running?"current":manifest.sequence>running?"available":"invalid";
   }
   // Only return to established app entry routes, never replay a signed Studio

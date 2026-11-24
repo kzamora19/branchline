@@ -1,0 +1,20 @@
+name: Verify four production web release endpoints
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'updates/index.json'
+      - 'qa/verify-hosted-updates.mjs'
+      - '.github/workflows/verify-hosted-updates.yml'
+permissions:
+  contents: read
+jobs:
+  hosted:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node qa/verify-hosted-updates.mjs

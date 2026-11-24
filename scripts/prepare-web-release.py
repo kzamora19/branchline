@@ -31,6 +31,6 @@ assert s.count(f'-web-{old}"')==1
 assert s.count(f'./updates/check.js?v={old}')==1
 assert s.count(f'./updates/check.css?v={old}')==1
 updates[p]=s.replace(f'-web-{old}"',f'-web-{args.sequence}"').replace(f'./updates/check.js?v={old}',f'./updates/check.js?v={args.sequence}').replace(f'./updates/check.css?v={old}',f'./updates/check.css?v={args.sequence}')
-updates[path]=json.dumps({"schema":1,"channel":"production","sequence":args.sequence,"label":args.label},indent=2)+"\n"
+updates[path]=json.dumps({"schema":1,"channel":"production","app":"sales","sequence":args.sequence,"label":args.label},indent=2)+"\n"
 for p,content in updates.items():p.write_text(content)
 print("Prepared",args.label,"— review, test and commit together. No deployment performed.")
