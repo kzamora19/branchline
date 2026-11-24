@@ -9,12 +9,18 @@
   const order = ["price-tag-generator", "sales-tracker", "megaframe-studio", "flyer-studio"];
   const directory = order.map(id => catalog.find(app => app.id === id));
   if (directory.some(app => !app)) return;
+  const r6Icons = {
+    "price-tag-generator": "ptg", "sales-tracker": "sales",
+    "megaframe-studio": "megaframe", "flyer-studio": "megaflyer"
+  };
   const shortNames = {
     "price-tag-generator": "PTG", "sales-tracker": "Sales",
     "megaframe-studio": "Frame", "flyer-studio": "Flyer"
   };
   const isLauncher = !!document.querySelector("nav.cards[aria-label='Branchline applications']");
   const base = isLauncher ? "../" : "./";
+  const artwork = base + "icons/r6/";
+  const nativeHost = Boolean(window.chrome?.webview);
   // Application navigation must stay within the current Workspace window,
   // including WebView2 installations where display-mode is not standalone.
 
@@ -33,8 +39,14 @@
       link.classList.add("is-active");
       link.setAttribute("aria-current", "page");
     }
-    const icon = document.createElement("span");
-    icon.className = "bl-official-app-icon " + app.id;
+    const icon = document.createElement(nativeHost ? "span" : "img");
+    if (nativeHost) {
+      icon.className = "bl-official-app-icon " + app.id;
+    } else {
+      icon.className = "bl-r6-app-icon";
+      icon.src = artwork + "Approved." + r6Icons[app.id] + ".png";
+      icon.alt = "";
+    }
     icon.setAttribute("aria-hidden", "true");
     const label = document.createElement("span");
     label.textContent = shortNames[app.id];
@@ -52,7 +64,7 @@
     button.setAttribute("aria-controls", drawerId);
     button.title = "Branchline applications";
     const image = document.createElement("img");
-    image.src = base + "icons/official/branchline.png";
+    image.src = nativeHost ? base + "icons/official/branchline.png" : artwork + "Approved.branchline.png";
     image.alt = "";
     image.setAttribute("aria-hidden", "true");
     button.append(image);
@@ -72,11 +84,13 @@
     root.prepend(rail);
     // The browser-installed workspace uses the R6 top application bar.
     // Native WebView2 keeps its own original window chrome and app shortcuts.
-    if(!window.chrome?.webview){
+    if (!nativeHost) {
       root.classList.add("bl-web-r6");
-      const wordmark=document.createElement("span");wordmark.className="bl-r6-wordmark";wordmark.textContent="Branchline";
-      brand.after(wordmark);
-      const mega=document.createElement("img");mega.className="bl-r6-megasaver";mega.src="/first-megasaver-ptg/legacy-ptg/login-logo.png";mega.alt="1st Megasaver";wordmark.after(mega);
+      const megasaver = document.createElement("img");
+      megasaver.className = "bl-r6-megasaver";
+      megasaver.src = artwork + "FirstMegasaverHeader.png";
+      megasaver.alt = "1st Megasaver";
+      brand.after(megasaver);
       const account=root.querySelector(".connected-account");
       if(account){
         const originalParent=account.parentElement;

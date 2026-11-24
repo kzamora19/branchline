@@ -158,13 +158,12 @@ body.bl-launcher-rail main:after{content:"Select Price Tag Generator, Sales Trac
 
 /* R6 browser shell. The installed native WebView2 header remains independent. */
 @media(min-width:761px){
- .bl-web-r6{--bl-r6-header:78px;padding-top:var(--bl-r6-header)}
+ .bl-web-r6{--bl-r6-header:96px;padding-top:var(--bl-r6-header)}
  .bl-web-r6>.bl-app-rail{inset:0 0 auto 0;width:auto;height:var(--bl-r6-header);flex-direction:row;align-items:center;gap:8px;padding:8px 16px;background:#102847;overflow:visible;z-index:35;border-right:0;border-bottom:1px solid #365675;box-sizing:border-box}
  .bl-web-r6>.bl-app-rail .bl-rail-brand{width:60px;min-height:58px;flex:0 0 60px;margin:0;border:0;border-radius:10px}
  .bl-web-r6>.bl-app-rail .bl-rail-brand img{width:48px;height:48px;object-fit:contain}
- .bl-web-r6>.bl-app-rail .bl-r6-wordmark{font-size:clamp(18px,2.4vw,32px);font-weight:750;color:#fff;margin-right:auto;white-space:nowrap}
  .bl-web-r6>.bl-app-rail .bl-rail-link{min-width:55px;min-height:60px;padding:4px;border:1px solid transparent;box-shadow:none}
- .bl-web-r6>.bl-app-rail .bl-rail-link.is-active{background:#1a426f;border-color:transparent;box-shadow:none}
+ .bl-web-r6>.bl-app-rail .bl-rail-link.is-active{background:transparent;border-color:transparent;box-shadow:none}
  .bl-web-r6 .connected-sidebar,.bl-web-r6>.sidebar{left:0;top:var(--bl-r6-header);background:#102847;color:#fff}
  .bl-web-r6 .connected-main,.bl-web-r6>.main-area{margin-left:246px}
  .bl-web-r6.bl-workspace-collapsed .connected-main,.bl-web-r6.bl-workspace-collapsed>.main-area{margin-left:0}
@@ -173,7 +172,8 @@ body.bl-launcher-rail main:after{content:"Select Price Tag Generator, Sales Trac
  .bl-web-r6 .connected-nav button,.bl-web-r6 .main-nav button{color:inherit}
  .bl-web-r6 .bl-r6-account{position:relative;color:#fff;max-width:220px;margin-left:8px}
  .bl-web-r6 .bl-r6-account summary{cursor:pointer;padding:7px 4px;list-style:none;text-align:right;max-width:220px;overflow:hidden}
- .bl-web-r6 .bl-r6-account summary:after{content:" ▾"}
+ .bl-web-r6 .bl-r6-account summary strong:after{content:" ▾"}
+ .bl-web-r6 .bl-r6-account summary small[hidden]{display:none}
  .bl-web-r6 .bl-r6-account summary strong,.bl-web-r6 .bl-r6-account summary small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .bl-web-r6 .bl-r6-account summary small{font-size:11px;color:#d8e6f2}
  .bl-web-r6 .bl-r6-account .connected-account{position:absolute;right:0;top:100%;min-width:220px;background:#102847;color:#fff;padding:14px;border:1px solid #7894b3;border-radius:9px;box-shadow:0 5px 20px #0003}
@@ -200,8 +200,7 @@ body.bl-launcher-rail main:after{content:"Select Price Tag Generator, Sales Trac
 /* Shared R6 header and high-contrast menu corrections. */
 .bl-app-drawer a,.bl-app-drawer a span{color:#fff!important}
 @media(min-width:761px){
- .bl-web-r6>.bl-app-rail .bl-r6-wordmark{margin-right:0;flex:0 1 auto}
- .bl-web-r6>.bl-app-rail .bl-r6-megasaver{display:block;flex:1 1 340px;min-width:0;max-width:640px;width:100%;height:66px;border-radius:0;object-fit:contain;object-position:center;margin:0 auto}
+ .bl-web-r6>.bl-app-rail .bl-r6-megasaver{display:block;flex:1 1 340px;min-width:0;max-width:640px;width:100%;height:56px;border-radius:0;object-fit:contain;object-position:left center;margin:0 auto}
  .bl-web-r6 .connected-sidebar .brand,.bl-web-r6>.sidebar .brand{display:none}
  .bl-web-r6 .branchline-module-label{color:#fff;font-weight:700;padding:16px 12px 8px}
  .bl-web-r6 .connected-nav-link,.bl-web-r6 .main-nav button{color:#fff!important}
@@ -213,5 +212,13 @@ body.bl-launcher-rail main:after{content:"Select Price Tag Generator, Sales Trac
  .bl-has-app-rail .connected-topbar,.bl-has-app-rail .topbar{position:sticky;top:0;flex-shrink:0}
 }
 
-@media(min-width:1001px){.bl-web-r6>.bl-app-rail .bl-r6-megasaver{height:78px;max-width:580px;object-fit:cover;object-position:center;filter:grayscale(1) contrast(5);mix-blend-mode:screen}}
-@media(min-width:721px) and (max-width:1000px){.bl-web-r6>.bl-app-rail .bl-r6-megasaver{object-fit:contain;filter:grayscale(1) contrast(5);mix-blend-mode:screen}}
+
+.bl-app-rail .bl-r6-app-icon,.bl-app-drawer .bl-r6-app-icon{display:block;width:42px;height:42px;object-fit:contain;flex:0 0 auto;border-radius:0}
+@media(min-width:761px){
+ body.bl-web-r6.bl-launcher-rail>header{display:none}
+ .bl-web-r6>.bl-app-rail .bl-rail-brand img,.bl-web-r6>.bl-app-rail .bl-r6-app-icon{width:clamp(44px,6vw,64px);height:clamp(44px,6vw,64px)}
+ .bl-web-r6>.bl-app-rail .bl-rail-link{min-width:0;flex:0 0 auto}
+ .bl-web-r6>.bl-app-rail .bl-rail-link>span{display:none}
+ .bl-web-r6>.bl-app-rail .bl-r6-account{flex:0 1 220px;min-width:0;margin-left:auto}
+ .bl-web-r6>.bl-app-rail .bl-r6-account summary::-webkit-details-marker{display:none}
+}
