@@ -53,7 +53,7 @@
       if (name) welcome.textContent = "Welcome, " + name;
       summary.textContent = ["Signed in to Sales Tracker", name, roleLabels[profile.role], branchName].filter(Boolean).join(" · ");
       const activity = JSON.parse(localStorage.getItem("branchline-recent-sales:" + user.id) || "null");
-      if (activity && /^[a-z]+$/.test(activity.page) && typeof activity.label === "string") {
+      if (activity?.page !== "apps" && activity && /^[a-z]+$/.test(activity.page) && typeof activity.label === "string") {
         const link = document.createElement("a");
         link.href = "../?continue=" + encodeURIComponent(activity.page);
         link.textContent = "Sales Tracker · " + activity.label;

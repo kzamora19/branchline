@@ -30,15 +30,14 @@
     users: "People & access",
     inventory: "Inventory",
     settings: "Settings",
-    apps: "Applications",
   };
   const rolePages = {
-    ps: ["overview", "sales", "analytics", "inventory", "apps", "settings"],
-    manager: ["overview", "sales", "analytics", "targets", "products", "customers", "inventory", "apps", "settings"],
-    district_manager: ["overview", "sales", "analytics", "targets", "products", "customers", "inventory", "apps", "settings"],
-    admin: ["overview", "sales", "analytics", "targets", "products", "customers", "users", "inventory", "apps", "settings"],
-    inventory_controller: ["inventory", "apps", "settings"],
-    stock_custodian: ["inventory", "apps", "settings"],
+    ps: ["overview", "sales", "analytics", "inventory", "settings"],
+    manager: ["overview", "sales", "analytics", "targets", "products", "customers", "inventory", "settings"],
+    district_manager: ["overview", "sales", "analytics", "targets", "products", "customers", "inventory", "settings"],
+    admin: ["overview", "sales", "analytics", "targets", "products", "customers", "users", "inventory", "settings"],
+    inventory_controller: ["inventory", "settings"],
+    stock_custodian: ["inventory", "settings"],
   };
   const PAGE_SIZE = 10;
   const PERCENT_DECIMALS = 4;
@@ -2081,7 +2080,6 @@
     else if (activePage === "customers" && pages.includes("customers")) renderCustomersPage();
     else if (activePage === "users") renderPeoplePage();
     else if (activePage === "inventory") renderInventoryPage();
-    else if (activePage === "apps") renderApplicationsPage();
     else if (activePage === "settings") renderSettingsPage();
     else renderOverview();
     renderDemoControls();
@@ -2094,42 +2092,6 @@
         // The workspace still works when browser storage is unavailable.
       }
     }
-  }
-
-  // The application hub links independent deployments without exporting
-  // sessions, passwords, private photos, or cross-project Supabase credentials.
-  function renderApplicationsPage() {
-    const catalog = window.BranchlineApplications?.list || [];
-    const cards = catalog.map(app => {
-      const isCurrent = app.kind === "workspace";
-      const action = isCurrent
-        ? '<button class="button button-primary" type="button" id="branchline-app-sales">Open Sales Tracker</button>'
-        : `<a class="button button-outline" href="${escapeHTML(app.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" aria-label="Open ${escapeHTML(app.name)} in a new tab">Open ${escapeHTML(app.name)} ↗</a>`;
-      return `<article class="branchline-app-card" aria-label="${escapeHTML(app.name)}">
-        <div class="branchline-app-card-top">
-          <span class="branchline-app-monogram" aria-hidden="true">${escapeHTML(app.monogram)}</span>
-          <span class="branchline-app-kind">${isCurrent ? "CURRENT WORKSPACE" : "SEPARATE APPLICATION"}</span>
-        </div>
-        <h2>${escapeHTML(app.name)}</h2>
-        <p>${escapeHTML(app.description)}</p>
-        <small>${escapeHTML(app.access)}</small>
-        <div class="branchline-app-action">${action}</div>
-      </article>`;
-    }).join("");
-    mountPage(
-      pageHeading("Branchline Applications", "Access Sales Tracker, PTG, MegaFrame Studio and Flyer Studio from one workspace."),
-      "", "",
-      () => `<p class="an-note branchline-app-notice">Opening a studio does not share your Branchline password or session. Access to each application remains subject to its own sign-in and permissions.</p>
-        <div class="branchline-app-grid" role="list" aria-label="Branchline application directory">${cards}</div>`
-    );
-    connectedContent.querySelector("#branchline-app-sales")?.addEventListener("click", () => {
-      activePage = "overview";
-      ui.search = "";
-      ui.pages = {};
-      connectedSidebar.classList.remove("open");
-      window.scrollTo(0, 0);
-      renderConnected();
-    });
   }
 
   function dangerZonePanel() {
@@ -4358,22 +4320,21 @@
 
   function openLegacyImportCenter() {
     if (workspaceWrites) { alert("Please wait for the current save to finish before importing."); return; }
+    if (!managesInventory()) { alert("You do not have permission to import these files."); return; }
+    const admin = currentProfile?.role === "admin";
     const routes = [
-      ...(currentProfile?.role === "admin" ? [
-        ["products", "Product catalog", "Excel / CSV catalog details and SRP.", openImportModal],
-        ["sales-history", "Sales History", "Historical invoices and item-level sales.", openSalesHistoryModal],
-        ["daily-history", "Daily Monitoring", "Monthly workbooks with branch daily totals and walk-ins.", openDailyHistoryModal],
-      ] : []),
-      ...(managesInventory() ? [
-        ["inventory", "Branch inventory", "Paired quantity and serialized reports. Replaces the selected branch's stock snapshot.", () => openInventoryImport()],
-      ] : []),
+      ["products", "Product catalog", "Excel / CSV catalog details and SRP.", openImportModal],
+      ["sales-history", "Sales History", "Historical invoices and item-level sales.", openSalesHistoryModal],
+      ["daily-history", "Daily Monitoring", "Monthly workbooks with branch daily totals and walk-ins.", openDailyHistoryModal],
+      ["inventory", "Branch inventory", "Paired quantity and serialized reports. Replaces the selected branch's stock snapshot.", () => openInventoryImport()],
     ];
-    if (!routes.length) { alert("You do not have permission to import these files."); return; }
     openModal({
       title: "Existing import tools",
       intro: "Choose a data type, then use its existing file checks and confirmation. Extractor consolidated workbooks are not supported yet.",
-      body: routes.map(([id, label, description]) =>
-        `<div class="field"><button class="button button-outline" type="button" data-import-route="${id}">${escapeHTML(label)}</button><span>${escapeHTML(description)}</span></div>`).join(""),
+      body: routes.map(([id, label, description]) => {
+        const allowed = id === "inventory" || admin;
+        return `<div class="field"><button class="button button-outline" type="button" data-import-route="${id}"${allowed ? "" : " disabled"}>${escapeHTML(label)}</button><span>${escapeHTML(description)}${allowed ? "" : " · Sales Tracker administrator required."}</span></div>`;
+      }).join(""),
       readOnly: true,
       onReady: form => form.addEventListener("click", event => {
         const id = event.target.closest("[data-import-route]")?.dataset.importRoute;

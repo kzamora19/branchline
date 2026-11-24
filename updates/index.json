@@ -11,7 +11,7 @@
         "/branchline/apps/"
       ],
       "stamp": "script",
-      "sequence": 2026112415
+      "sequence": 2026112416
     },
     {
       "app": "ptg",
@@ -24,7 +24,7 @@
         "/first-megasaver-ptg/studios/"
       ],
       "stamp": "meta",
-      "sequence": 2026112415
+      "sequence": 2026112416
     },
     {
       "app": "megaframe",
@@ -47,5 +47,5 @@
       "sequence": 2026112415
     }
   ],
-  "workspaceVersion": "2026.11.24.15"
+  "workspaceVersion": "2026.11.24.16"
 }

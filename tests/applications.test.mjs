@@ -39,18 +39,15 @@ test("external apps open verified HTTPS domains without credentials or OAuth sta
     if (expectedStudio) assert.equal(url.pathname, "/first-megasaver-ptg/studios/");
     assert.equal(url.hash, "");
   }
-  assert.match(authSource, /target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"/);
-  assert.doesNotMatch(authSource.slice(authSource.indexOf("function renderApplicationsPage()"),authSource.indexOf("function dangerZonePanel()")), /access_token|sessionStorage|localStorage|refresh_token|apiKey|apikey/);
 });
 
-test("every signed-in role can view the hub; independent app permissions are described", () => {
+test("Sales Tracker roles use their own navigation without an Applications page", () => {
   for (const role of ["ps","manager","district_manager","admin","inventory_controller","stock_custodian"]) {
     const match = authSource.match(new RegExp("^\\s+" + role + ": \\[([^\\n]+)\\]", "m"));
     assert.ok(match, "Role entry: " + role);
-    assert.ok(match[1].includes('"apps"'), "App hub is available to " + role);
+    assert.ok(!match[1].includes('"apps"'), "Duplicate app page omitted for " + role);
   }
-  assert.match(authSource, /activePage === "apps"\) renderApplicationsPage/);
-  assert.match(authSource, /does not share your Branchline password or session/);
+  assert.doesNotMatch(authSource, /renderApplicationsPage/);
 });
 
 test("new app script loads before workspace, and current shell assets are available offline", () => {
@@ -72,8 +69,7 @@ test("new app script loads before workspace, and current shell assets are availa
   assert.match(chooser, /\\?studio=flyer/);
   assert.ok(serviceWorker.includes('"./apps/"'));
   assert.ok(serviceWorker.includes('"./apps/index.html"'));
-  assert.ok(styles.includes(".branchline-app-grid"));
-  assert.ok(styles.includes("grid-template-columns:1fr"));
+  assert.ok(!styles.includes(".branchline-app-grid"));
   assert.doesNotThrow(() => new Function(authSource));
   assert.doesNotThrow(() => new Function(catalogSource));
 });

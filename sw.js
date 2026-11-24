@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "branchline-shell-v200-web-2026112415";
+const CACHE_NAME = "branchline-shell-v200-web-2026112416";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
@@ -8,12 +8,12 @@ const APP_SHELL_URLS = [
   "./apps/",
   "./apps/index.html",
   "./styles.css",
-  "./styles.css?v=unified-ui-20261123",
+  "./styles.css?v=r6-sales-ui-2026112416",
   "./apps/branchline-ui-stage.css",
-  "./apps/dashboard-account.js",
+  "./apps/dashboard-account.js?v=2026112416",
   "./apps/branchline-outlined-drawer.css",
-  "./branchline-app-rail.css?v=r6-web-2026112415",
-  "./branchline-app-rail.js?v=r6-web-2026112415",
+  "./branchline-app-rail.css?v=r6-web-2026112416",
+  "./branchline-app-rail.js?v=r6-web-2026112416",
   "./icons/official/branchline.png",
   "./icons/r6/Approved.branchline.png",
   "./icons/r6/Approved.branchline-192.png",
@@ -43,7 +43,7 @@ const APP_SHELL_URLS = [
   "./auth-app.js?v=ps-equal-share-20261121",
   "./auth-app.js?v=certificate-label-20261121",
   "./auth-app.js?v=ps-assist-review-20261121",
-  "./auth-app.js?v=calendar-notices-on-open-20261123",
+  "./auth-app.js?v=r6-sales-imports-2026112416",
   "./ps-certificates.mjs?v=certificate-label-20261121",
   "./certificate-periods.mjs?v=certificate-label-20261121",
   "./table-ui.js",
@@ -67,8 +67,8 @@ const APP_SHELL_URLS = [
   "./sales-history.js",
   "./daily-history.js",
   "./supabase-config.js",
-  "./updates/check.js?v=2026112415",
-  "./updates/check.css?v=2026112415",
+  "./updates/check.js?v=2026112416",
+  "./updates/check.css?v=2026112416",
   "./manifest.webmanifest",
   "./icon.svg",
   "./icons/icon-192.png",
