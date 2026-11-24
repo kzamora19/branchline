@@ -10,7 +10,7 @@ const browser=await chromium.launch({headless:true});
 try {
  for(const viewport of [{width:1280,height:800},{width:390,height:844}]){
   const context=await browser.newContext({viewport,serviceWorkers:"block"});
-  let manifest={schema:1,channel:"production",sequence:revision};
+  let manifest={schema:1,channel:"production",app:"sales",sequence:revision};
   let fail=false, calls=0, navigations=0, entryRevision=revision;
   await context.route("**/*",async route=>{
     const url=new URL(route.request().url());
@@ -74,14 +74,14 @@ try {
   await status.waitFor({state:"visible"});
   assert.match(await status.textContent(),/Could not check/);
   assert.equal(await page.getByRole("textbox").inputValue(),"Do not lose my unsaved draft");
-  fail=false;manifest={schema:1,channel:"staging",sequence:third};
+  fail=false;manifest={schema:1,channel:"staging",app:"sales",sequence:third};
   await check.click();
   await page.waitForFunction(()=>!document.querySelector("#bl-release-check button").disabled);
   assert.match(await status.textContent(),/Could not check/);
   assert.equal(navigations,1);
   // The only actual restart follows explicit save confirmation and a matching
   // new entry stamp. It does not create a new installation or use a remote URL.
-  manifest={schema:1,channel:"production",sequence:third};entryRevision=third;
+  manifest={schema:1,channel:"production",app:"sales",sequence:third};entryRevision=third;
   await check.click();await restart.waitFor({state:"visible"});
   await restart.click();
   await Promise.all([page.waitForNavigation(),confirmed.click()]);

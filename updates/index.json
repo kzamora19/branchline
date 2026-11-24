@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "channel": "production",
+  "modules": [
+    {
+      "app": "sales",
+      "name": "Sales Tracker / Branchline Workspace",
+      "manifest": "/branchline/updates/release.json",
+      "entries": [
+        "/branchline/",
+        "/branchline/apps/"
+      ],
+      "stamp": "script"
+    },
+    {
+      "app": "ptg",
+      "name": "Price Tag Generator",
+      "manifest": "/first-megasaver-ptg/updates/release.json",
+      "entries": [
+        "/first-megasaver-ptg/products/",
+        "/first-megasaver-ptg/workspace/mobile/",
+        "/first-megasaver-ptg/studios/"
+      ],
+      "stamp": "meta"
+    },
+    {
+      "app": "megaframe",
+      "name": "MegaFrame Studio",
+      "manifest": "/megaframe-studio/studio/updates/release.json",
+      "entries": [
+        "/megaframe-studio/studio/"
+      ],
+      "stamp": "script"
+    },
+    {
+      "app": "flyer",
+      "name": "MegaFlyer Studio",
+      "manifest": "/flyer-studio/studio/updates/release.json",
+      "entries": [
+        "/flyer-studio/studio/"
+      ],
+      "stamp": "script"
+    }
+  ]
+}

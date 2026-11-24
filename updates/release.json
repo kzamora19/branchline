@@ -1,6 +1,7 @@
 {
   "schema": 1,
   "channel": "production",
-  "sequence": 2026112401,
-  "label": "Web release 2026.11.24.1"
+  "app": "sales",
+  "sequence": 2026112402,
+  "label": "Web release 2026.11.24.2"
 }

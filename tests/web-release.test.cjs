@@ -41,3 +41,10 @@ test("cache cleanup preserves other app caches",async()=>{
  let done;callbacks.activate({waitUntil:p=>done=p});await done;
  assert.deepEqual(removed,["branchline-shell-v196"]);
 });
+
+test("central production release registry contains four existing same-origin modules",()=>{
+ const r=JSON.parse(read("updates/index.json"));
+ assert.equal(r.channel,"production");
+ assert.deepEqual(r.modules.map(m=>m.app),["sales","ptg","megaframe","flyer"]);
+ for(const m of r.modules){assert.ok(m.manifest.startsWith("/")&&!m.manifest.startsWith("//"));assert.ok(m.entries.length>0);}
+});
