@@ -12,3 +12,10 @@
 .bl-release-check button:disabled{opacity:.6;cursor:default}
 @media print{#bl-release-check{display:none!important}}
 @media(max-width:720px){.bl-update-dropdown{position:fixed;top:60px;right:8px;width:min(340px,calc(100vw - 16px))}}
+
+/* Header bell contrast and parent-hosted mobile bell. */
+.bl-app-rail .bl-update-bell{color:#fff!important;border-color:#79a2c5}
+.bl-app-rail .bl-update-bell svg{stroke:currentColor!important}
+html.bl-parent-bell #bl-release-check{position:fixed!important;top:0;right:0;margin:0;width:0;height:0;z-index:10000}
+html.bl-parent-bell #bl-release-check>.bl-update-bell{display:none!important}
+html.bl-parent-bell #bl-update-dropdown{position:fixed;top:8px;right:8px}
