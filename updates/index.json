@@ -11,7 +11,7 @@
         "/branchline/apps/"
       ],
       "stamp": "script",
-      "sequence": 2026112411
+      "sequence": 2026112412
     },
     {
       "app": "ptg",
@@ -34,7 +34,7 @@
         "/megaframe-studio/studio/"
       ],
       "stamp": "script",
-      "sequence": 2026112411
+      "sequence": 2026112412
     },
     {
       "app": "flyer",
@@ -47,5 +47,5 @@
       "sequence": 2026112411
     }
   ],
-  "workspaceVersion": "2026.11.24.11"
+  "workspaceVersion": "2026.11.24.12"
 }
