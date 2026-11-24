@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 const origin="https://kzamora19.github.io";
 const registry=JSON.parse(readFileSync(new URL("../updates/index.json",import.meta.url),"utf8"));
-assert.equal(registry.schema,1);assert.equal(registry.channel,"production");
+assert.equal(registry.schema,1);assert.equal(registry.channel,"production");assert.equal(typeof registry.workspaceVersion,"string");
 assert.deepEqual(registry.modules.map(m=>m.app),["sales","ptg","megaframe","flyer"]);
 async function fetchText(path){
  const url=new URL(path,origin);
@@ -17,11 +17,13 @@ async function verify(){
   const r=JSON.parse(await fetchText(m.manifest));
   assert.equal(r.schema,1);assert.equal(r.channel,"production");assert.equal(r.app,m.app);
   assert.ok(Number.isSafeInteger(r.sequence)&&r.sequence>0);
+  assert.equal(r.sequence,m.sequence,"Published module differs from workspace release mapping");
   assert.ok(typeof r.label==="string"&&r.label.length>0);
   const asset=m.manifest.replace(/release[.]json$/,"check.js");
   const js=await fetchText(asset+"?v="+r.sequence);
   assert.ok(js.includes('manifest.app!=="'+m.app+'"'),"Module scope missing");
   assert.ok(js.includes("I saved my work"),"Save confirmation missing");
+  assert.ok(js.includes("Software update notifications"),"Header bell missing");
   assert.ok(js.includes('https://kzamora19.github.io'),"Wrong origin");
   for(const path of m.entries){
    const body=await fetchText(path);
