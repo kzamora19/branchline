@@ -222,3 +222,8 @@ body.bl-launcher-rail main:after{content:"Select Price Tag Generator, Sales Trac
  .bl-web-r6>.bl-app-rail .bl-r6-account{flex:0 1 220px;min-width:0;margin-left:auto}
  .bl-web-r6>.bl-app-rail .bl-r6-account summary::-webkit-details-marker{display:none}
 }
+.bl-r6-branchline-wordart{display:none}
+@media(min-width:1010px){
+ .bl-web-r6>.bl-app-rail .bl-r6-branchline-wordart{display:block;flex:0 1 22%;width:22%;min-width:0;height:72px;object-fit:contain;border-radius:0}
+ .bl-web-r6>.bl-app-rail .bl-r6-megasaver{flex:1 1 410px;max-width:none;height:76px;object-position:center}
+}

@@ -114,14 +114,16 @@
         if(!root.navigator.onLine)throw Error("Offline");
         // Refuse to restart while the deployment or service worker still serves
         // an older shell. Check a public static entry only, no auth or query data.
-        const response=await root.fetch(target,{cache:"no-store",credentials:"omit",redirect:"error"});
+        const destination=new URL(target,root.location.origin);
+        destination.searchParams.set("bl-release",String(wanted));
+        const response=await root.fetch(destination.href,{cache:"no-store",credentials:"omit",redirect:"error"});
         if(!response.ok)throw Error("Entry unavailable");
         const body=await response.text();
         const parsed=new root.DOMParser().parseFromString(body,"text/html");
         const entry=parsed.querySelector('script[data-branchline-web-release][data-sequence]');
         if(!entry||entry.getAttribute("src")!=="/branchline/updates/check.js?v="+wanted)throw Error("Entry script differs");
         if(!entry||Number(entry.dataset.sequence)!==wanted)throw Error("Entry revision differs");
-        root.location.assign(target);
+        root.location.assign(destination.href);
       }catch{
         resetConfirmation();status.textContent="The new workspace is not ready on this device. Your current work is still open; try again when connected.";
       }finally{restarting=false;check.disabled=false;restart.disabled=false;dismiss.disabled=false;}

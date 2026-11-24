@@ -90,7 +90,11 @@
       megasaver.className = "bl-r6-megasaver";
       megasaver.src = artwork + "FirstMegasaverHeader.png";
       megasaver.alt = "1st Megasaver";
-      brand.after(megasaver);
+      const wordmark = document.createElement("img");
+      wordmark.className = "bl-r6-branchline-wordart";
+      wordmark.src = artwork + "BranchlineWordartFull.png";
+      wordmark.alt = "Branchline";
+      brand.after(wordmark, megasaver);
       const account=root.querySelector(".connected-account");
       if(account){
         const originalParent=account.parentElement;
