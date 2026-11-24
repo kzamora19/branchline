@@ -196,3 +196,19 @@ body.bl-launcher-rail main:after{content:"Select Price Tag Generator, Sales Trac
  .bl-has-app-rail .connected-topbar #connected-menu,.bl-has-app-rail .topbar #mobile-menu{margin-left:auto;flex:0 0 auto}
  .bl-has-app-rail .connected-topbar #bl-release-check,.bl-has-app-rail .topbar #bl-release-check{margin-left:0;flex:0 0 auto}
 }
+
+/* Shared R6 header and high-contrast menu corrections. */
+.bl-app-drawer a,.bl-app-drawer a span{color:#fff!important}
+@media(min-width:761px){
+ .bl-web-r6>.bl-app-rail .bl-r6-wordmark{margin-right:0;flex:0 1 auto}
+ .bl-web-r6>.bl-app-rail .bl-r6-megasaver{display:block;flex:1 1 340px;min-width:0;max-width:640px;width:100%;height:66px;border-radius:0;object-fit:contain;object-position:center;margin:0 auto}
+ .bl-web-r6 .connected-sidebar .brand,.bl-web-r6>.sidebar .brand{display:none}
+ .bl-web-r6 .branchline-module-label{color:#fff;font-weight:700;padding:16px 12px 8px}
+ .bl-web-r6 .connected-nav-link,.bl-web-r6 .main-nav button{color:#fff!important}
+ .bl-web-r6 .connected-nav-link.active,.bl-web-r6 .connected-nav-link:hover,.bl-web-r6 .main-nav button.active,.bl-web-r6 .main-nav button:hover{background:#1858a0!important;color:#fff!important;box-shadow:inset 3px 0 #0dd9eb}
+}
+.bl-r6-megasaver{display:none}
+@media(min-width:761px){.bl-web-r6>.bl-app-rail .bl-r6-megasaver{display:block}}
+@media(max-width:760px){
+ .bl-has-app-rail .connected-topbar,.bl-has-app-rail .topbar{position:sticky;top:0;flex-shrink:0}
+}

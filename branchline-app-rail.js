@@ -76,6 +76,7 @@
       root.classList.add("bl-web-r6");
       const wordmark=document.createElement("span");wordmark.className="bl-r6-wordmark";wordmark.textContent="Branchline";
       brand.after(wordmark);
+      const mega=document.createElement("img");mega.className="bl-r6-megasaver";mega.src="/first-megasaver-ptg/legacy-ptg/price-tag-header.png";mega.alt="1st Megasaver";wordmark.after(mega);
       const account=root.querySelector(".connected-account");
       if(account){
         const originalParent=account.parentElement;
