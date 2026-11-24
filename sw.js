@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "branchline-shell-v198-web-2026112409";
+const CACHE_NAME = "branchline-shell-v199-web-2026112409";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
@@ -11,8 +11,8 @@ const APP_SHELL_URLS = [
   "./styles.css?v=unified-ui-20261123",
   "./apps/branchline-ui-stage.css",
   "./apps/branchline-outlined-drawer.css",
-  "./branchline-app-rail.css?v=r6-web-2026112409",
-  "./branchline-app-rail.js?v=r6-web-2026112409",
+  "./branchline-app-rail.css?v=r6-web-2026112409a",
+  "./branchline-app-rail.js?v=r6-web-2026112409a",
   "./icons/official/branchline.png",
   "./icons/r6/Approved.branchline.png",
   "./icons/r6/Approved.ptg.png",
