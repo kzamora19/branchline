@@ -11,7 +11,7 @@ try{
   const context=await browser.newContext({viewport,serviceWorkers:"block"});
   await context.route("**/*",route=>{
    const u=new URL(route.request().url()),p=u.pathname;assert.equal(u.origin,origin);
-   if(p==="/branchline/")return route.fulfill({contentType:"text/html",body:'<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/branchline/updates/check.css"><link rel="stylesheet" href="/branchline/widgets/floating-widgets.css"><link rel="stylesheet" href="/branchline/widgets/help-panel.css"><header class="connected-topbar" style="height:68px">Workspace header</header><main id="connected-shell"><textarea aria-label="Unsaved work"></textarea></main><script defer src="/branchline/updates/check.js" data-sequence="'+revision+'"></script>'+names.map(n=>'<script defer src="/branchline/widgets/'+n+'.js"></script>').join("")});
+   if(p==="/branchline/")return route.fulfill({contentType:"text/html",body:'<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/branchline/updates/check.css"><link rel="stylesheet" href="/branchline/widgets/floating-widgets.css"><link rel="stylesheet" href="/branchline/widgets/help-panel.css"><header class="connected-topbar" style="height:68px">Workspace header</header><main id="connected-shell"><textarea aria-label="Unsaved work"></textarea><div role="dialog" aria-label="Record a sale"><div id="sale-rows">Product lines</div><div class="dlg-actions"><button type="submit">Save sale</button></div></div></main><script defer src="/branchline/updates/check.js" data-sequence="'+revision+'"></script>'+names.map(n=>'<script defer src="/branchline/widgets/'+n+'.js"></script>').join("")});
    if(p.endsWith("release.json"))return route.fulfill({json:{schema:1,channel:"production",app:"sales",sequence:revision}});
    if(p.endsWith("index.json"))return route.fulfill({json:{schema:1,channel:"production",workspaceVersion:"fixture",modules:[{app:"sales",sequence:revision}]}});
    if(Object.values(assets).includes(p))return route.fulfill({contentType:p.endsWith(".webp")?"image/webp":"image/svg+xml",body:readFileSync(new URL("../"+p.replace("/branchline/",""),import.meta.url))});
@@ -33,9 +33,9 @@ try{
   await panel.getByRole("searchbox").fill("record sale");
   assert.equal(await panel.locator("article").count(),1);
   assert.equal(await panel.locator(".bl-guide-step-number").count(),3);
-  await panel.getByRole("button",{name:"Start walkthrough"}).click();assert.equal(await panel.locator(".bl-guide-steps li:visible").count(),1);await panel.getByRole("button",{name:"Next",exact:true}).click();assert.match(await panel.locator(".bl-guide-navigation").innerText(),/Step 2 of 3/);await panel.getByRole("button",{name:"Previous"}).click();assert.match(await panel.locator(".bl-guide-navigation").innerText(),/Step 1 of 3/);
+  await panel.getByRole("button",{name:"Start walkthrough"}).click();assert.equal(await panel.locator(".bl-guide-steps li:visible").count(),1);assert.equal(await page.locator('[role="dialog"][aria-label="Record a sale"].bl-guide-highlight').count(),1);await panel.getByRole("button",{name:"Next",exact:true}).click();assert.match(await panel.locator(".bl-guide-navigation").innerText(),/Step 2 of 3/);assert.equal(await page.locator("#sale-rows.bl-guide-highlight").count(),1);await panel.getByRole("button",{name:"Previous"}).click();assert.match(await panel.locator(".bl-guide-navigation").innerText(),/Step 1 of 3/);
   await panel.getByRole("searchbox").fill("unrelated phrase");
-  assert.equal(await panel.locator("article").count(),0);
+  assert.equal(await panel.locator("article").count(),0);assert.equal(await page.locator(".bl-guide-highlight").count(),0);
   await panel.getByRole("button",{name:"Close"}).click();
   assert.equal(await panel.isVisible(),false);
   await page.getByRole("button",{name:"Branchline Assistant"}).click();

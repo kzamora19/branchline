@@ -18,9 +18,20 @@ function create(options){
  const summary=doc.createElement("p");summary.setAttribute("role","status");
  const results=doc.createElement("div");results.className="bl-help-results";
  panel.append(head,contextText,label,select,suggestions,summary,results);host.append(panel);
- let mode=null,trigger=null,app="workspace";
+ let mode=null,trigger=null,app="workspace",highlighted=null,activeTour=null;
+ const targets={
+  "sales-entry":['[role="dialog"][aria-label="Record a sale"]','[role="dialog"][aria-label="Record a sale"] #sale-rows','[role="dialog"][aria-label="Record a sale"] .dlg-actions button[type="submit"]'],
+  "ptg-overview":["#legacy-product-search",".legacy-queue-panel",".legacy-format-controls","#print-price-tags"],
+  "update":[".bl-widget-release-slot .bl-update-bell",null,null],
+  "frame-backup":["#cloudPanel","#cloudBackup","#cloudRestore"],
+  "flyer-backup":["#cloudPanel","#cloudBackup","#cloudRestore"]
+ };
+ function clearHighlight(){highlighted?.classList.remove("bl-guide-highlight");highlighted=null;}
+ function locate(item,index){clearHighlight();if(item.app!==app&&item.app!=="workspace")return false;const selector=targets[item.id]?.[index];if(!selector)return false;const node=doc.querySelector(selector);if(!node||!node.getClientRects().length||node.closest("[hidden]")||root.getComputedStyle(node).visibility==="hidden")return false;highlighted=node;node.classList.add("bl-guide-highlight");node.scrollIntoView?.({block:"nearest",inline:"nearest",behavior:"instant"});return true;}
+
  function render(){
   if(!mode)return;
+  clearHighlight();activeTour=null;
   const q=search.value.trim(),filter=select.value;
   const items=mode==="assistant"&&q?data.answer(q,app,filter):data.searchEntries(mode==="guide"?q:"",filter);
   results.replaceChildren();suggestions.replaceChildren();
@@ -33,11 +44,11 @@ function create(options){
    article.append(steps);
    const tour=doc.createElement("button");tour.type="button";tour.textContent="Start walkthrough";tour.className="bl-guide-start";
    const navigation=doc.createElement("div");navigation.className="bl-guide-navigation";navigation.hidden=true;
-   const previous=doc.createElement("button"),next=doc.createElement("button"),progress=doc.createElement("span");
-   previous.type=next.type="button";previous.textContent="Previous";navigation.append(previous,progress,next);let index=0;
-   function showStep(){[...steps.children].forEach((li,i)=>{li.hidden=i!==index;});progress.textContent="Step "+(index+1)+" of "+item.steps.length;previous.disabled=index===0;next.textContent=index===item.steps.length-1?"Finish":"Next";}
-   function stopTour(){navigation.hidden=true;tour.hidden=false;[...steps.children].forEach(li=>li.hidden=false);tour.focus();}
-   tour.addEventListener("click",()=>{index=0;tour.hidden=true;navigation.hidden=false;showStep();next.focus();});
+   const previous=doc.createElement("button"),next=doc.createElement("button"),progress=doc.createElement("span"),hint=doc.createElement("p");hint.className="bl-guide-target-hint";
+   previous.type=next.type="button";previous.textContent="Previous";navigation.append(previous,progress,next,hint);let index=0;
+   function showStep(){[...steps.children].forEach((li,i)=>{li.hidden=i!==index;});progress.textContent="Step "+(index+1)+" of "+item.steps.length;previous.disabled=index===0;next.textContent=index===item.steps.length-1?"Finish":"Next";hint.textContent=locate(item,index)?"Highlighted on this screen.":"Follow the instruction manually; the relevant control may be on another screen or in the protected editor.";}
+   function stopTour(focus=true){clearHighlight();activeTour=null;navigation.hidden=true;tour.hidden=false;[...steps.children].forEach(li=>li.hidden=false);if(focus)tour.focus();}
+   tour.addEventListener("click",()=>{activeTour?.(false);activeTour=stopTour;index=0;tour.hidden=true;navigation.hidden=false;showStep();next.focus();});
    previous.addEventListener("click",()=>{if(index>0){index--;showStep();}});
    next.addEventListener("click",()=>{if(index===item.steps.length-1)stopTour();else{index++;showStep();}});
    article.append(tour,navigation);
@@ -45,7 +56,7 @@ function create(options){
    results.append(article);
   }
  }
- function close(restoreFocus=true){panel.hidden=true;mode=null;if(restoreFocus&&trigger?.isConnected)trigger.focus();trigger=null;}
+ function close(restoreFocus=true){clearHighlight();activeTour=null;panel.hidden=true;mode=null;if(restoreFocus&&trigger?.isConnected)trigger.focus();trigger=null;}
  function open(kind,context,button){
   if(kind!=="assistant"&&kind!=="guide")return;
   mode=kind;app=data.names[context]?context:"workspace";trigger=button||null;
@@ -59,7 +70,7 @@ function create(options){
  dismiss.addEventListener("click",()=>{close();options.onDismiss?.();});
  const escape=e=>{if(e.key==="Escape"&&!panel.hidden){e.stopPropagation();close();options.onDismiss?.();}};
  panel.addEventListener("keydown",escape);
- return Object.freeze({open,close,dispose(){panel.remove();}});
+ return Object.freeze({open,close,dispose(){clearHighlight();panel.remove();}});
 }
 const api={create};if(typeof module==="object"&&module.exports)module.exports=api;else root.BranchlineHelpPanel=Object.freeze(api);
 })(typeof window!=="undefined"?window:globalThis);
