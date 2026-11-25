@@ -11,7 +11,7 @@ try{
   const context=await browser.newContext({viewport,serviceWorkers:"block"});
   await context.route("**/*",route=>{
    const u=new URL(route.request().url()),p=u.pathname;assert.equal(u.origin,origin);
-   if(p==="/branchline/")return route.fulfill({contentType:"text/html",body:'<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/branchline/updates/check.css"><link rel="stylesheet" href="/branchline/widgets/floating-widgets.css"><link rel="stylesheet" href="/branchline/widgets/help-panel.css"><main id="connected-shell"><textarea aria-label="Unsaved work"></textarea></main><script defer src="/branchline/updates/check.js" data-sequence="'+revision+'"></script>'+names.map(n=>'<script defer src="/branchline/widgets/'+n+'.js"></script>').join("")});
+   if(p==="/branchline/")return route.fulfill({contentType:"text/html",body:'<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/branchline/updates/check.css"><link rel="stylesheet" href="/branchline/widgets/floating-widgets.css"><link rel="stylesheet" href="/branchline/widgets/help-panel.css"><header class="connected-topbar" style="height:68px">Workspace header</header><main id="connected-shell"><textarea aria-label="Unsaved work"></textarea><div role="dialog" aria-label="Record a sale"><div id="sale-rows">Product lines</div><div class="dlg-actions"><button type="submit">Save sale</button></div></div></main><script defer src="/branchline/updates/check.js" data-sequence="'+revision+'"></script>'+names.map(n=>'<script defer src="/branchline/widgets/'+n+'.js"></script>').join("")});
    if(p.endsWith("release.json"))return route.fulfill({json:{schema:1,channel:"production",app:"sales",sequence:revision}});
    if(p.endsWith("index.json"))return route.fulfill({json:{schema:1,channel:"production",workspaceVersion:"fixture",modules:[{app:"sales",sequence:revision}]}});
    if(Object.values(assets).includes(p))return route.fulfill({contentType:p.endsWith(".webp")?"image/webp":"image/svg+xml",body:readFileSync(new URL("../"+p.replace("/branchline/",""),import.meta.url))});
@@ -24,6 +24,8 @@ try{
   await page.evaluate(assets=>{window.shell=window.BranchlineWidgetShell.start({assets});},assets);
   if(viewport.width<640)await page.getByRole("button",{name:"Show widgets"}).click();
   await page.waitForFunction(()=>[...document.querySelectorAll("#bl-floating-widgets img")].length===3&&[...document.querySelectorAll("#bl-floating-widgets img")].every(img=>img.complete&&img.naturalWidth>0));
+  const toggle=page.locator(".bl-widget-collapse");assert.equal(await toggle.locator("svg").count(),1);assert.equal(await toggle.innerText(),"");const headerBounds=await page.locator(".connected-topbar").boundingBox(),toggleBounds=await toggle.boundingBox();assert.ok(toggleBounds.y>=headerBounds.y+headerBounds.height);assert.ok(toggleBounds.y<headerBounds.y+headerBounds.height+20);
+  await page.locator(".bl-widget-settings summary").click();const settings=page.locator(".bl-widget-settings-panel");await settings.getByLabel("Position").selectOption("left");await page.waitForFunction(()=>document.querySelector(".bl-widget-collapse").getBoundingClientRect().left<30);await settings.getByLabel("Icon size").selectOption("small");assert.equal(await page.locator(".bl-widget-assistant").evaluate(el=>el.offsetWidth),44);await settings.getByLabel("Enable animations").uncheck();assert.equal(await page.locator("html").getAttribute("data-bl-widget-motion"),"off");assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("branchline.widgets.preferences.v2")).side),"left");await settings.getByRole("button",{name:"Reset to upper right"}).click();await page.locator(".bl-widget-settings summary").click();await page.waitForFunction(()=>document.querySelector(".bl-widget-collapse").getBoundingClientRect().right>innerWidth-30);if(viewport.width>640){const b=await toggle.boundingBox();await page.mouse.move(b.x+b.width/2,b.y+b.height/2);await page.mouse.down();await page.mouse.move(30,b.y+b.height/2+25,{steps:10});await page.mouse.up();await page.waitForFunction(()=>document.documentElement.dataset.blWidgetSide==="left");assert.equal(await toggle.getAttribute("aria-expanded"),"true");await page.locator(".bl-widget-settings summary").click();await settings.getByRole("button",{name:"Reset to upper right"}).click();await page.locator(".bl-widget-settings summary").click();}
   await page.getByRole("textbox",{name:"Unsaved work"}).fill("Preserve this");
   await page.getByRole("button",{name:"Branchline Guide"}).click();
   const panel=page.locator(".bl-help-panel");
@@ -31,11 +33,13 @@ try{
   await panel.getByRole("searchbox").fill("record sale");
   assert.equal(await panel.locator("article").count(),1);
   assert.equal(await panel.locator(".bl-guide-step-number").count(),3);
+  await panel.getByRole("button",{name:"Start walkthrough"}).click();assert.equal(await panel.locator(".bl-guide-steps li:visible").count(),1);assert.equal(await page.locator('[role="dialog"][aria-label="Record a sale"].bl-guide-highlight').count(),1);await panel.getByRole("button",{name:"Next",exact:true}).click();assert.match(await panel.locator(".bl-guide-navigation").innerText(),/Step 2 of 3/);assert.equal(await page.locator("#sale-rows.bl-guide-highlight").count(),1);await panel.getByRole("button",{name:"Previous"}).click();assert.match(await panel.locator(".bl-guide-navigation").innerText(),/Step 1 of 3/);
   await panel.getByRole("searchbox").fill("unrelated phrase");
-  assert.equal(await panel.locator("article").count(),0);
+  assert.equal(await panel.locator("article").count(),0);assert.equal(await page.locator(".bl-guide-highlight").count(),0);
   await panel.getByRole("button",{name:"Close"}).click();
   assert.equal(await panel.isVisible(),false);
   await page.getByRole("button",{name:"Branchline Assistant"}).click();
+  assert.ok(await panel.locator(".bl-help-suggestions button").count()>0);
   await panel.getByRole("searchbox").fill("How do I back up my project?");
   await panel.getByRole("combobox").selectOption("flyer-studio");
   assert.equal(await panel.locator("article").count(),1);
@@ -44,10 +48,19 @@ try{
   await page.keyboard.press("Escape");assert.equal(await panel.isVisible(),false);
   await page.evaluate(()=>BranchlineReleaseUpdates.setAnnouncements("fixture-manager",[{id:"memo-1",title:"New memo",body:"Memo 123 · Example Brand · Nov 25–30"},{id:"reminder-1",title:"Reminder",body:"<img src=x onerror=alert(1)>"}]));
   await page.waitForFunction(()=>document.querySelector(".bl-update-bell").dataset.unreadCount==="2");
+  await page.waitForFunction(()=>document.querySelector(".bl-update-bell").classList.contains("bl-widget-ringing"));assert.equal(await page.locator(".bl-update-bell").evaluate(b=>getComputedStyle(b,":after").content),'""');assert.equal(await page.locator(".bl-update-bell").evaluate(b=>getComputedStyle(b,":after").width),"13px");
+  await page.waitForFunction(()=>!document.querySelector(".bl-update-bell").classList.contains("bl-widget-ringing"));
+  await page.evaluate(()=>BranchlineReleaseUpdates.setAnnouncements("fixture-manager",[{id:"memo-1",title:"New memo",body:"Memo 123 · Example Brand · Nov 25–30"},{id:"reminder-1",title:"Reminder",body:"<img src=x onerror=alert(1)>"}]));
+  assert.equal(await page.locator(".bl-update-bell.bl-widget-ringing").count(),0,"Repeated poll must not ring");
+  await page.evaluate(()=>BranchlineReleaseUpdates.setAnnouncements("fixture-manager",[{id:"memo-2",title:"Newer memo",body:"Memo 124"},{id:"reminder-1",title:"Reminder",body:"<img src=x onerror=alert(1)>"}]));
+  await page.waitForFunction(()=>document.querySelector(".bl-update-bell").classList.contains("bl-widget-ringing"));
+  assert.equal(await page.locator(".bl-update-bell").getAttribute("data-unread-count"),"2","New ID rings even when count is unchanged");
+  await toggle.click();await page.waitForFunction(()=>document.querySelector(".bl-widget-toggle-badge").textContent===""&&!document.querySelector(".bl-widget-toggle-badge").hidden);await toggle.click();
   await page.getByRole("button",{name:"Software update notifications"}).click();
   await page.getByRole("button",{name:"Check for updates"}).waitFor();
   assert.equal(await page.locator(".bl-announcement-list article").count(),2);
   assert.equal(await page.locator(".bl-announcement-list img").count(),0);
+  await page.locator(".bl-announcement-list summary").first().click();await page.waitForFunction(()=>document.querySelector(".bl-update-bell").dataset.unreadCount==="1");
   await page.getByRole("button",{name:"Mark announcements read"}).click();
   assert.equal(await page.locator(".bl-update-bell").getAttribute("data-unread-count"),"");
   await page.evaluate(()=>BranchlineReleaseUpdates.setAnnouncements("fixture-other",[{id:"memo-1",title:"Other account",body:"Only this scope"}]));
