@@ -11,7 +11,7 @@
         "/branchline/apps/"
       ],
       "stamp": "script",
-      "sequence": 2026112503
+      "sequence": 2026112504
     },
     {
       "app": "ptg",
@@ -47,5 +47,5 @@
       "sequence": 2026112503
     }
   ],
-  "workspaceVersion": "2026.11.25.3"
+  "workspaceVersion": "2026.11.25.4"
 }
