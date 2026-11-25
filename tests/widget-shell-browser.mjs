@@ -49,6 +49,12 @@ try{
   await page.evaluate(()=>BranchlineReleaseUpdates.setAnnouncements("fixture-manager",[{id:"memo-1",title:"New memo",body:"Memo 123 · Example Brand · Nov 25–30"},{id:"reminder-1",title:"Reminder",body:"<img src=x onerror=alert(1)>"}]));
   await page.waitForFunction(()=>document.querySelector(".bl-update-bell").dataset.unreadCount==="2");
   await page.waitForFunction(()=>document.querySelector(".bl-update-bell").classList.contains("bl-widget-ringing"));assert.equal(await page.locator(".bl-update-bell").evaluate(b=>getComputedStyle(b,":after").content),'""');assert.equal(await page.locator(".bl-update-bell").evaluate(b=>getComputedStyle(b,":after").width),"13px");
+  await page.waitForFunction(()=>!document.querySelector(".bl-update-bell").classList.contains("bl-widget-ringing"));
+  await page.evaluate(()=>BranchlineReleaseUpdates.setAnnouncements("fixture-manager",[{id:"memo-1",title:"New memo",body:"Memo 123 · Example Brand · Nov 25–30"},{id:"reminder-1",title:"Reminder",body:"<img src=x onerror=alert(1)>"}]));
+  assert.equal(await page.locator(".bl-update-bell.bl-widget-ringing").count(),0,"Repeated poll must not ring");
+  await page.evaluate(()=>BranchlineReleaseUpdates.setAnnouncements("fixture-manager",[{id:"memo-2",title:"Newer memo",body:"Memo 124"},{id:"reminder-1",title:"Reminder",body:"<img src=x onerror=alert(1)>"}]));
+  await page.waitForFunction(()=>document.querySelector(".bl-update-bell").classList.contains("bl-widget-ringing"));
+  assert.equal(await page.locator(".bl-update-bell").getAttribute("data-unread-count"),"2","New ID rings even when count is unchanged");
   await toggle.click();await page.waitForFunction(()=>document.querySelector(".bl-widget-toggle-badge").textContent===""&&!document.querySelector(".bl-widget-toggle-badge").hidden);await toggle.click();
   await page.getByRole("button",{name:"Software update notifications"}).click();
   await page.getByRole("button",{name:"Check for updates"}).waitFor();
