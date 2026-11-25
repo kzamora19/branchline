@@ -12,7 +12,7 @@ function start(options={}){
  const help=panels.create({document:doc,host,content,onDismiss:()=>controller?.close()});
  const getContext=options.getContext||(()=>content.contextFor(root.location.pathname,root.location.search));
  try{
-  controller=widgets.mount({document:doc,host,assets:options.assets,releaseUpdates:release,onOpen:(key,button)=>help.open(key,getContext(),button),onClose:()=>help.close(false)});
+  controller=widgets.mount({document:doc,host,assets:options.assets,releaseUpdates:release,getContext,onOpen:(key,button)=>help.open(key,getContext(),button),onClose:()=>help.close(false)});
  }catch(error){help.dispose();throw error;}
  return Object.freeze({setBusy:controller.setBusy,setCollapsed:controller.setCollapsed,dispose(){try{controller.dispose();}finally{help.dispose();}}});
 }
