@@ -1,5 +1,5 @@
 /* Shared illustrated floating controls. No standard icon fallback. */
-.bl-floating-widgets{position:fixed;right:max(12px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));z-index:9000;display:flex;flex-direction:column;align-items:flex-end;gap:8px;font:13px/1.4 system-ui,sans-serif;pointer-events:none}
+.bl-floating-widgets{position:fixed;right:max(12px,env(safe-area-inset-right));top:max(var(--bl-widget-top,66px),env(safe-area-inset-top));bottom:auto;z-index:9000;display:flex;flex-direction:column;align-items:flex-end;gap:8px;font:13px/1.4 system-ui,sans-serif;pointer-events:none}
 #bl-floating-widget-controls{display:flex;flex-direction:column;align-items:center;gap:9px}
 .bl-floating-widgets [hidden]{display:none!important}
 .bl-floating-widgets button{pointer-events:auto;cursor:pointer;font:inherit}
@@ -9,9 +9,14 @@
 .bl-widget-button:focus-visible,.bl-widget-collapse:focus-visible{outline:2px solid #168bd6;outline-offset:3px;border-radius:8px}
 .bl-widget-unread{position:absolute;top:0;right:0;display:grid;place-items:center;min-width:21px;height:21px;padding:0 3px;box-sizing:border-box;border:2px solid #fff;border-radius:999px;background:#dc2626;color:#fff;font:700 11px/1 system-ui,sans-serif}
 .bl-floating-widgets .bl-widget-collapse{border:1px solid #b7c9dc;background:#fff;color:#102847;border-radius:999px;padding:6px 10px;box-shadow:0 2px 8px #10284718}
-@media(max-width:640px){.bl-floating-widgets{right:max(8px,env(safe-area-inset-right));bottom:max(10px,env(safe-area-inset-bottom))}.bl-floating-widgets .bl-widget-button{width:52px;height:52px}}
+@media(max-width:640px){.bl-floating-widgets{right:max(8px,env(safe-area-inset-right));top:max(var(--bl-widget-top,66px),env(safe-area-inset-top));bottom:auto}.bl-floating-widgets .bl-widget-button{width:52px;height:52px}}
 @media(prefers-reduced-motion:reduce){.bl-widget-button{transition:none!important;transform:none!important}}
 @media print{.bl-floating-widgets{display:none!important}}
 
 /* Subtle one-shot feedback; no animation if reduced motion is requested. */
 @media(prefers-reduced-motion:no-preference){.bl-widget-assistant:hover img{animation:bl-mascot-greet .55s ease-in-out}@keyframes bl-mascot-greet{0%,100%{transform:translateY(0) rotate(0)}45%{transform:translateY(-4px) rotate(-7deg)}70%{transform:translateY(-2px) rotate(4deg)}}.bl-release-floating .bl-update-bell.has-update img{animation:bl-bell-arrival .6s ease-in-out 1}@keyframes bl-bell-arrival{0%,100%{transform:rotate(0)}25%{transform:rotate(-12deg)}75%{transform:rotate(12deg)}}}
+
+/* 2.0 icon toggle, upper-right stack and state feedback. */
+.bl-floating-widgets .bl-widget-collapse{position:relative;display:grid;place-items:center;width:42px;height:42px;padding:0;border:1px solid #73a9f1;border-radius:12px;color:#fff;background:linear-gradient(145deg,#3d8bf6,#1e49ba);box-shadow:0 3px 10px #163e8355;transition:transform .18s ease}.bl-widget-collapse:hover{transform:scale(1.06)}.bl-widget-collapse svg{pointer-events:none}.bl-widget-toggle-badge{position:absolute;top:-5px;right:-5px;min-width:20px;height:20px;display:grid;place-items:center;border:2px solid white;border-radius:999px;background:#dc2626;color:#fff;padding:0 2px;font:700 10px/1 system-ui;box-sizing:border-box}.bl-floating-widgets .bl-widget-button[aria-expanded=true]{filter:drop-shadow(0 0 6px #168bd690)}
+@media(prefers-reduced-motion:no-preference){.bl-floating-widgets[data-collapsed=false] #bl-floating-widget-controls{animation:bl-widget-expand .2s ease-out}@keyframes bl-widget-expand{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}.bl-widget-assistant[aria-expanded=true] img{animation:bl-mascot-greet .55s ease-in-out}}
+@media(prefers-reduced-motion:reduce){.bl-floating-widgets .bl-widget-collapse{transition:none;transform:none!important}}

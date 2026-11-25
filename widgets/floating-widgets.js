@@ -22,12 +22,26 @@
     const controls=doc.createElement("div");controls.id="bl-floating-widget-controls";
     const collapse=doc.createElement("button");collapse.type="button";collapse.className="bl-widget-collapse";
     collapse.setAttribute("aria-controls",controls.id);
+    const ns="http://www.w3.org/2000/svg",symbol=doc.createElementNS(ns,"svg");symbol.setAttribute("viewBox","0 0 24 24");symbol.setAttribute("aria-hidden","true");symbol.setAttribute("width","24");symbol.setAttribute("height","24");
+    const grid=doc.createElementNS(ns,"g");for(let i=0;i<4;i++){const tile=doc.createElementNS(ns,"rect");tile.setAttribute("x",String(4+(i%2)*9));tile.setAttribute("y",String(4+Math.floor(i/2)*9));tile.setAttribute("width","7");tile.setAttribute("height","7");tile.setAttribute("rx","1.8");tile.setAttribute("fill","currentColor");grid.append(tile);}
+    const chevron=doc.createElementNS(ns,"path");chevron.setAttribute("d","M5 15l7-7 7 7");chevron.setAttribute("fill","none");chevron.setAttribute("stroke","currentColor");chevron.setAttribute("stroke-width","2.5");chevron.setAttribute("stroke-linecap","round");chevron.setAttribute("stroke-linejoin","round");symbol.append(grid,chevron);
+    const toggleBadge=doc.createElement("span");toggleBadge.className="bl-widget-toggle-badge";toggleBadge.hidden=true;toggleBadge.setAttribute("aria-hidden","true");collapse.append(symbol,toggleBadge);
+    let countLabel="",badgeObserver=null,headerObserver=null,positionFrame=0;
+    const headerSelectors=[".mobile-workspace-header",".ptg-universal-app-rail",".bl-app-rail",".bl-protected-mobile-brand","header.connected-topbar",".connected-topbar",".ptg-sidebar-header","body[data-bl-studio] > header","body > header"];
+    const currentHeader=()=>{for(const selector of headerSelectors){for(const element of doc.querySelectorAll(selector)){const b=element.getBoundingClientRect();if(b.width>100&&b.height>0&&b.height<160&&b.bottom>0&&b.top<130&&root.getComputedStyle(element).visibility!=="hidden")return element;}}return null;};
+    let observedHeader=null;
+    function position(){positionFrame=0;const header=currentHeader();if(header!==observedHeader){headerObserver?.disconnect();if(header)headerObserver?.observe(header);observedHeader=header;}const bottom=header?Math.max(0,header.getBoundingClientRect().bottom):56;doc.documentElement.style.setProperty("--bl-widget-top",Math.round(bottom+10)+"px");}
+    function queuePosition(){if(!positionFrame)positionFrame=root.requestAnimationFrame(position);}
+    function syncBadge(){const bell=releaseSlot?.querySelector(".bl-update-bell");if(bell)countLabel=bell.dataset.unreadCount|| (bell.classList.contains("has-update")?"1":"");toggleBadge.textContent=countLabel;toggleBadge.hidden=!collapsed||!countLabel;collapse.setAttribute("aria-label",(collapsed?"Show widgets":"Hide widgets")+(collapsed&&countLabel?", "+countLabel+" unread":""));}
+
     const labels={assistant:"Branchline Assistant",announcements:"Announcements & Updates",guide:"Branchline Guide"};
     const buttons={};const release=options.releaseUpdates||null;let releaseSlot=null,active=null,collapsed=false,busy=false,disposed=false;
     function render(){
       controls.hidden=collapsed||busy;
       collapse.hidden=busy;
-      collapse.textContent=collapsed?"Show widgets":"Hide widgets";
+      collapse.title=collapsed?"Open widgets":"Collapse widgets";
+      grid.style.display=collapsed?"":"none";chevron.style.display=collapsed?"none":"";
+      region.dataset.collapsed=String(collapsed);syncBadge();
       collapse.setAttribute("aria-expanded",String(!collapsed));
       for(const key of TYPES)buttons[key]?.setAttribute("aria-expanded",String(active===key));
     }
@@ -65,7 +79,7 @@
     }
     function setUnread(n){
       if(release)return false; // The existing updater owns its real availability state.
-      const label=unreadLabel(n);badge.textContent=label;badge.hidden=!label;
+      const label=unreadLabel(n);countLabel=label;badge.textContent=label;badge.hidden=!label;syncBadge();
       buttons.announcements.setAttribute("aria-label",labels.announcements+(label?", "+label+" unread":""));
     }
     const narrow=root.matchMedia?.("(max-width: 640px)");
@@ -73,15 +87,17 @@
     collapse.addEventListener("click",()=>setCollapsed(!collapsed));
     const escape=e=>{if(e.key==="Escape"&&active!==null){const key=active;close();buttons[key].focus();}};
     doc.addEventListener("keydown",escape);
-    region.append(controls,collapse);host.append(region);
+    region.append(collapse,controls);host.append(region);
     if(release){
       try{if(!release.attachFloating(releaseSlot,assets.announcements))throw Error("Existing release bell cannot be relocated in this host");}
       catch(error){doc.removeEventListener("keydown",escape);region.remove();throw error;}
     }
+    if(releaseSlot){badgeObserver=new root.MutationObserver(syncBadge);badgeObserver.observe(releaseSlot,{subtree:true,attributes:true,attributeFilter:["class","data-unread-count"],childList:true});}
+    if(root.ResizeObserver)headerObserver=new root.ResizeObserver(queuePosition);root.addEventListener("resize",queuePosition);root.addEventListener("scroll",queuePosition,true);position();
     render();setUnread(0);
     return Object.freeze({setUnread,setCollapsed,setBusy,close,dispose(){
       if(disposed)return;disposed=true;
-      try{close();}finally{try{release?.detachFloating();}finally{doc.removeEventListener("keydown",escape);region.remove();}}
+      try{close();}finally{try{release?.detachFloating();}finally{doc.removeEventListener("keydown",escape);badgeObserver?.disconnect();headerObserver?.disconnect();root.removeEventListener("resize",queuePosition);root.removeEventListener("scroll",queuePosition,true);if(positionFrame)root.cancelAnimationFrame(positionFrame);doc.documentElement.style.removeProperty("--bl-widget-top");region.remove();}}
     }});
   }
   const api={mount,unreadLabel,assetURL};
