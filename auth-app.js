@@ -2083,9 +2083,9 @@
     }
     if (["manager","district_manager","admin"].includes(currentProfile.role) && ui.period==="month" && ui.month
         && !ui.rankBrand && !ui.rankCategory && !ui.rankSub) {
-      const ranked=psRankingRows(ids).filter(row=>row.target>0&&Number.isFinite(row.achievement)).slice(0,10);
+      const ranked=psRankingRows(ids).filter(row=>row.target>0&&Number.isFinite(row.achievement)).sort((a,b)=>b.achievement-a.achievement||b.total-a.total||natural(a.name,b.name)).slice(0,10);
       if(ranked.length){
-        const text=ranked.map(row=>"#"+row.rank+" "+row.name+" · "+row.branch+" · "+row.achievement.toFixed(1)+"% of target").join("\n");
+        const text=ranked.map((row,index)=>"#"+(index+1)+" "+row.name+" · "+row.branch+" · "+row.achievement.toFixed(1)+"% of target").join("\n");
         let hash=2166136261;for(const char of text){hash=Math.imul(hash^char.charCodeAt(0),16777619);}
         notices.push({id:"ps:"+ui.month+":"+String(hash>>>0),title:"PS standings vs target · "+periodLabel(),body:text});
       }

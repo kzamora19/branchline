@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "branchline-shell-v200-web-2026112416";
+const CACHE_NAME = "branchline-shell-v200-web-2026112501";
 const APP_SHELL_URLS = [
   "./",
   "./index.html",
@@ -43,7 +43,7 @@ const APP_SHELL_URLS = [
   "./auth-app.js?v=ps-equal-share-20261121",
   "./auth-app.js?v=certificate-label-20261121",
   "./auth-app.js?v=ps-assist-review-20261121",
-  "./auth-app.js?v=r6-sales-imports-2026112416",
+  "./auth-app.js?v=r6-sales-imports-2026112501",
   "./ps-certificates.mjs?v=certificate-label-20261121",
   "./certificate-periods.mjs?v=certificate-label-20261121",
   "./table-ui.js",
@@ -67,8 +67,8 @@ const APP_SHELL_URLS = [
   "./sales-history.js",
   "./daily-history.js",
   "./supabase-config.js",
-  "./updates/check.js?v=2026112416",
-  "./updates/check.css?v=2026112416",
+  "./updates/check.js?v=2026112501",
+  "./updates/check.css?v=2026112501",
   "./widgets/floating-widgets.css",
   "./widgets/help-panel.css",
   "./widgets/floating-widgets.js",
