@@ -26,8 +26,8 @@
     const grid=doc.createElementNS(ns,"g");for(let i=0;i<4;i++){const tile=doc.createElementNS(ns,"rect");tile.setAttribute("x",String(4+(i%2)*9));tile.setAttribute("y",String(4+Math.floor(i/2)*9));tile.setAttribute("width","7");tile.setAttribute("height","7");tile.setAttribute("rx","1.8");tile.setAttribute("fill","currentColor");grid.append(tile);}
     const chevron=doc.createElementNS(ns,"path");chevron.setAttribute("d","M5 15l7-7 7 7");chevron.setAttribute("fill","none");chevron.setAttribute("stroke","currentColor");chevron.setAttribute("stroke-width","2.5");chevron.setAttribute("stroke-linecap","round");chevron.setAttribute("stroke-linejoin","round");symbol.append(grid,chevron);
     const toggleBadge=doc.createElement("span");toggleBadge.className="bl-widget-toggle-badge";toggleBadge.hidden=true;toggleBadge.setAttribute("aria-hidden","true");collapse.append(symbol,toggleBadge);
-    let countLabel="",badgeObserver=null,headerObserver=null,positionFrame=0;
-    const headerSelectors=[".mobile-workspace-header",".ptg-universal-app-rail",".bl-app-rail",".bl-protected-mobile-brand","header.connected-topbar",".connected-topbar",".ptg-sidebar-header","body[data-bl-studio] > header","body > header"];
+    let countLabel="",badgeObserver=null,headerObserver=null,layoutObserver=null,positionFrame=0;
+    const headerSelectors=[".mobile-workspace-header",".ptg-universal-app-rail",".bl-app-rail","header.connected-topbar",".connected-topbar",".ptg-sidebar-header","body[data-bl-studio] > header","body > header"];
     const currentHeader=()=>{for(const selector of headerSelectors){for(const element of doc.querySelectorAll(selector)){const b=element.getBoundingClientRect();if(b.width>100&&b.height>0&&b.height<160&&b.bottom>0&&b.top<130&&root.getComputedStyle(element).visibility!=="hidden")return element;}}return null;};
     let observedHeader=null;
     function position(){positionFrame=0;const header=currentHeader();if(header!==observedHeader){headerObserver?.disconnect();if(header)headerObserver?.observe(header);observedHeader=header;}const bottom=header?Math.max(0,header.getBoundingClientRect().bottom):56;doc.documentElement.style.setProperty("--bl-widget-top",Math.round(bottom+10)+"px");}
@@ -93,11 +93,11 @@
       catch(error){doc.removeEventListener("keydown",escape);region.remove();throw error;}
     }
     if(releaseSlot){badgeObserver=new root.MutationObserver(syncBadge);badgeObserver.observe(releaseSlot,{subtree:true,attributes:true,attributeFilter:["class","data-unread-count"],childList:true});}
-    if(root.ResizeObserver)headerObserver=new root.ResizeObserver(queuePosition);root.addEventListener("resize",queuePosition);root.addEventListener("scroll",queuePosition,true);position();
+    if(root.ResizeObserver)headerObserver=new root.ResizeObserver(queuePosition);layoutObserver=new root.MutationObserver(queuePosition);layoutObserver.observe(doc.body,{childList:true,subtree:true});root.addEventListener("resize",queuePosition);root.addEventListener("scroll",queuePosition,true);position();
     render();setUnread(0);
     return Object.freeze({setUnread,setCollapsed,setBusy,close,dispose(){
       if(disposed)return;disposed=true;
-      try{close();}finally{try{release?.detachFloating();}finally{doc.removeEventListener("keydown",escape);badgeObserver?.disconnect();headerObserver?.disconnect();root.removeEventListener("resize",queuePosition);root.removeEventListener("scroll",queuePosition,true);if(positionFrame)root.cancelAnimationFrame(positionFrame);doc.documentElement.style.removeProperty("--bl-widget-top");region.remove();}}
+      try{close();}finally{try{release?.detachFloating();}finally{doc.removeEventListener("keydown",escape);badgeObserver?.disconnect();headerObserver?.disconnect();layoutObserver?.disconnect();root.removeEventListener("resize",queuePosition);root.removeEventListener("scroll",queuePosition,true);if(positionFrame)root.cancelAnimationFrame(positionFrame);doc.documentElement.style.removeProperty("--bl-widget-top");region.remove();}}
     }});
   }
   const api={mount,unreadLabel,assetURL};
