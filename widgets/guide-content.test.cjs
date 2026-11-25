@@ -21,3 +21,5 @@ test("all steps are immutable plain text; PTG overview explicitly limited",()=>{
  for(const e of guide.entries){assert.ok(Object.isFrozen(e.steps));assert.ok(e.steps.every(s=>typeof s==="string"));}
  assert.equal(guide.entries.find(e=>e.id==="ptg-overview").limited,true);
 });
+
+test("assistant applies application filter before ranking",()=>{assert.ok(guide.answer("backup","megaframe-studio","flyer-studio").every(e=>e.app==="flyer-studio"));assert.equal(guide.answer("backup","megaframe-studio","flyer-studio")[0]?.id,"flyer-backup");});
