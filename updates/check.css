@@ -29,3 +29,5 @@ html.bl-parent-bell #bl-update-dropdown{position:fixed;top:8px;right:8px}
 .bl-release-floating .bl-update-dropdown{position:absolute;top:auto;bottom:calc(100% + 8px);right:0;width:min(340px,calc(100vw - 24px));max-height:min(50dvh,340px)}
 @media(max-width:640px){.bl-release-floating .bl-update-bell{width:52px;height:52px}}
 @media(prefers-reduced-motion:reduce){.bl-release-floating .bl-update-bell{transition:none;transform:none!important}}
+
+.bl-release-floating .bl-update-dropdown{pointer-events:auto}
