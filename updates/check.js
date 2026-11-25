@@ -71,7 +71,7 @@
         const card=doc.createElement("article"),details=doc.createElement("details"),heading=doc.createElement("summary"),body=doc.createElement("p");
         heading.textContent=item.title;body.textContent=item.body;details.open=expandedNotices.has(item.id);details.append(heading,body);card.append(details);noticeList.append(card);
         if(!seen.has(item.id))card.dataset.unread="true";
-        details.addEventListener("toggle",()=>{if(details.open){expandedNotices.add(item.id);seen.add(item.id);delete card.dataset.unread;markRead.disabled=!notices.some(n=>!seen.has(n.id));badgeCount();}else expandedNotices.delete(item.id);});
+        details.addEventListener("toggle",()=>{if(!card.isConnected)return;if(details.open){expandedNotices.add(item.id);seen.add(item.id);delete card.dataset.unread;markRead.disabled=!notices.some(n=>!seen.has(n.id));badgeCount();}else expandedNotices.delete(item.id);});
       }
       markRead.disabled=!notices.some(item=>!seen.has(item.id));badgeCount();
     }
