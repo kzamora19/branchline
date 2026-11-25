@@ -7,7 +7,7 @@ const read=p=>readFileSync(new URL("../"+dir+"/"+p,import.meta.url));
 const browser=await chromium.launch({headless:true});
 try{
  for(const viewport of [{width:1280,height:800},{width:390,height:844}]){
-  const context=await browser.newContext({viewport,serviceWorkers:"block"});let sequence=running,checks=0;
+  const context=await browser.newContext({viewport});let sequence=running,checks=0;
   const studio=module!=="ptg";
   await context.route("**/*",route=>{
    const u=new URL(route.request().url()),p=u.pathname;
