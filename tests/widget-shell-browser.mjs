@@ -72,6 +72,9 @@ try{
   assert.equal(await page.locator(".bl-update-bell").count(),1);
   assert.equal(await page.locator(".bl-release-floating").count(),0);
   await page.evaluate(()=>boot3.dispose());
+  assert.equal(await page.evaluate(()=>BranchlineWidgetBootstrap.eligible("/branchline/",true,false,true)),true);
+  assert.equal(await page.evaluate(()=>BranchlineWidgetBootstrap.eligible("/branchline/",true,false,false)),false);
+  assert.equal(await page.evaluate(()=>BranchlineWidgetBootstrap.eligible("/first-megasaver-ptg/login/",false,false,true)),false);
   await context.close();console.log("PASS shared guide assistant updater shell",viewport.width);
  }
 }finally{await browser.close();}

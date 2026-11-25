@@ -1,5 +1,5 @@
 /* Safe startup for the original workspace; called only by approved entry pages.
- * Never replace a native parent-hosted updater or hide the original bell on failure.
+ * Never replace a parent-hosted updater or hide the original bell on failure.
  */
 (function(root){
 "use strict";
@@ -15,7 +15,7 @@ function moduleFor(path){
  if(valid.some(p=>clean==="/first-megasaver-ptg/"+p))return "ptg";
  return null;
 }
-function eligible(path,native,parentHosted){return !native&&!parentHosted&&moduleFor(path)!==null;}
+function eligible(path,native,parentHosted,topLevel=true){return topLevel&&!parentHosted&&moduleFor(path)!==null;}
 function assetsFor(path){const base=MODULES[moduleFor(path)]||MODULES.sales;return Object.fromEntries(Object.entries(ASSETS).map(([k,v])=>[k,base+v.slice("/branchline".length)]));}
 async function preload(root,assets){
  await Promise.all(Object.values(assets).map(src=>new Promise((resolve,reject)=>{
@@ -27,7 +27,7 @@ async function preload(root,assets){
 }
 function create(root,options={}){
  const doc=root.document;let controller=null,starting=null,disposed=false,observer=null;
- const isEligible=()=>eligible(root.location.pathname,Boolean(root.chrome?.webview),doc.documentElement.classList.contains("bl-parent-bell"));
+ const isEligible=()=>eligible(root.location.pathname,Boolean(root.chrome?.webview),doc.documentElement.classList.contains("bl-parent-bell"),root.top===root);
  const module=moduleFor(root.location.pathname),mobile=module==="ptg"&&root.location.pathname.includes("/workspace/mobile");
  const studio=module==="megaframe"||module==="flyer";
  const visible=s=>{const el=doc.querySelector(s);return !!(el&&!el.hidden&&el.getClientRects().length>0);};
