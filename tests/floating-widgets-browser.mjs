@@ -41,8 +41,8 @@ try{
   await page.getByRole("button",{name:"Check for updates"}).click();
   await page.locator(".bl-update-bell.has-update").waitFor();
   await page.waitForFunction(()=>document.querySelector(".bl-update-bell").dataset.unreadCount==="1");
-  assert.equal(await page.locator(".bl-update-bell").evaluate(b=>getComputedStyle(b,":after").content),'"1"');
-  assert.equal(checks,2);
+  assert.equal(await page.locator(".bl-update-bell").evaluate(b=>getComputedStyle(b,":after").content),'""');
+  await page.waitForFunction(()=>document.querySelector(".bl-update-bell").classList.contains("bl-widget-ringing"));assert.equal(checks,2);
   await page.getByRole("button",{name:"Branchline Guide"}).click();
   assert.equal(await page.locator("#bl-update-dropdown").isVisible(),false);
   assert.deepEqual(await page.evaluate(()=>opened),["guide"]);

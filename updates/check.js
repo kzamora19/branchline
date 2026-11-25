@@ -77,12 +77,13 @@
     }
     function setAnnouncements(scope,items){
       if(typeof scope!=="string"||!scope||!Array.isArray(items)){noticeScope=null;notices=[];seen.clear();expandedNotices.clear();drawNotices();return;}
-      if(scope!==noticeScope){noticeScope=scope;seen.clear();expandedNotices.clear();}
+      if(scope!==noticeScope){noticeScope=scope;notices=[];seen.clear();expandedNotices.clear();}
       const unique=new Map();
       for(const row of items.slice(0,40)){
         if(!row||typeof row.id!=="string"||!row.id||typeof row.title!=="string"||!row.title||typeof row.body!=="string")continue;
         const id=row.id.slice(0,240);unique.set(id,{id,title:row.title.slice(0,180),body:row.body.slice(0,3500)});
       }
+      if([...unique.keys()].some(id=>!notices.some(n=>n.id===id))){bell.dataset.noticeRevision=String((Number(bell.dataset.noticeRevision)||0)+1);}
       notices=[...unique.values()];seen=new Set([...seen].filter(id=>unique.has(id)));expandedNotices=new Set([...expandedNotices].filter(id=>unique.has(id)));drawNotices();
     }
     markRead.addEventListener("click",()=>{for(const item of notices)seen.add(item.id);drawNotices();});
@@ -146,6 +147,7 @@
     let checking=false, restarting=false, available=null, dismissed=null, confirmRestart=false;
     function resetConfirmation(){confirmRestart=false;restart.dataset.confirm="false";restart.textContent="Update & Restart";}
     function promptUpdate(){
+      if(available!==null)bell.dataset.releaseSequence=String(available);
       resetConfirmation();
       status.textContent="Branchline Workspace Update Available. Save your work before restarting to load the new web version.";
       status.hidden=false;restart.hidden=!restartPath(root.location.pathname);dismiss.hidden=false;box.classList.add("bl-update-available");bell.classList.add("has-update");
