@@ -14,7 +14,14 @@
     if(path==="/branchline/"||path==="/branchline/index.html")return "/branchline/";
     return null;
   }
-  if(typeof module==="object"&&module.exports){module.exports={inspect,restartPath};return;}
+  // The existing release button remains the only control and polling owner.
+  function floatingArtwork(value,base){
+    if(typeof value!=="string"||!value.trim())throw new TypeError("Floating bell artwork required");
+    const url=new URL(value,base);
+    if(url.origin!==new URL(base).origin||!url.pathname.startsWith("/branchline/widgets/assets/")||!(/\.(png|webp|svg)$/i.test(url.pathname)))throw new TypeError("Invalid floating bell artwork");
+    return url.href;
+  }
+  if(typeof module==="object"&&module.exports){module.exports={inspect,restartPath,floatingArtwork};return;}
   const doc=root.document, script=doc.currentScript;
   if(root.location.origin!=="https://kzamora19.github.io"||!script)return;
   const running=Number(script.dataset.sequence);
@@ -47,13 +54,41 @@
     function outside(e){if(!box.contains(e.target))togglePanel(false);}
     function escape(e){if(e.key==="Escape"&&!panel.hidden){togglePanel(false);bell.focus();}}
     doc.addEventListener("click",outside);doc.addEventListener("keydown",escape);
+    let floatingHost=null,floatingImage=null;
+    function restoreArtwork(){
+      if(floatingImage?.parentNode===bell)floatingImage.replaceWith(glyph);
+      box.classList.remove("bl-release-floating");
+    }
     function mountBell(){
-      if(doc.documentElement.classList.contains("bl-parent-bell")){if(box.parentElement!==doc.body)doc.body.append(box);box.classList.remove("bl-bell-fallback");return;}
+      if(doc.documentElement.classList.contains("bl-parent-bell")){
+        restoreArtwork();
+        if(box.parentElement!==doc.body)doc.body.append(box);
+        box.classList.remove("bl-bell-fallback");return;
+      }
+      if(floatingHost?.isConnected&&!box.contains(floatingHost)){
+        if(box.parentElement!==floatingHost)floatingHost.append(box);
+        if(glyph.parentNode===bell&&floatingImage)glyph.replaceWith(floatingImage);
+        box.classList.add("bl-release-floating");box.classList.remove("bl-bell-fallback");return;
+      }
+      restoreArtwork();
       const selectors=["#connected-shell.bl-web-r6:not([hidden]) > .bl-app-rail","#demo-app.bl-web-r6:not([hidden]) > .bl-app-rail","body.bl-web-r6.bl-launcher-rail > .bl-app-rail","#connected-shell:not([hidden]) .connected-topbar","#demo-app:not([hidden]) .topbar","body.bl-launcher-rail header .brand"];
       const header=selectors.map(s=>doc.querySelector(s)).find(e=>e&&e.getClientRects().length);
       if(header){if(box.parentElement!==header){const account=header.querySelector(".bl-r6-account");if(account)header.insertBefore(box,account);else header.append(box);}box.classList.remove("bl-bell-fallback");}
       else{if(box.parentElement!==doc.body)doc.body.append(box);box.classList.add("bl-bell-fallback");}
     }
+    // Opt-in API: move the original box, not a second notification button.
+    // The native parent-hosted bell retains priority until its bridge is audited.
+    root.BranchlineReleaseUpdates=Object.freeze({
+      attachFloating(host,artwork){
+        if(!host||host.ownerDocument!==doc||!host.isConnected||box.contains(host)||host.contains(box)||doc.documentElement.classList.contains("bl-parent-bell"))return false;
+        const img=doc.createElement("img");img.src=floatingArtwork(artwork,doc.baseURI);img.alt="";img.draggable=false;
+        togglePanel(false);
+        restoreArtwork();floatingHost=host;floatingImage=img;mountBell();return true;
+      },
+      detachFloating(){togglePanel(false);floatingHost=null;restoreArtwork();floatingImage=null;mountBell();},
+      close(){togglePanel(false);},
+      isFloating(){return box.classList.contains("bl-release-floating");}
+    });
     mountBell();
     const observer=new MutationObserver(()=>mountBell());observer.observe(doc.body,{subtree:true,childList:true,attributes:true,attributeFilter:["hidden"]});observer.observe(doc.documentElement,{attributes:true,attributeFilter:["class"]});
     async function publishedWorkspace(){
