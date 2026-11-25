@@ -296,3 +296,9 @@ body:has(#connected-shell:not([hidden]),#demo-app:not([hidden])) > .bl-startup-h
 }
 
 @media(min-width:1010px){.bl-startup-header > .bl-startup-megasaver img{width:100%;height:76px;object-fit:contain}}
+
+/* Mobile Sales Tracker: retain module identity, omit the duplicate drawer-only workspace brand. */
+@media(max-width:760px){
+ #connected-shell > .connected-sidebar > .brand,
+ #demo-app > .sidebar > .brand{display:none!important}
+}
