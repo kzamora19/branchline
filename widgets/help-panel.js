@@ -20,13 +20,13 @@ function create(options){
  function render(){
   if(!mode)return;
   const q=search.value.trim(),filter=select.value;
-  const items=mode==="assistant"&&q?data.answer(q,app).filter(e=>filter==="all"||e.app===filter):data.searchEntries(mode==="guide"?q:"",filter);
+  const items=mode==="assistant"&&q?data.answer(q,app,filter):data.searchEntries(mode==="guide"?q:"",filter);
   results.replaceChildren();
   summary.textContent=items.length?(mode==="assistant"?"Suggested guidance: ":"")+items.length+" topic"+(items.length===1?"":"s"): "No matching guide. Try a different term or contact your authorized administrator.";
   for(const item of items){
-   const article=doc.createElement("article"),heading=doc.createElement("h3"),category=doc.createElement("small"),steps=doc.createElement("ol");
+   const article=doc.createElement("article"),heading=doc.createElement("h3"),category=doc.createElement("small"),steps=doc.createElement("ol");steps.className="bl-guide-steps";
    heading.textContent=item.title;category.textContent=data.names[item.app];article.append(category,heading);
-   for(const value of item.steps){const li=doc.createElement("li");li.textContent=value;steps.append(li);}
+   for(const [index,value] of item.steps.entries()){const li=doc.createElement("li"),number=doc.createElement("span"),instruction=doc.createElement("span");number.className="bl-guide-step-number";number.setAttribute("aria-hidden","true");number.textContent=String(index+1);instruction.textContent=value;li.append(number,instruction);steps.append(li);}
    article.append(steps);
    if(item.limited){const note=doc.createElement("p");note.textContent="Overview only; exact controls require verification.";article.append(note);}
    results.append(article);
