@@ -86,7 +86,7 @@
     const bubble=doc.createElement("div");bubble.id="bl-widget-speech";bubble.className="bl-widget-speech";bubble.hidden=true;bubble.setAttribute("role","tooltip");region.append(bubble);
     const appNames={"sales-tracker":"Sales Tracker","price-tag-generator":"PTG","megaframe-studio":"MegaFrame","flyer-studio":"MegaFlyer",workspace:"Branchline"};
     const events=new root.AbortController();const listenerOptions={signal:events.signal};
-    let bubbleAnchor=null,bubbleKey="",bubbleTimer=0,bubbleExpiry=0,touchPreview=null,suppressTouchClickUntil=0;
+    let bubbleAnchor=null,originalDescription=null,bubbleKey="",bubbleTimer=0,bubbleExpiry=0,touchPreview=null,suppressTouchClickUntil=0;
     function messageFor(key){
       let context="workspace";try{context=options.getContext?.()||"workspace";}catch{}
       const name=appNames[context]||"Branchline";
@@ -98,7 +98,7 @@
     function canSpeak(){return preferences.bubbles&&!disposed&&!busy&&!collapsed&&!active&&!settings.open&&releaseSlot?.querySelector(".bl-update-bell")?.getAttribute("aria-expanded")!=="true";}
     function hideBubble(){
       root.clearTimeout(bubbleTimer);root.clearTimeout(bubbleExpiry);bubbleTimer=bubbleExpiry=0;
-      if(bubbleAnchor){bubbleAnchor.removeAttribute("aria-describedby");bubbleAnchor=null;}
+      if(bubbleAnchor){if(originalDescription===null)bubbleAnchor.removeAttribute("aria-describedby");else bubbleAnchor.setAttribute("aria-describedby",originalDescription);bubbleAnchor=null;originalDescription=null;}
       bubble.hidden=true;bubbleKey="";
     }
     function placeBubble(){
@@ -115,7 +115,7 @@
     }
     function showBubble(key,anchor,touch=false){
       if(!canSpeak()||!anchor.isConnected||!anchor.getClientRects().length)return;
-      hideBubble();bubbleAnchor=anchor;bubbleKey=key;bubble.textContent=messageFor(key);bubble.hidden=false;anchor.setAttribute("aria-describedby",bubble.id);placeBubble();
+      hideBubble();bubbleAnchor=anchor;originalDescription=anchor.getAttribute("aria-describedby");bubbleKey=key;bubble.textContent=messageFor(key);bubble.hidden=false;anchor.setAttribute("aria-describedby",[originalDescription,bubble.id].filter(Boolean).join(" "));placeBubble();
       if(touch)bubbleExpiry=root.setTimeout(hideBubble,2400);
     }
     function bindSpeech(key,anchor){

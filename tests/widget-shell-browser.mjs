@@ -26,6 +26,19 @@ try{
   await page.waitForFunction(()=>[...document.querySelectorAll("#bl-floating-widgets img")].length===3&&[...document.querySelectorAll("#bl-floating-widgets img")].every(img=>img.complete&&img.naturalWidth>0));
   const toggle=page.locator(".bl-widget-collapse");assert.equal(await toggle.locator("svg").count(),1);assert.equal(await toggle.innerText(),"");const headerBounds=await page.locator(".connected-topbar").boundingBox(),toggleBounds=await toggle.boundingBox();assert.ok(toggleBounds.y>=headerBounds.y+headerBounds.height);assert.ok(toggleBounds.y<headerBounds.y+headerBounds.height+20);
   await page.locator(".bl-widget-settings summary").click();const settings=page.locator(".bl-widget-settings-panel");await settings.getByLabel("Position").selectOption("left");await page.waitForFunction(()=>document.querySelector(".bl-widget-collapse").getBoundingClientRect().left<30);await settings.getByLabel("Icon size").selectOption("small");assert.equal(await page.locator(".bl-widget-assistant").evaluate(el=>el.offsetWidth),44);await settings.getByLabel("Enable animations").uncheck();assert.equal(await page.locator("html").getAttribute("data-bl-widget-motion"),"off");assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("branchline.widgets.preferences.v2")).side),"left");await settings.getByRole("button",{name:"Reset to upper right"}).click();await page.locator(".bl-widget-settings summary").click();await page.waitForFunction(()=>document.querySelector(".bl-widget-collapse").getBoundingClientRect().right>innerWidth-30);if(viewport.width>640){const b=await toggle.boundingBox();await page.mouse.move(b.x+b.width/2,b.y+b.height/2);await page.mouse.down();await page.mouse.move(30,b.y+b.height/2+25,{steps:10});await page.mouse.up();await page.waitForFunction(()=>document.documentElement.dataset.blWidgetSide==="left");assert.equal(await toggle.getAttribute("aria-expanded"),"true");await page.locator(".bl-widget-settings summary").click();await settings.getByRole("button",{name:"Reset to upper right"}).click();await page.locator(".bl-widget-settings summary").click();}
+  const speech=page.locator("#bl-widget-speech"),assistant=page.getByRole("button",{name:"Branchline Assistant"}),guide=page.getByRole("button",{name:"Branchline Guide"}),bell=page.getByRole("button",{name:"Software update notifications"});
+  await assistant.hover();await speech.waitFor();assert.match(await speech.textContent(),/Hi! Need help with Sales Tracker/);assert.equal(await page.locator(".bl-help-panel").isVisible(),false);
+  let ab=await assistant.boundingBox(),sb=await speech.boundingBox();assert.ok(sb.x>=0&&sb.x+sb.width<ab.x);
+  await guide.hover();await speech.waitFor();assert.match(await speech.textContent(),/quick guide/);assert.equal(await page.locator("#bl-widget-speech").count(),1);
+  await bell.hover();await speech.waitFor();assert.match(await speech.textContent(),/announcements/);
+  await page.mouse.move(40,viewport.height-25);await speech.waitFor({state:"hidden"});
+  await page.evaluate(()=>document.querySelector(".bl-widget-assistant").dispatchEvent(new PointerEvent("pointerdown",{pointerType:"touch",pointerId:101,isPrimary:true,clientX:100,clientY:100,bubbles:true})));
+  await speech.waitFor();assert.match(await speech.textContent(),/Sales Tracker/);
+  await page.evaluate(()=>{const b=document.querySelector(".bl-widget-assistant");b.dispatchEvent(new PointerEvent("pointerup",{pointerType:"touch",pointerId:101,isPrimary:true,bubbles:true}));b.click();});assert.equal(await page.locator(".bl-help-panel").isVisible(),false);
+  await speech.waitFor({state:"hidden"});
+  await page.keyboard.press("Tab");await page.locator(".bl-widget-settings summary").click();await settings.getByLabel("Hover speech bubbles").uncheck();await page.locator(".bl-widget-settings summary").click();
+  await assistant.hover();await page.waitForTimeout(350);assert.equal(await speech.isVisible(),false);
+  await page.locator(".bl-widget-settings summary").click();await settings.getByRole("button",{name:"Reset to upper right"}).click();await page.locator(".bl-widget-settings summary").click();
   await page.getByRole("textbox",{name:"Unsaved work"}).fill("Preserve this");
   await page.getByRole("button",{name:"Branchline Guide"}).click();
   const panel=page.locator(".bl-help-panel");
@@ -48,6 +61,7 @@ try{
   await page.keyboard.press("Escape");assert.equal(await panel.isVisible(),false);
   await page.evaluate(()=>BranchlineReleaseUpdates.setAnnouncements("fixture-manager",[{id:"memo-1",title:"New memo",body:"Memo 123 · Example Brand · Nov 25–30"},{id:"reminder-1",title:"Reminder",body:"<img src=x onerror=alert(1)>"}]));
   await page.waitForFunction(()=>document.querySelector(".bl-update-bell").dataset.unreadCount==="2");
+  await bell.hover();await speech.waitFor();assert.match(await speech.textContent(),/something new/);await page.mouse.move(40,viewport.height-25);await speech.waitFor({state:"hidden"});
   await page.waitForFunction(()=>document.querySelector(".bl-update-bell").classList.contains("bl-widget-ringing"));assert.equal(await page.locator(".bl-update-bell").evaluate(b=>getComputedStyle(b,":after").content),'""');assert.equal(await page.locator(".bl-update-bell").evaluate(b=>getComputedStyle(b,":after").width),"13px");
   await page.waitForFunction(()=>!document.querySelector(".bl-update-bell").classList.contains("bl-widget-ringing"));
   await page.evaluate(()=>BranchlineReleaseUpdates.setAnnouncements("fixture-manager",[{id:"memo-1",title:"New memo",body:"Memo 123 · Example Brand · Nov 25–30"},{id:"reminder-1",title:"Reminder",body:"<img src=x onerror=alert(1)>"}]));
@@ -57,7 +71,7 @@ try{
   assert.equal(await page.locator(".bl-update-bell").getAttribute("data-unread-count"),"2","New ID rings even when count is unchanged");
   await toggle.click();await page.waitForFunction(()=>document.querySelector(".bl-widget-toggle-badge").textContent===""&&!document.querySelector(".bl-widget-toggle-badge").hidden);await toggle.click();
   await page.getByRole("button",{name:"Software update notifications"}).click();
-  await page.getByRole("button",{name:"Check for updates"}).waitFor();
+  await page.getByRole("button",{name:"Check for updates"}).waitFor();await bell.hover();await page.waitForTimeout(350);assert.equal(await speech.isVisible(),false);
   assert.equal(await page.locator(".bl-announcement-list article").count(),2);
   assert.equal(await page.locator(".bl-announcement-list img").count(),0);
   await page.locator(".bl-announcement-list summary").first().click();await page.waitForFunction(()=>document.querySelector(".bl-update-bell").dataset.unreadCount==="1");
