@@ -4,7 +4,7 @@ import {chromium} from "playwright";
 const origin="https://kzamora19.github.io",revision=2026112416;
 const read=p=>readFileSync(new URL("../"+p,import.meta.url),"utf8");
 const names=["floating-widgets","guide-content","help-panel","widget-shell"];
-const assets=Object.fromEntries(["assistant","announcements","guide"].map(k=>[k,"/branchline/widgets/assets/"+k+".svg"]));
+const assets={assistant:"/branchline/widgets/assets/assistant.webp",announcements:"/branchline/widgets/assets/announcements.svg",guide:"/branchline/widgets/assets/guide.svg"};
 const browser=await chromium.launch({headless:true});
 try{
  for(const viewport of [{width:1280,height:800},{width:390,height:844}]){
@@ -14,7 +14,7 @@ try{
    if(p==="/branchline/")return route.fulfill({contentType:"text/html",body:'<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/branchline/updates/check.css"><link rel="stylesheet" href="/branchline/widgets/floating-widgets.css"><link rel="stylesheet" href="/branchline/widgets/help-panel.css"><textarea aria-label="Unsaved work"></textarea><script defer src="/branchline/updates/check.js" data-sequence="'+revision+'"></script>'+names.map(n=>'<script defer src="/branchline/widgets/'+n+'.js"></script>').join("")});
    if(p.endsWith("release.json"))return route.fulfill({json:{schema:1,channel:"production",app:"sales",sequence:revision}});
    if(p.endsWith("index.json"))return route.fulfill({json:{schema:1,channel:"production",workspaceVersion:"fixture",modules:[{app:"sales",sequence:revision}]}});
-   if(p.includes("/assets/"))return route.fulfill({contentType:"image/svg+xml",body:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="20" fill="#2460bc"/></svg>'});
+   if(Object.values(assets).includes(p))return route.fulfill({contentType:p.endsWith(".webp")?"image/webp":"image/svg+xml",body:readFileSync(new URL("../"+p.replace("/branchline/",""),import.meta.url))});
    if(p.endsWith(".js")||p.endsWith(".css"))return route.fulfill({contentType:p.endsWith(".js")?"application/javascript":"text/css",body:read(p.replace("/branchline/",""))});
    return route.fulfill({status:404,body:""});
   });
@@ -23,6 +23,7 @@ try{
   await page.waitForFunction(()=>window.BranchlineReleaseUpdates&&window.BranchlineWidgetShell);
   await page.evaluate(assets=>{window.shell=window.BranchlineWidgetShell.start({assets});},assets);
   if(viewport.width<640)await page.getByRole("button",{name:"Show widgets"}).click();
+  await page.waitForFunction(()=>[...document.querySelectorAll("#bl-floating-widgets img")].length===3&&[...document.querySelectorAll("#bl-floating-widgets img")].every(img=>img.complete&&img.naturalWidth>0));
   await page.getByRole("textbox",{name:"Unsaved work"}).fill("Preserve this");
   await page.getByRole("button",{name:"Branchline Guide"}).click();
   const panel=page.locator(".bl-help-panel");
