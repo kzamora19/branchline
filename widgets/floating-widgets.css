@@ -12,3 +12,6 @@
 @media(max-width:640px){.bl-floating-widgets{right:max(8px,env(safe-area-inset-right));bottom:max(10px,env(safe-area-inset-bottom))}.bl-floating-widgets .bl-widget-button{width:52px;height:52px}}
 @media(prefers-reduced-motion:reduce){.bl-widget-button{transition:none!important;transform:none!important}}
 @media print{.bl-floating-widgets{display:none!important}}
+
+/* Subtle one-shot feedback; no animation if reduced motion is requested. */
+@media(prefers-reduced-motion:no-preference){.bl-widget-assistant:hover img{animation:bl-mascot-greet .55s ease-in-out}@keyframes bl-mascot-greet{0%,100%{transform:translateY(0) rotate(0)}45%{transform:translateY(-4px) rotate(-7deg)}70%{transform:translateY(-2px) rotate(4deg)}}.bl-release-floating .bl-update-bell.has-update img{animation:bl-bell-arrival .6s ease-in-out 1}@keyframes bl-bell-arrival{0%,100%{transform:rotate(0)}25%{transform:rotate(-12deg)}75%{transform:rotate(12deg)}}}

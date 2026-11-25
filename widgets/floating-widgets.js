@@ -6,7 +6,7 @@
   function assetURL(value,base){
     if(typeof value!=="string"||!value.trim())throw new TypeError("Widget artwork required");
     const url=new URL(value,base);
-    if(url.origin!==new URL(base).origin||!url.pathname.startsWith("/branchline/widgets/assets/")||!(/\.(png|webp|svg)$/i.test(url.pathname)))throw new TypeError("Invalid widget artwork");
+    if(url.origin!==new URL(base).origin||!(/^\/(?:branchline|first-megasaver-ptg|megaframe-studio\/studio|flyer-studio\/studio)\/widgets\/assets\//.test(url.pathname))||!(/\.(png|webp|svg)$/i.test(url.pathname)))throw new TypeError("Invalid widget artwork");
     return url.href;
   }
   function mount(options){

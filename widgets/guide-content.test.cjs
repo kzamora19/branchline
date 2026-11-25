@@ -23,3 +23,5 @@ test("all steps are immutable plain text; PTG overview explicitly limited",()=>{
 });
 
 test("assistant applies application filter before ranking",()=>{assert.ok(guide.answer("backup","megaframe-studio","flyer-studio").every(e=>e.app==="flyer-studio"));assert.equal(guide.answer("backup","megaframe-studio","flyer-studio")[0]?.id,"flyer-backup");});
+
+test("mobile launcher home uses workspace context",()=>assert.equal(guide.contextFor("/first-megasaver-ptg/workspace/mobile/"),"workspace"));

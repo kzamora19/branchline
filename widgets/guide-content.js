@@ -20,6 +20,7 @@ function contextFor(path,search=""){
  if(path.startsWith("/megaframe-studio/"))return "megaframe-studio";
  if(path.startsWith("/flyer-studio/"))return "flyer-studio";
  if(path.startsWith("/first-megasaver-ptg/")){
+  if(path.startsWith("/first-megasaver-ptg/workspace/mobile"))return "workspace";
   if(path.startsWith("/first-megasaver-ptg/studios/")){
    const s=new URLSearchParams(search).get("studio");
    if(s==="megaframe")return "megaframe-studio";if(s==="flyer")return "flyer-studio";
