@@ -45,5 +45,12 @@ function create(root,options={}){
 }
 const api={ASSETS,eligible,create};
 if(typeof module==="object"&&module.exports)module.exports=api;
-else root.BranchlineWidgetBootstrap=Object.freeze(api);
+else{
+ root.BranchlineWidgetBootstrap=Object.freeze(api);
+ const script=root.document.currentScript;
+ if(script?.hasAttribute("data-enable-widgets")&&root.location.origin==="https://kzamora19.github.io"){
+  const run=()=>{const boot=create(root);root.BranchlineWidgetRuntime=boot;boot.watch();};
+  if(root.document.readyState==="complete")run();else root.addEventListener("load",run,{once:true});
+ }
+}
 })(typeof window!=="undefined"?window:globalThis);
