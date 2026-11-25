@@ -3,7 +3,7 @@ import {readFileSync} from "node:fs";
 import {chromium} from "playwright";
 const origin="https://kzamora19.github.io",revision=2026112416;
 const read=p=>readFileSync(new URL("../"+p,import.meta.url),"utf8");
-const names=["floating-widgets","guide-content","help-panel","widget-shell"];
+const names=["floating-widgets","guide-content","help-panel","widget-shell","widget-bootstrap"];
 const assets={assistant:"/branchline/widgets/assets/assistant.webp",announcements:"/branchline/widgets/assets/announcements.svg",guide:"/branchline/widgets/assets/guide.svg"};
 const browser=await chromium.launch({headless:true});
 try{
@@ -11,7 +11,7 @@ try{
   const context=await browser.newContext({viewport,serviceWorkers:"block"});
   await context.route("**/*",route=>{
    const u=new URL(route.request().url()),p=u.pathname;assert.equal(u.origin,origin);
-   if(p==="/branchline/")return route.fulfill({contentType:"text/html",body:'<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/branchline/updates/check.css"><link rel="stylesheet" href="/branchline/widgets/floating-widgets.css"><link rel="stylesheet" href="/branchline/widgets/help-panel.css"><textarea aria-label="Unsaved work"></textarea><script defer src="/branchline/updates/check.js" data-sequence="'+revision+'"></script>'+names.map(n=>'<script defer src="/branchline/widgets/'+n+'.js"></script>').join("")});
+   if(p==="/branchline/")return route.fulfill({contentType:"text/html",body:'<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/branchline/updates/check.css"><link rel="stylesheet" href="/branchline/widgets/floating-widgets.css"><link rel="stylesheet" href="/branchline/widgets/help-panel.css"><main id="connected-shell"><textarea aria-label="Unsaved work"></textarea></main><script defer src="/branchline/updates/check.js" data-sequence="'+revision+'"></script>'+names.map(n=>'<script defer src="/branchline/widgets/'+n+'.js"></script>').join("")});
    if(p.endsWith("release.json"))return route.fulfill({json:{schema:1,channel:"production",app:"sales",sequence:revision}});
    if(p.endsWith("index.json"))return route.fulfill({json:{schema:1,channel:"production",workspaceVersion:"fixture",modules:[{app:"sales",sequence:revision}]}});
    if(Object.values(assets).includes(p))return route.fulfill({contentType:p.endsWith(".webp")?"image/webp":"image/svg+xml",body:readFileSync(new URL("../"+p.replace("/branchline/",""),import.meta.url))});
@@ -55,6 +55,23 @@ try{
   assert.equal(await page.locator(".bl-update-bell").count(),1);
   assert.equal(await page.getByRole("textbox",{name:"Unsaved work"}).inputValue(),"Preserve this");
   assert.deepEqual(errors,[]);
+  await page.evaluate(()=>{window.boot=window.BranchlineWidgetBootstrap.create(window);});
+  assert.equal(await page.evaluate(()=>boot.sync()),true);
+  await page.locator("#bl-floating-widgets").waitFor();
+  assert.equal(await page.locator(".bl-update-bell").count(),1);
+  await page.evaluate(()=>boot.dispose());
+  assert.equal(await page.locator("#bl-floating-widgets").count(),0);
+  assert.equal(await page.locator(".bl-update-bell").count(),1);
+  await page.evaluate(()=>{document.querySelector("#connected-shell").hidden=true;window.boot2=window.BranchlineWidgetBootstrap.create(window);});
+  assert.equal(await page.evaluate(()=>boot2.sync()),false);
+  await page.evaluate(()=>{document.querySelector("#connected-shell").hidden=false;document.documentElement.classList.add("bl-parent-bell");});
+  assert.equal(await page.evaluate(()=>boot2.sync()),false);
+  await page.evaluate(()=>{document.documentElement.classList.remove("bl-parent-bell");boot2.dispose();});
+  await page.evaluate(()=>{window.boot3=window.BranchlineWidgetBootstrap.create(window,{assets:{assistant:"/branchline/widgets/assets/missing.webp",announcements:"/branchline/widgets/assets/announcements.svg",guide:"/branchline/widgets/assets/guide.svg"}});});
+  assert.equal(await page.evaluate(()=>boot3.sync()),false);
+  assert.equal(await page.locator(".bl-update-bell").count(),1);
+  assert.equal(await page.locator(".bl-release-floating").count(),0);
+  await page.evaluate(()=>boot3.dispose());
   await context.close();console.log("PASS shared guide assistant updater shell",viewport.width);
  }
 }finally{await browser.close();}
