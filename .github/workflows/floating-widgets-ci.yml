@@ -25,6 +25,7 @@ jobs:
           node --check updates/check.js
           node --check widgets/guide-content.js
           node --check widgets/help-panel.js
+          node --check widgets/widget-shell.js
           node --test widgets/floating-widgets.test.cjs widgets/guide-content.test.cjs tests/web-release.test.cjs
       - name: Install browser dependencies
         run: |
@@ -34,3 +35,4 @@ jobs:
         run: |
           node tests/web-release-browser.mjs
           node tests/floating-widgets-browser.mjs
+          node tests/widget-shell-browser.mjs
