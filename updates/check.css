@@ -31,3 +31,5 @@ html.bl-parent-bell #bl-update-dropdown{position:fixed;top:8px;right:8px}
 @media(prefers-reduced-motion:reduce){.bl-release-floating .bl-update-bell{transition:none;transform:none!important}}
 
 .bl-release-floating .bl-update-dropdown{pointer-events:auto}
+
+.bl-app-announcements{flex-basis:100%;min-width:0;border-top:1px solid #6682a4;padding-top:10px}.bl-announcement-list{display:grid;gap:8px;margin:8px 0}.bl-announcement-list article{border:1px solid #58799d;border-radius:8px;padding:9px;background:#1a3657;color:white}.bl-announcement-list p{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}.bl-release-floating .bl-update-bell.has-notices:after,.bl-release-floating .bl-update-bell.has-update:after{content:attr(data-unread-count);display:grid;place-items:center;top:0;right:0;min-width:21px;width:auto;height:21px;padding:0 3px;box-sizing:border-box;border:2px solid #fff;border-radius:999px;background:#dc2626;color:#fff;font:700 11px/1 system-ui,sans-serif}
