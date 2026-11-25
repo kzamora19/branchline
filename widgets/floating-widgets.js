@@ -23,25 +23,30 @@
     const collapse=doc.createElement("button");collapse.type="button";collapse.className="bl-widget-collapse";
     collapse.setAttribute("aria-controls",controls.id);
     const labels={assistant:"Branchline Assistant",announcements:"Announcements & Updates",guide:"Branchline Guide"};
-    const buttons={};let active=null,collapsed=false,busy=false,disposed=false;
+    const buttons={};const release=options.releaseUpdates||null;let releaseSlot=null,active=null,collapsed=false,busy=false,disposed=false;
     function render(){
       controls.hidden=collapsed||busy;
       collapse.hidden=busy;
       collapse.textContent=collapsed?"Show widgets":"Hide widgets";
       collapse.setAttribute("aria-expanded",String(!collapsed));
-      for(const key of TYPES)buttons[key].setAttribute("aria-expanded",String(active===key));
+      for(const key of TYPES)buttons[key]?.setAttribute("aria-expanded",String(active===key));
     }
     function close(){
       if(active!==null){const old=active;active=null;options.onClose?.(old);render();}
     }
     function setCollapsed(value){
       collapsed=Boolean(value);
-      if(collapsed)close();
+      if(collapsed){close();release?.close();}
       render();
     }
-    function setBusy(value){busy=Boolean(value);if(busy)close();render();}
+    function setBusy(value){busy=Boolean(value);if(busy){close();release?.close();}render();}
     let badge;
     for(const key of TYPES){
+      if(key==="announcements"&&release){
+        releaseSlot=doc.createElement("div");releaseSlot.className="bl-widget-release-slot";
+        releaseSlot.addEventListener("click",e=>{if(e.target.closest(".bl-update-bell"))close();},true);
+        controls.append(releaseSlot);continue;
+      }
       const b=doc.createElement("button");b.type="button";b.className="bl-widget-button bl-widget-"+key;
       b.setAttribute("aria-label",labels[key]);b.title=labels[key];
       const img=doc.createElement("img");img.src=assets[key];img.alt="";img.draggable=false;
@@ -51,6 +56,7 @@
       }
       b.addEventListener("click",()=>{
         if(disposed||busy)return;
+        release?.close();
         if(active===key){close();return;}
         close();active=key;render();
         try{options.onOpen(key,b);}catch(error){active=null;render();throw error;}
@@ -58,6 +64,7 @@
       buttons[key]=b;controls.append(b);
     }
     function setUnread(n){
+      if(release)return false; // The existing updater owns its real availability state.
       const label=unreadLabel(n);badge.textContent=label;badge.hidden=!label;
       buttons.announcements.setAttribute("aria-label",labels.announcements+(label?", "+label+" unread":""));
     }
@@ -66,10 +73,15 @@
     collapse.addEventListener("click",()=>setCollapsed(!collapsed));
     const escape=e=>{if(e.key==="Escape"&&active!==null){const key=active;close();buttons[key].focus();}};
     doc.addEventListener("keydown",escape);
-    region.append(controls,collapse);host.append(region);render();setUnread(0);
+    region.append(controls,collapse);host.append(region);
+    if(release){
+      try{if(!release.attachFloating(releaseSlot,assets.announcements))throw Error("Existing release bell cannot be relocated in this host");}
+      catch(error){doc.removeEventListener("keydown",escape);region.remove();throw error;}
+    }
+    render();setUnread(0);
     return Object.freeze({setUnread,setCollapsed,setBusy,close,dispose(){
       if(disposed)return;disposed=true;
-      try{close();}finally{doc.removeEventListener("keydown",escape);region.remove();}
+      try{close();}finally{try{release?.detachFloating();}finally{doc.removeEventListener("keydown",escape);region.remove();}}
     }});
   }
   const api={mount,unreadLabel,assetURL};
