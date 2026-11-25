@@ -32,7 +32,7 @@
     let observedHeader=null;
     function position(){positionFrame=0;const header=currentHeader();if(header!==observedHeader){headerObserver?.disconnect();if(header)headerObserver?.observe(header);observedHeader=header;}const bottom=header?Math.max(0,header.getBoundingClientRect().bottom):56;doc.documentElement.style.setProperty("--bl-widget-top",Math.round(bottom+10)+"px");}
     function queuePosition(){if(!positionFrame)positionFrame=root.requestAnimationFrame(position);}
-    function syncBadge(){const bell=releaseSlot?.querySelector(".bl-update-bell");if(bell)countLabel=bell.dataset.unreadCount|| (bell.classList.contains("has-update")?"1":"");toggleBadge.textContent=countLabel;toggleBadge.hidden=!collapsed||!countLabel;collapse.setAttribute("aria-label",(collapsed?"Show widgets":"Hide widgets")+(collapsed&&countLabel?", "+countLabel+" unread":""));}
+    function syncBadge(){const bell=releaseSlot?.querySelector(".bl-update-bell");if(bell)countLabel=bell.dataset.unreadCount|| (bell.classList.contains("has-update")?"1":"");if(toggleBadge.textContent!==countLabel)toggleBadge.textContent=countLabel;const hide=!collapsed||!countLabel;if(toggleBadge.hidden!==hide)toggleBadge.hidden=hide;const label=(collapsed?"Show widgets":"Hide widgets")+(collapsed&&countLabel?", "+countLabel+" unread":"");if(collapse.getAttribute("aria-label")!==label)collapse.setAttribute("aria-label",label);}
 
     const labels={assistant:"Branchline Assistant",announcements:"Announcements & Updates",guide:"Branchline Guide"};
     const buttons={};const release=options.releaseUpdates||null;let releaseSlot=null,active=null,collapsed=false,busy=false,disposed=false;
@@ -92,7 +92,7 @@
       try{if(!release.attachFloating(releaseSlot,assets.announcements))throw Error("Existing release bell cannot be relocated in this host");}
       catch(error){doc.removeEventListener("keydown",escape);region.remove();throw error;}
     }
-    if(releaseSlot){badgeObserver=new root.MutationObserver(syncBadge);badgeObserver.observe(releaseSlot,{subtree:true,attributes:true,attributeFilter:["class","data-unread-count"],childList:true});}
+    const releaseBell=releaseSlot?.querySelector(".bl-update-bell");if(releaseBell){badgeObserver=new root.MutationObserver(syncBadge);badgeObserver.observe(releaseBell,{attributes:true,attributeFilter:["class","data-unread-count"]});}
     if(root.ResizeObserver)headerObserver=new root.ResizeObserver(queuePosition);layoutObserver=new root.MutationObserver(queuePosition);layoutObserver.observe(doc.body,{childList:true,subtree:true});root.addEventListener("resize",queuePosition);root.addEventListener("scroll",queuePosition,true);position();
     render();setUnread(0);
     return Object.freeze({setUnread,setCollapsed,setBusy,close,dispose(){
