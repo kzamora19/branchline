@@ -32,12 +32,12 @@ function searchEntries(query="",app="all"){
  const terms=String(query).toLowerCase().match(/[a-z0-9]+/g)||[];
  return entries.filter(e=>(app==="all"||e.app===app)&&terms.every(t=>[e.title,e.keywords,names[e.app],...e.steps].join(" ").toLowerCase().includes(t)));
 }
-function answer(query,app){
+function answer(query,app,filter="all"){
  const words=String(query).toLowerCase().match(/[a-z0-9]+/g)||[];
  const stop=new Set(["how","do","i","can","to","a","an","the","my","in","is","what","where","please","you","me","for","of","and"]);
  const terms=[...new Set(words.filter(w=>!stop.has(w)))];
  if(!terms.length)return [];
- return entries.map(e=>{
+ return entries.filter(e=>filter==="all"||e.app===filter).map(e=>{
   const title=e.title.toLowerCase(),keywords=e.keywords.toLowerCase(),body=e.steps.join(" ").toLowerCase();
   let score=0;for(const t of terms)score+=title.includes(t)?4:keywords.includes(t)?3:body.includes(t)?1:0;
   return {entry:e,score:score?(score+(e.app===app?2:0)):0};
