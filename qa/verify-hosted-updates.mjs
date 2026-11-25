@@ -28,6 +28,8 @@ async function verify(){
   const base=m.manifest.replace(/updates\/release[.]json$/,"widgets/");
   const [widget,style,help,updateStyle]=await Promise.all([fetchText(base+"floating-widgets.js?v="+r.sequence),fetchText(base+"floating-widgets.css?v="+r.sequence),fetchText(base+"help-panel.js?v="+r.sequence),fetchText(asset.replace(/check[.]js$/,"check.css")+"?v="+r.sequence)]);
   assert.ok(widget.includes("bl-widget-ringing")&&widget.includes("normalizePreferences"),m.app+" widget 2.0 missing");
+  assert.ok(widget.includes("bl-widget-speech")&&widget.includes("bindSpeech"),m.app+" speech bubble behavior missing");
+  assert.ok(style.includes("bl-widget-speech")&&style.includes("bl-speech-in"),m.app+" speech bubble styles missing");
   assert.ok(style.includes("bl-bell-ring-v2")&&style.includes("--bl-widget-top"),m.app+" widget styles missing");
   assert.ok(help.includes("Start walkthrough")&&help.includes("bl-guide-highlight"),m.app+" guide missing");
   assert.ok(updateStyle.includes("Unread marker is deliberately a small red dot"),m.app+" red dot styles missing");

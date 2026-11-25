@@ -2,6 +2,6 @@
   "schema": 1,
   "channel": "production",
   "app": "sales",
-  "sequence": 2026112502,
-  "label": "Web release 2026.11.25.2"
+  "sequence": 2026112503,
+  "label": "Web release 2026.11.25.3"
 }
