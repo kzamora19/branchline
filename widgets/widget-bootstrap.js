@@ -24,9 +24,9 @@ function create(root,options={}){
   if(!isEligible()||!isWorkspaceVisible()){if(controller){controller.dispose();controller=null;}return false;}
   if(controller)return true;
   if(starting)return starting;
+  if(!root.BranchlineWidgetShell||!root.BranchlineReleaseUpdates)return false;
   starting=(async()=>{
    try{
-    if(!root.BranchlineWidgetShell||!root.BranchlineReleaseUpdates)return false;
     await preload(root,options.assets||ASSETS);
     if(disposed||!isEligible()||!isWorkspaceVisible())return false;
     controller=root.BranchlineWidgetShell.start({assets:options.assets||ASSETS});return true;
