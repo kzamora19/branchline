@@ -51,8 +51,8 @@
     motion.addEventListener("change",()=>{preferences.motion=motion.checked;applyPreferences(true);});
     reset.addEventListener("click",()=>{preferences={...DEFAULTS};applyPreferences(true);});
     let drag=null,skipClick=false;
-    collapse.addEventListener("pointerdown",e=>{if(e.button!==0||!e.isPrimary)return;drag={id:e.pointerId,x:e.clientX,y:e.clientY,offset:preferences.offset,moved:false};});
-    collapse.addEventListener("pointermove",e=>{if(!drag||drag.id!==e.pointerId)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(!drag.moved&&Math.hypot(dx,dy)<8)return;if(!drag.moved){drag.moved=true;collapse.setPointerCapture?.(e.pointerId);close();release?.close();settings.open=false;}preferences.side=e.clientX<root.innerWidth/2?"left":"right";preferences.offset=Math.max(0,Math.min(600,drag.offset+dy));applyPreferences();});
+    collapse.addEventListener("pointerdown",e=>{if(e.button!==0||!e.isPrimary)return;drag={id:e.pointerId,x:e.clientX,y:e.clientY,offset:preferences.offset,moved:false};collapse.setPointerCapture?.(e.pointerId);});
+    collapse.addEventListener("pointermove",e=>{if(!drag||drag.id!==e.pointerId)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(!drag.moved&&Math.hypot(dx,dy)<8)return;if(!drag.moved){drag.moved=true;close();release?.close();settings.open=false;}preferences.side=e.clientX<root.innerWidth/2?"left":"right";preferences.offset=Math.max(0,Math.min(600,drag.offset+dy));applyPreferences();});
     function endDrag(e){if(!drag||drag.id!==e.pointerId)return;if(drag.moved){skipClick=true;applyPreferences(true);root.setTimeout(()=>{skipClick=false;},0);}drag=null;}
     collapse.addEventListener("pointerup",endDrag);collapse.addEventListener("pointercancel",endDrag);
     let countLabel="",badgeObserver=null,headerObserver=null,layoutObserver=null,positionFrame=0;
