@@ -40,6 +40,7 @@ try{
   sequence=running+1;
   await page.getByRole("button",{name:"Check for updates"}).click();
   await page.locator(".bl-update-bell.has-update").waitFor();
+  await page.waitForFunction(()=>document.querySelector(".bl-update-bell").dataset.unreadCount==="1");
   assert.equal(await page.locator(".bl-update-bell").evaluate(b=>getComputedStyle(b,":after").content),'"1"');
   assert.equal(checks,2);
   await page.getByRole("button",{name:"Branchline Guide"}).click();

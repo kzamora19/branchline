@@ -56,7 +56,7 @@
     const noticeList=doc.createElement("div");noticeList.className="bl-announcement-list";
     const markRead=doc.createElement("button");markRead.type="button";markRead.textContent="Mark announcements read";
     noticeSection.append(noticeHeading,noticeList,markRead);panel.append(noticeSection);
-    let noticeScope=null,notices=[],seen=new Set();
+    let noticeScope=null,notices=[],seen=new Set(),expandedNotices=new Set();
     function badgeCount(){
       const count=notices.filter(item=>!seen.has(item.id)).length+(bell.classList.contains("has-update")?1:0);
       const label=count>99?"99+":String(count);
@@ -68,20 +68,22 @@
     function drawNotices(){
       noticeList.replaceChildren();noticeSection.hidden=notices.length===0;
       for(const item of notices){
-        const card=doc.createElement("article");const heading=doc.createElement("strong"),body=doc.createElement("p");
-        heading.textContent=item.title;body.textContent=item.body;card.append(heading,body);noticeList.append(card);
+        const card=doc.createElement("article"),details=doc.createElement("details"),heading=doc.createElement("summary"),body=doc.createElement("p");
+        heading.textContent=item.title;body.textContent=item.body;details.open=expandedNotices.has(item.id);details.append(heading,body);card.append(details);noticeList.append(card);
+        if(!seen.has(item.id))card.dataset.unread="true";
+        details.addEventListener("toggle",()=>{if(details.open){expandedNotices.add(item.id);seen.add(item.id);delete card.dataset.unread;markRead.disabled=!notices.some(n=>!seen.has(n.id));badgeCount();}else expandedNotices.delete(item.id);});
       }
       markRead.disabled=!notices.some(item=>!seen.has(item.id));badgeCount();
     }
     function setAnnouncements(scope,items){
-      if(typeof scope!=="string"||!scope||!Array.isArray(items)){noticeScope=null;notices=[];seen.clear();drawNotices();return;}
-      if(scope!==noticeScope){noticeScope=scope;seen.clear();}
+      if(typeof scope!=="string"||!scope||!Array.isArray(items)){noticeScope=null;notices=[];seen.clear();expandedNotices.clear();drawNotices();return;}
+      if(scope!==noticeScope){noticeScope=scope;seen.clear();expandedNotices.clear();}
       const unique=new Map();
       for(const row of items.slice(0,40)){
         if(!row||typeof row.id!=="string"||!row.id||typeof row.title!=="string"||!row.title||typeof row.body!=="string")continue;
         const id=row.id.slice(0,240);unique.set(id,{id,title:row.title.slice(0,180),body:row.body.slice(0,3500)});
       }
-      notices=[...unique.values()];seen=new Set([...seen].filter(id=>unique.has(id)));drawNotices();
+      notices=[...unique.values()];seen=new Set([...seen].filter(id=>unique.has(id)));expandedNotices=new Set([...expandedNotices].filter(id=>unique.has(id)));drawNotices();
     }
     markRead.addEventListener("click",()=>{for(const item of notices)seen.add(item.id);drawNotices();});
     const badgeObserver=new MutationObserver(badgeCount);badgeObserver.observe(bell,{attributes:true,attributeFilter:["class"]});badgeCount();
