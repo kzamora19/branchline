@@ -221,6 +221,7 @@
   }
 
   function clearWorkspace() {
+    window.BranchlineReleaseUpdates?.clearAnnouncements?.();
     document.querySelector("[data-calendar-daily-notices]")?.remove();
     parkAccountControls();
     loadSequence += 1;
@@ -273,6 +274,7 @@
   }
 
   function showProfileError(message) {
+    window.BranchlineReleaseUpdates?.clearAnnouncements?.();
     currentProfile = null;
     liveData = null;
     resultsView = null;
@@ -2065,6 +2067,33 @@
     if (requested && !demoStore && rolePageAllowed(requested)) activePage = requested;
   }
 
+  // Reuse only the role-scoped Sales Tracker data already loaded for this user.
+  function syncFloatingAnnouncements() {
+    const updater = window.BranchlineReleaseUpdates;
+    if (!updater?.setAnnouncements) return;
+    if (!currentProfile || !liveData || demoStore || currentSession?.user?.id !== currentProfile.id) {
+      updater.clearAnnouncements(); return;
+    }
+    const notices = [], ids = scopeBranchIds(), date = localISODate();
+    for (const row of (liveData.calendar?.error ? [] : liveData.calendar?.events || [])) {
+      if (row.cancelled_at || !window.BranchlineAnalytics.calendarOccursOn(row,date)
+          || (row.branch_ids?.length && !row.branch_ids.some(id => ids.has(id)))) continue;
+      const scope = row.branch_ids?.length ? row.branch_ids.filter(id=>ids.has(id)).map(id=>liveData.branches.find(b=>b.id===id)?.name||"Authorized branch").join(", ") : "Company-wide";
+      notices.push({id:"calendar:"+row.id+":"+date,title:row.title||"Calendar reminder",body:[date,scope,calendarScheduleLabel(row),row.notes||""].filter(Boolean).join("\n")});
+    }
+    if (["manager","district_manager","admin"].includes(currentProfile.role) && ui.period==="month" && ui.month
+        && !ui.rankBrand && !ui.rankCategory && !ui.rankSub) {
+      const ranked=psRankingRows(ids).filter(row=>row.target>0&&Number.isFinite(row.achievement)).sort((a,b)=>b.achievement-a.achievement||b.total-a.total||natural(a.name,b.name)).slice(0,10);
+      if(ranked.length){
+        const text=ranked.map((row,index)=>"#"+(index+1)+" "+row.name+" · "+row.branch+" · "+row.achievement.toFixed(1)+"% of target").join("\n");
+        let hash=2166136261;for(const char of text){hash=Math.imul(hash^char.charCodeAt(0),16777619);}
+        notices.push({id:"ps:"+ui.month+":"+String(hash>>>0),title:"PS standings vs target · "+periodLabel(),body:text});
+      }
+    }
+    updater.setAnnouncements("sales:"+currentProfile.id,notices);
+  }
+  window.addEventListener("branchline-release-updates-ready",syncFloatingAnnouncements);
+
   function renderConnected() {
     if (!currentProfile || !liveData) return;
     parkAccountControls();
@@ -2084,6 +2113,7 @@
     else renderOverview();
     renderDemoControls();
     renderTransferAlerts();
+    syncFloatingAnnouncements();
     if (!demoStore && currentSession?.user?.id === currentProfile.id && pages.includes(activePage)) {
       try {
         localStorage.setItem("branchline-recent-sales:" + currentProfile.id,

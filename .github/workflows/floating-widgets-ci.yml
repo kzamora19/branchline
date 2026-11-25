@@ -1,0 +1,39 @@
+name: Floating widget development checks
+on:
+  pull_request:
+    paths:
+      - 'widgets/**'
+      - 'updates/**'
+      - 'tests/floating-widgets-browser.mjs'
+      - '.github/workflows/floating-widgets-ci.yml'
+  push:
+    branches:
+      - feature/floating-widgets
+permissions:
+  contents: read
+jobs:
+  floating-widgets:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax and regression checks
+        run: |
+          node --check widgets/floating-widgets.js
+          node --check updates/check.js
+          node --check widgets/guide-content.js
+          node --check widgets/help-panel.js
+          node --check widgets/widget-shell.js
+          node --check widgets/widget-bootstrap.js
+          node --test widgets/floating-widgets.test.cjs widgets/guide-content.test.cjs tests/web-release.test.cjs
+      - name: Install browser dependencies
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install chromium --only-shell
+      - name: Existing release behavior and floating bell migration
+        run: |
+          node tests/web-release-browser.mjs
+          node tests/floating-widgets-browser.mjs
+          node tests/widget-shell-browser.mjs

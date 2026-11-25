@@ -14,7 +14,14 @@
     if(path==="/branchline/"||path==="/branchline/index.html")return "/branchline/";
     return null;
   }
-  if(typeof module==="object"&&module.exports){module.exports={inspect,restartPath};return;}
+  // The existing release button remains the only control and polling owner.
+  function floatingArtwork(value,base){
+    if(typeof value!=="string"||!value.trim())throw new TypeError("Floating bell artwork required");
+    const url=new URL(value,base);
+    if(url.origin!==new URL(base).origin||!(/^\/(?:branchline|first-megasaver-ptg|megaframe-studio\/studio|flyer-studio\/studio)\/widgets\/assets\//.test(url.pathname))||!(/\.(png|webp|svg)$/i.test(url.pathname)))throw new TypeError("Invalid floating bell artwork");
+    return url.href;
+  }
+  if(typeof module==="object"&&module.exports){module.exports={inspect,restartPath,floatingArtwork};return;}
   const doc=root.document, script=doc.currentScript;
   if(root.location.origin!=="https://kzamora19.github.io"||!script)return;
   const running=Number(script.dataset.sequence);
@@ -42,19 +49,86 @@
     about.textContent="This module: "+version;
     const note=doc.createElement("small");note.textContent="Web module only — native launcher and other installed modules are checked separately.";
     panel.append(suite,about,note,status,check,restart,dismiss);box.append(bell,panel);doc.body.append(box);
+    // Application-scoped announcements are supplied only by authenticated app code.
+    // No cross-project tokens, audit data, localStorage or remote HTML is used.
+    const noticeSection=doc.createElement("section");noticeSection.className="bl-app-announcements";noticeSection.hidden=true;
+    const noticeHeading=doc.createElement("strong");noticeHeading.textContent="Announcements";
+    const noticeList=doc.createElement("div");noticeList.className="bl-announcement-list";
+    const markRead=doc.createElement("button");markRead.type="button";markRead.textContent="Mark announcements read";
+    noticeSection.append(noticeHeading,noticeList,markRead);panel.append(noticeSection);
+    let noticeScope=null,notices=[],seen=new Set();
+    function badgeCount(){
+      const count=notices.filter(item=>!seen.has(item.id)).length+(bell.classList.contains("has-update")?1:0);
+      const label=count>99?"99+":String(count);
+      bell.dataset.unreadCount=count?label:"";
+      bell.setAttribute("aria-description",count?label+" unread notifications":"No unread notifications");
+      if(count>0&&!bell.classList.contains("has-notices"))bell.classList.add("has-notices");
+      if(!count&&bell.classList.contains("has-notices"))bell.classList.remove("has-notices");
+    }
+    function drawNotices(){
+      noticeList.replaceChildren();noticeSection.hidden=notices.length===0;
+      for(const item of notices){
+        const card=doc.createElement("article");const heading=doc.createElement("strong"),body=doc.createElement("p");
+        heading.textContent=item.title;body.textContent=item.body;card.append(heading,body);noticeList.append(card);
+      }
+      markRead.disabled=!notices.some(item=>!seen.has(item.id));badgeCount();
+    }
+    function setAnnouncements(scope,items){
+      if(typeof scope!=="string"||!scope||!Array.isArray(items)){noticeScope=null;notices=[];seen.clear();drawNotices();return;}
+      if(scope!==noticeScope){noticeScope=scope;seen.clear();}
+      const unique=new Map();
+      for(const row of items.slice(0,40)){
+        if(!row||typeof row.id!=="string"||!row.id||typeof row.title!=="string"||!row.title||typeof row.body!=="string")continue;
+        const id=row.id.slice(0,240);unique.set(id,{id,title:row.title.slice(0,180),body:row.body.slice(0,3500)});
+      }
+      notices=[...unique.values()];seen=new Set([...seen].filter(id=>unique.has(id)));drawNotices();
+    }
+    markRead.addEventListener("click",()=>{for(const item of notices)seen.add(item.id);drawNotices();});
+    const badgeObserver=new MutationObserver(badgeCount);badgeObserver.observe(bell,{attributes:true,attributeFilter:["class"]});badgeCount();
     function togglePanel(open){panel.hidden=!open;bell.setAttribute("aria-expanded",String(open));}
     bell.addEventListener("click",()=>togglePanel(panel.hidden));
     function outside(e){if(!box.contains(e.target))togglePanel(false);}
     function escape(e){if(e.key==="Escape"&&!panel.hidden){togglePanel(false);bell.focus();}}
     doc.addEventListener("click",outside);doc.addEventListener("keydown",escape);
+    let floatingHost=null,floatingImage=null;
+    function restoreArtwork(){
+      if(floatingImage?.parentNode===bell)floatingImage.replaceWith(glyph);
+      box.classList.remove("bl-release-floating");
+    }
     function mountBell(){
-      if(doc.documentElement.classList.contains("bl-parent-bell")){if(box.parentElement!==doc.body)doc.body.append(box);box.classList.remove("bl-bell-fallback");return;}
+      if(doc.documentElement.classList.contains("bl-parent-bell")){
+        restoreArtwork();
+        if(box.parentElement!==doc.body)doc.body.append(box);
+        box.classList.remove("bl-bell-fallback");return;
+      }
+      if(floatingHost?.isConnected&&!box.contains(floatingHost)){
+        if(box.parentElement!==floatingHost)floatingHost.append(box);
+        if(glyph.parentNode===bell&&floatingImage)glyph.replaceWith(floatingImage);
+        box.classList.add("bl-release-floating");box.classList.remove("bl-bell-fallback");return;
+      }
+      restoreArtwork();
       const selectors=["#connected-shell.bl-web-r6:not([hidden]) > .bl-app-rail","#demo-app.bl-web-r6:not([hidden]) > .bl-app-rail","body.bl-web-r6.bl-launcher-rail > .bl-app-rail","#connected-shell:not([hidden]) .connected-topbar","#demo-app:not([hidden]) .topbar","body.bl-launcher-rail header .brand"];
       const header=selectors.map(s=>doc.querySelector(s)).find(e=>e&&e.getClientRects().length);
       if(header){if(box.parentElement!==header){const account=header.querySelector(".bl-r6-account");if(account)header.insertBefore(box,account);else header.append(box);}box.classList.remove("bl-bell-fallback");}
       else{if(box.parentElement!==doc.body)doc.body.append(box);box.classList.add("bl-bell-fallback");}
     }
+    // Opt-in API: move the original box, not a second notification button.
+    // The native parent-hosted bell retains priority until its bridge is audited.
+    root.BranchlineReleaseUpdates=Object.freeze({
+      attachFloating(host,artwork){
+        if(!host||host.ownerDocument!==doc||!host.isConnected||box.contains(host)||host.contains(box)||doc.documentElement.classList.contains("bl-parent-bell"))return false;
+        const img=doc.createElement("img");img.src=floatingArtwork(artwork,doc.baseURI);img.alt="";img.draggable=false;
+        togglePanel(false);
+        restoreArtwork();floatingHost=host;floatingImage=img;mountBell();return true;
+      },
+      detachFloating(){togglePanel(false);floatingHost=null;restoreArtwork();floatingImage=null;mountBell();},
+      close(){togglePanel(false);},
+      setAnnouncements,
+      clearAnnouncements(){setAnnouncements(null,[]);},
+      isFloating(){return box.classList.contains("bl-release-floating");}
+    });
     mountBell();
+    root.dispatchEvent(new Event("branchline-release-updates-ready"));
     const observer=new MutationObserver(()=>mountBell());observer.observe(doc.body,{subtree:true,childList:true,attributes:true,attributeFilter:["hidden"]});observer.observe(doc.documentElement,{attributes:true,attributeFilter:["class"]});
     async function publishedWorkspace(){
       try{
