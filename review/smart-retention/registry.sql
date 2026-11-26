@@ -167,4 +167,23 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.branchline_retention_configure(uuid,integer,boolean),public.branchline_retention_hold(uuid,uuid,boolean),public.branchline_retention_dependency(uuid,text,boolean),public.branchline_retention_candidates(uuid),public.branchline_retention_claim(uuid,uuid),public.branchline_retention_revalidate(uuid),public.branchline_retention_finish(uuid,text),public.branchline_retention_notices(uuid) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.branchline_retention_configure(uuid,integer,boolean),public.branchline_retention_hold(uuid,uuid,boolean),public.branchline_retention_dependency(uuid,text,boolean),public.branchline_retention_candidates(uuid),public.branchline_retention_claim(uuid,uuid),public.branchline_retention_revalidate(uuid),public.branchline_retention_finish(uuid,text),public.branchline_retention_notices(uuid) TO service_role;
+
+-- Consume signed mutation nonces once per target project. Browser roles cannot call this.
+CREATE TABLE private.branchline_retention_request_nonces(
+ request_id uuid PRIMARY KEY,accepted_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE private.branchline_retention_request_nonces ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.branchline_retention_request_nonces FROM PUBLIC,anon,authenticated;
+GRANT SELECT,INSERT,DELETE ON private.branchline_retention_request_nonces TO service_role;
+CREATE FUNCTION public.branchline_retention_consume_request(p_request_id uuid)
+RETURNS boolean LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $
+BEGIN
+ IF p_request_id IS NULL THEN RAISE EXCEPTION 'Missing request ID'; END IF;
+ DELETE FROM private.branchline_retention_request_nonces WHERE accepted_at<now()-interval '10 minutes';
+ INSERT INTO private.branchline_retention_request_nonces(request_id) VALUES(p_request_id) ON CONFLICT DO NOTHING;
+ RETURN FOUND;
+END $;
+REVOKE ALL ON FUNCTION public.branchline_retention_consume_request(uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.branchline_retention_consume_request(uuid) TO service_role;
+
 COMMIT;

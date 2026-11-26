@@ -36,3 +36,4 @@ jobs:
         with:
           deno-version: v2.x
       - run: deno check supabase/functions/branchline-retention/index.ts
+      - run: deno test review/smart-retention/gateway-tests.ts

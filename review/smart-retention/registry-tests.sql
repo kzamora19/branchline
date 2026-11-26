@@ -39,3 +39,9 @@ BEGIN
  IF (v->>'eligible')::int<>0 OR (v->>'reclaimedBytes')::int<>100 OR (v->>'total')::int<>3 THEN RAISE EXCEPTION 'Incorrect storage overview';END IF;
  RAISE NOTICE 'PASS remote registry claims, dependencies, protected assets and service grants';
 END $$;
+
+DO $$DECLARE n uuid:='00000000-0000-0000-0000-000000000202';BEGIN
+ IF NOT public.branchline_retention_consume_request(n) OR public.branchline_retention_consume_request(n) THEN RAISE EXCEPTION 'Replay protection failed';END IF;
+ IF has_function_privilege('authenticated','public.branchline_retention_consume_request(uuid)','EXECUTE') OR has_function_privilege('anon','public.branchline_retention_consume_request(uuid)','EXECUTE') THEN RAISE EXCEPTION 'Nonce RPC exposed';END IF;
+ RAISE NOTICE 'PASS signed mutation nonce replay protection';
+END $$;
