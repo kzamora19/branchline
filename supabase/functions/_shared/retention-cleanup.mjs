@@ -2,7 +2,7 @@
 const BUCKET="branchline-retained-imports";
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const hash=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),n=>n.toString(16).padStart(2,"0")).join("");
-// Explicit nullable types for server-side callers.
+// Explicit nullable types for Deno inference. Only backend clients call this adapter.
 /** @param {{admin: any,actorId:string|null,dryRun?:boolean,fileId?:string|null}} options */
 export async function runCleanup({admin,actorId,dryRun=true,fileId=null}){
  if(actorId!==null&&(typeof actorId!=="string"||!uuid.test(actorId)))throw Error("Invalid actor");

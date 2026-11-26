@@ -15,4 +15,5 @@ for(const options of [{badPath:true},{badHash:true},{hold:true},{claimDenied:tru
  test("fail closed "+JSON.stringify(options),async()=>{const f=fake(options);const r=await run(f);assert.equal(r.deleted,0);if(options.badPath||options.badHash||options.hold||options.claimDenied)assert.ok(!f.calls.some(c=>c[0]==="remove"));if(!options.claimDenied)assert.notEqual(f.calls.at(-1)[1].p_outcome,"deleted");});
 }
 
+
 test("successful API absence still requires database finalization",async()=>{const f=fake({finalizeFails:true});const r=await run(f);assert.equal(r.deleted,0);assert.equal(r.review,1);assert.equal(f.calls.at(-1)[1].p_outcome,"review");});
