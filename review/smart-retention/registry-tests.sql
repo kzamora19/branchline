@@ -37,7 +37,8 @@ BEGIN
  IF (SELECT count(*) FROM storage.objects WHERE bucket_id='protected-system-assets')<>1 THEN RAISE EXCEPTION 'Protected asset touched';END IF;
  v:=public.branchline_storage_review(a);
  IF (v->>'eligible')::int<>0 OR (v->>'reclaimedBytes')::int<>100 OR (v->>'total')::int<>3 THEN RAISE EXCEPTION 'Incorrect storage overview';END IF;
- RAISE NOTICE 'PASS remote registry claims, dependencies, protected assets and service grants';
+ IF (v->>'auditCount')::int<5 OR NOT EXISTS(SELECT 1 FROM jsonb_array_elements(v->'auditEvents') e WHERE e->>'action'='deleted' AND e->>'actor_id'=a::text AND (e->'details'->>'verifiedBytes')::int=100) THEN RAISE EXCEPTION 'Audit attribution missing';END IF;
+ RAISE NOTICE 'PASS remote registry claims, dependencies, protected assets, audit attribution and service grants';
 END $$;
 
 DO $$DECLARE n uuid:='00000000-0000-0000-0000-000000000202';BEGIN

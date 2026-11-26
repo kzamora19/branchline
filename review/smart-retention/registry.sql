@@ -31,7 +31,7 @@ CREATE TABLE private.branchline_retained_sources(
  dependencies_verified boolean NOT NULL DEFAULT false,
  hold boolean NOT NULL DEFAULT false,
  state text NOT NULL DEFAULT 'registered' CHECK(state IN('registered','claimed','review','deleted')),
- claim_token uuid UNIQUE,claimed_at timestamptz,deleted_at timestamptz,removed_bytes bigint,
+ claim_token uuid UNIQUE,claim_actor_id uuid,claimed_at timestamptz,deleted_at timestamptz,removed_bytes bigint,
  CHECK(object_path LIKE 'originals/'||sha256||'/'||id::text||'.%'),
  CHECK((state='claimed')=(claim_token IS NOT NULL)),
  CHECK((state='deleted')=(deleted_at IS NOT NULL))
@@ -119,7 +119,7 @@ BEGIN
  PERFORM pg_advisory_xact_lock(913413,1);
  IF NOT EXISTS(SELECT 1 FROM private.branchline_retention_policy WHERE singleton AND enabled AND release_authorized) THEN RETURN NULL;END IF;
  IF NOT EXISTS(SELECT 1 FROM private.branchline_retention_decisions(now()) WHERE file_id=p_id AND reason='eligible') THEN RETURN NULL;END IF;
- UPDATE private.branchline_retained_sources SET state='claimed',claim_token=gen_random_uuid(),claimed_at=now() WHERE id=p_id AND state='registered' RETURNING * INTO f;
+ UPDATE private.branchline_retained_sources SET state='claimed',claim_token=gen_random_uuid(),claim_actor_id=p_actor_id,claimed_at=now() WHERE id=p_id AND state='registered' RETURNING * INTO f;
  IF NOT FOUND THEN RETURN NULL;END IF;
  INSERT INTO private.branchline_retention_events(file_id,actor_id,action) VALUES(p_id,p_actor_id,'claimed');
  RETURN jsonb_build_object('id',f.id,'token',f.claim_token,'path',f.object_path,'sha256',f.sha256,'bytes',f.byte_size);
@@ -142,9 +142,9 @@ BEGIN
  IF p_outcome='deleted' AND v_present THEN RAISE EXCEPTION 'Object absence not confirmed';END IF;
  IF p_outcome='cancelled' AND NOT v_present THEN p_outcome:='review';END IF;
  UPDATE private.branchline_retained_sources SET state=CASE p_outcome WHEN 'deleted' THEN 'deleted' WHEN 'cancelled' THEN 'registered' ELSE 'review' END,
- claim_token=NULL,deleted_at=CASE WHEN p_outcome='deleted' THEN now() ELSE NULL END,removed_bytes=CASE WHEN p_outcome='deleted' THEN f.byte_size ELSE NULL END,
+ claim_token=NULL,claim_actor_id=NULL,deleted_at=CASE WHEN p_outcome='deleted' THEN now() ELSE NULL END,removed_bytes=CASE WHEN p_outcome='deleted' THEN f.byte_size ELSE NULL END,
  hold=CASE WHEN p_outcome='review' THEN true ELSE hold END WHERE id=f.id;
- INSERT INTO private.branchline_retention_events(file_id,action,details) VALUES(f.id,p_outcome,jsonb_build_object('verifiedBytes',CASE WHEN p_outcome='deleted' THEN f.byte_size ELSE 0 END));
+ INSERT INTO private.branchline_retention_events(file_id,actor_id,action,details) VALUES(f.id,f.claim_actor_id,p_outcome,jsonb_build_object('verifiedBytes',CASE WHEN p_outcome='deleted' THEN f.byte_size ELSE 0 END));
 END $$;
 
 CREATE FUNCTION public.branchline_retention_notices(p_actor_id uuid)
