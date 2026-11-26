@@ -176,13 +176,13 @@ ALTER TABLE private.branchline_retention_request_nonces ENABLE ROW LEVEL SECURIT
 REVOKE ALL ON private.branchline_retention_request_nonces FROM PUBLIC,anon,authenticated;
 GRANT SELECT,INSERT,DELETE ON private.branchline_retention_request_nonces TO service_role;
 CREATE FUNCTION public.branchline_retention_consume_request(p_request_id uuid)
-RETURNS boolean LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $
+RETURNS boolean LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $$
 BEGIN
  IF p_request_id IS NULL THEN RAISE EXCEPTION 'Missing request ID'; END IF;
  DELETE FROM private.branchline_retention_request_nonces WHERE accepted_at<now()-interval '10 minutes';
  INSERT INTO private.branchline_retention_request_nonces(request_id) VALUES(p_request_id) ON CONFLICT DO NOTHING;
  RETURN FOUND;
-END $;
+END $$;
 REVOKE ALL ON FUNCTION public.branchline_retention_consume_request(uuid) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.branchline_retention_consume_request(uuid) TO service_role;
 
