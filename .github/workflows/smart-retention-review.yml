@@ -1,0 +1,38 @@
+name: Smart retention remote review only
+on:
+  push:
+    branches: [feature/smart-retention-review-20261126]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/feature/smart-retention-review-20261126'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: synthetic-fixture-only
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          for file in fixture.sql registry.sql storage-review.sql registry-tests.sql; do
+            docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -v ON_ERROR_STOP=1 -d postgres < "review/smart-retention/$file"
+          done
+      - run: node --test review/smart-retention/cleanup-tests.mjs review/smart-retention/envelope-tests.mjs
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno check supabase/functions/branchline-retention/index.ts
